@@ -82,7 +82,7 @@ struct FakeRecorder {
     running: bool,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Recorder for FakeRecorder {
     async fn start(&mut self) -> Result<()> {
         self.running = true;

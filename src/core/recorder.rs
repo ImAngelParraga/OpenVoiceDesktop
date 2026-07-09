@@ -22,8 +22,8 @@ impl RecordedAudio {
     }
 }
 
-#[async_trait]
-pub trait Recorder: Send {
+#[async_trait(?Send)]
+pub trait Recorder {
     async fn start(&mut self) -> Result<()>;
     async fn stop(&mut self) -> Result<RecordedAudio>;
 }
@@ -51,7 +51,7 @@ impl Default for CpalRecorder {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Recorder for CpalRecorder {
     async fn start(&mut self) -> Result<()> {
         if self.capture.is_some() {

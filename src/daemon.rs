@@ -62,6 +62,7 @@ pub async fn run(_config: Config) -> Result<()> {
 #[cfg(target_os = "windows")]
 pub async fn run(config: Config) -> Result<()> {
     use anyhow::Context;
+    use std::sync::mpsc as std_mpsc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
     use tokio::sync::{mpsc, oneshot};
@@ -74,21 +75,34 @@ pub async fn run(config: Config) -> Result<()> {
         handle_tray_command, run_tray_loop, TrayCommand, WindowsPlatformAdapter,
     };
 
-    let (toggle_tx, mut toggle_rx) = mpsc::channel::<oneshot::Sender<String>>(8);
+    let (toggle_tx, toggle_rx) = std_mpsc::channel::<oneshot::Sender<String>>();
     let controller_config = config.clone();
-    tokio::spawn(async move {
-        let recorder = CpalRecorder::new();
-        let asr = ReqwestAsrClient::new(controller_config.clone());
-        let platform = WindowsPlatformAdapter;
-        let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                eprintln!("openvoice-desktop controller runtime error: {error}");
+                return;
+            }
+        };
 
-        while let Some(reply_tx) = toggle_rx.recv().await {
-            let response = match controller.toggle().await {
-                Ok(outcome) => format!("{outcome:?}\n"),
-                Err(error) => format!("error: {error}\n"),
-            };
-            let _ = reply_tx.send(response);
-        }
+        runtime.block_on(async move {
+            let recorder = CpalRecorder::new();
+            let asr = ReqwestAsrClient::new(controller_config.clone());
+            let platform = WindowsPlatformAdapter;
+            let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
+
+            while let Ok(reply_tx) = toggle_rx.recv() {
+                let response = match controller.toggle().await {
+                    Ok(outcome) => format!("{outcome:?}\n"),
+                    Err(error) => format!("error: {error}\n"),
+                };
+                let _ = reply_tx.send(response);
+            }
+        });
     });
 
     let pipe_toggle_tx = toggle_tx.clone();
@@ -145,10 +159,10 @@ pub async fn run(config: Config) -> Result<()> {
 
 #[cfg(target_os = "windows")]
 async fn request_toggle(
-    tx: &tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<String>>,
+    tx: &std::sync::mpsc::Sender<tokio::sync::oneshot::Sender<String>>,
 ) -> String {
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    if tx.send(reply_tx).await.is_err() {
+    if tx.send(reply_tx).is_err() {
         return "error: daemon controller is not running\n".to_string();
     }
     reply_rx

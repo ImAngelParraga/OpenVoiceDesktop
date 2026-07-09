@@ -45,7 +45,7 @@ pub struct IpcConfig {
     pub socket_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LoadedConfig {
     pub config: Config,
     pub path: PathBuf,
