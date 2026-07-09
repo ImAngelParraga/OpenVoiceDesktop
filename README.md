@@ -26,7 +26,55 @@ Use it when:
 
 WAV is the default because short desktop dictation clips are usually under 10 seconds. The payload is about 32 KB/sec, so a 10 second phrase is roughly 320 KB plus the WAV header. Opus can be added later if benchmarks show it improves end-to-end latency for long clips or slow networks.
 
-## Build
+## Easy Install
+
+On your Linux laptop:
+
+```bash
+git clone https://github.com/ImAngelParraga/OpenVoiceDesktop.git
+cd OpenVoiceDesktop
+./scripts/install.sh --install-deps --install-rust --start
+```
+
+That command installs required Linux packages, installs Rust with rustup if needed, builds the release binary, installs it to `~/.local/bin/openvoice-desktop`, creates `~/.config/openvoice-desktop/config.toml`, installs the user systemd service, and starts the daemon.
+
+Then edit the config:
+
+```bash
+nano ~/.config/openvoice-desktop/config.toml
+```
+
+Set your ASR endpoint:
+
+```toml
+[asr]
+base_url = "http://127.0.0.1:9000"
+model = "whisper-1"
+language = "en"
+```
+
+Store your token in Secret Service:
+
+```bash
+secret-tool store --label="OpenVoiceDesktop ASR token" service openvoice-desktop account asr-token
+systemctl --user restart openvoice-desktop.service
+```
+
+Finally, create a GNOME custom keyboard shortcut:
+
+- Name: `OpenVoiceDesktop Toggle`
+- Command: `/home/YOUR_USER/.local/bin/openvoice-desktop toggle`
+- Shortcut: `Ctrl+Space`
+
+Replace `YOUR_USER` with your Linux username, or run `which openvoice-desktop` and use that path.
+
+Check daemon logs:
+
+```bash
+journalctl --user -u openvoice-desktop.service -f
+```
+
+## Build Manually
 
 ```bash
 cargo test
