@@ -1,8 +1,21 @@
 # OpenVoiceDesktop
 
-Resident Linux desktop dictation client for an OpenAI-compatible ASR endpoint.
+Resident Linux desktop dictation client for your own OpenAI-compatible ASR endpoint.
+
+OpenVoiceDesktop is for users who already run a self-hosted or custom speech-to-text service and want a lightweight desktop dictation client for it. Unlike many dictation apps that only support local models or a fixed list of cloud providers, OpenVoiceDesktop lets you set the ASR `base_url`, `model`, and bearer token directly.
 
 V1 targets GNOME Wayland. The project is structured as shared Rust core plus platform adapters so Windows support can be added without rewriting recording, config, ASR, or state-machine code.
+
+## Why This Exists
+
+Linux has several Whisper-based dictation tools, but most are local-inference first or tied to known providers. OpenVoiceDesktop is intentionally client-only: it records audio, sends it to your configured `{base_url}/v1/audio/transcriptions` endpoint, and inserts the returned transcript into the focused app.
+
+Use it when:
+
+- You run your own ASR server, proxy, or private OpenAI-compatible transcription endpoint.
+- You need custom `base_url` support instead of only OpenAI/Groq/other built-in providers.
+- You want a small resident daemon with a fast toggle command for GNOME shortcuts.
+- You want tokens kept out of logs and preferably stored through Secret Service.
 
 ## Flow
 
@@ -34,6 +47,8 @@ Example:
 
 ```toml
 [asr]
+# Any OpenAI-compatible transcription endpoint root.
+# Requests are sent to {base_url}/v1/audio/transcriptions.
 base_url = "http://127.0.0.1:9000"
 model = "whisper-1"
 language = "en"
