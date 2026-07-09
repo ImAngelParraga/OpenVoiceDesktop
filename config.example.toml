@@ -1,0 +1,15 @@
+[asr]
+base_url = "http://127.0.0.1:9000"
+model = "whisper-1"
+# language = "en"
+# prompt = "Optional vocabulary or formatting hint"
+# Prefer OPENVOICE_DESKTOP_TOKEN or Secret Service instead of plaintext.
+# bearer_token = "replace-with-dev-token-only"
+
+[audio]
+sample_rate_hz = 16000
+channels = 1
+
+[behavior]
+restore_clipboard = true
+clipboard_restore_delay_ms = 250

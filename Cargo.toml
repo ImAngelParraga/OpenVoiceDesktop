@@ -1,0 +1,27 @@
+[package]
+name = "openvoice-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Resident desktop dictation client for OpenVoice-compatible ASR services"
+license = "MIT"
+
+[[bin]]
+name = "openvoice-desktop"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+cpal = "0.15"
+dirs = "5.0"
+hound = "3.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.10"
+tokio = { version = "1.38", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "time"] }
+toml = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["macros", "rt-multi-thread"] }
