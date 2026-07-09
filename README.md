@@ -28,14 +28,17 @@ WAV is the default because short desktop dictation clips are usually under 10 se
 
 ## Windows Easy Install
 
-Run PowerShell:
+Because this repository is currently private, install through the authenticated GitHub CLI:
 
 ```powershell
-iwr https://raw.githubusercontent.com/ImAngelParraga/OpenVoiceDesktop/main/scripts/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Start
+winget install --id GitHub.cli -e
+gh auth login
+gh repo clone ImAngelParraga/OpenVoiceDesktop
+cd OpenVoiceDesktop
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start
 ```
 
-That downloads the latest prebuilt release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml`, adds a per-user Startup shortcut, and starts the tray app.
+That downloads the latest release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml`, adds a per-user Startup shortcut, and starts the tray app. If no release is available, the installer can build from source when run from a checkout with `-BuildFromSource`.
 
 Edit the config:
 

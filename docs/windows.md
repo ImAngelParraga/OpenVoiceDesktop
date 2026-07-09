@@ -4,14 +4,17 @@ OpenVoiceDesktop on Windows runs as a resident tray app. It registers `Ctrl+Spac
 
 ## Install
 
-Run PowerShell:
+Because this repository is currently private, install through the authenticated GitHub CLI:
 
 ```powershell
-iwr https://raw.githubusercontent.com/ImAngelParraga/OpenVoiceDesktop/main/scripts/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Start
+winget install --id GitHub.cli -e
+gh auth login
+gh repo clone ImAngelParraga/OpenVoiceDesktop
+cd OpenVoiceDesktop
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start
 ```
 
-The installer downloads the latest prebuilt release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml` if missing, and adds a per-user Startup folder shortcut.
+The installer downloads the latest release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml` if missing, and adds a per-user Startup folder shortcut. If no release is available, the installer can build from source when run from a checkout with `-BuildFromSource`.
 
 V1 binaries are unsigned. Windows SmartScreen may show a warning until the project has a code-signing certificate.
 
