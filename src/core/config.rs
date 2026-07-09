@@ -106,10 +106,26 @@ impl Config {
     }
 
     pub fn default_socket_path() -> Result<PathBuf> {
-        let base = dirs::runtime_dir()
-            .or_else(dirs::cache_dir)
-            .ok_or_else(|| anyhow!("could not locate runtime or cache directory"))?;
-        Ok(base.join("openvoice-desktop").join("daemon.sock"))
+        #[cfg(target_os = "linux")]
+        {
+            let base = dirs::runtime_dir()
+                .or_else(dirs::cache_dir)
+                .ok_or_else(|| anyhow!("could not locate runtime or cache directory"))?;
+            Ok(base.join("openvoice-desktop").join(crate::ipc::LINUX_SOCKET_NAME))
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let base = dirs::data_local_dir()
+                .ok_or_else(|| anyhow!("could not locate local app data directory"))?;
+            Ok(base.join("OpenVoiceDesktop").join("openvoice-desktop.pipe"))
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let base = dirs::cache_dir().ok_or_else(|| anyhow!("could not locate cache directory"))?;
+            Ok(base.join("openvoice-desktop").join("daemon.sock"))
+        }
     }
 
     pub fn load_default() -> Result<LoadedConfig> {
@@ -153,11 +169,12 @@ pub fn resolve_bearer_token(config: &Config) -> Option<String> {
     std::env::var("OPENVOICE_DESKTOP_TOKEN")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(secret_service_token)
+        .or_else(platform_secret_token)
         .or_else(|| config.asr.bearer_token.clone())
 }
 
-fn secret_service_token() -> Option<String> {
+#[cfg(target_os = "linux")]
+fn platform_secret_token() -> Option<String> {
     let output = std::process::Command::new("secret-tool")
         .args(["lookup", "service", "openvoice-desktop", "account", "asr-token"])
         .output()
@@ -166,6 +183,63 @@ fn secret_service_token() -> Option<String> {
         return None;
     }
     let token = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn platform_secret_token() -> Option<String> {
+    windows_credential_token("openvoice-desktop/asr-token")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn platform_secret_token() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn windows_credential_token(target: &str) -> Option<String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Security::Credentials::{
+        CredentialFree, CredentialReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+    };
+
+    let target: Vec<u16> = OsStr::new(target).encode_wide().chain(Some(0)).collect();
+    let mut credential: *mut CREDENTIALW = null_mut();
+    let ok = unsafe { CredentialReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) };
+    if ok == 0 || credential.is_null() {
+        return None;
+    }
+
+    let result = unsafe {
+        let credential_ref = &*credential;
+        if credential_ref.CredentialBlob.is_null() || credential_ref.CredentialBlobSize == 0 {
+            CredentialFree(credential as *const std::ffi::c_void);
+            return None;
+        }
+        let bytes = std::slice::from_raw_parts(
+            credential_ref.CredentialBlob,
+            credential_ref.CredentialBlobSize as usize,
+        );
+        let token = if bytes.len() % 2 == 0 {
+            let words: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect();
+            String::from_utf16(&words).ok()
+        } else {
+            String::from_utf8(bytes.to_vec()).ok()
+        };
+        CredentialFree(credential as *const std::ffi::c_void);
+        token
+    }?;
+
+    let token = result.trim_end_matches('\0').trim().to_string();
     if token.is_empty() {
         None
     } else {

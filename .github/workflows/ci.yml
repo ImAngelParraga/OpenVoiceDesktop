@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: cargo test
+
+  windows-release:
+    name: Build Windows release artifact
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/openvoice-desktop.exe dist/openvoice-desktop.exe
+          Copy-Item README.md dist/README.md
+          Copy-Item config.example.toml dist/config.example.toml
+          Compress-Archive -Path dist/* -DestinationPath openvoice-desktop-windows-x86_64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvoice-desktop-windows-x86_64
+          path: openvoice-desktop-windows-x86_64.zip
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: openvoice-desktop-windows-x86_64.zip
