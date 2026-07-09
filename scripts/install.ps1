@@ -174,8 +174,9 @@ function New-StartupShortcut {
 
     $WshShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = Join-Path $InstallDir $ExeName
-    $Shortcut.Arguments = "daemon"
+    $ExePath = Join-Path $InstallDir $ExeName
+    $Shortcut.TargetPath = "powershell.exe"
+    $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -Command `"Start-Process -FilePath '$ExePath' -ArgumentList 'daemon' -WindowStyle Hidden`""
     $Shortcut.WorkingDirectory = $InstallDir
     $Shortcut.Description = "OpenVoiceDesktop tray app"
     $Shortcut.Save()
@@ -203,10 +204,8 @@ Write-Config
 New-StartupShortcut
 
 if ($Start) {
-    Start-Process -FilePath (Join-Path $InstallDir $ExeName) -ArgumentList "daemon"
+    Start-Process -FilePath (Join-Path $InstallDir $ExeName) -ArgumentList "daemon" -WindowStyle Hidden
 }
-
-Remove-Item -Path $TempDir -Recurse -Force
 
 Write-Host ""
 Write-Host "OpenVoiceDesktop installed."
