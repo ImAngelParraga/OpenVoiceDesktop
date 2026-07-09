@@ -218,12 +218,12 @@ fn windows_credential_token(target: &str) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
     use std::ptr::null_mut;
     use windows_sys::Win32::Security::Credentials::{
-        CredentialFree, CredentialReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+        CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
     };
 
     let target: Vec<u16> = OsStr::new(target).encode_wide().chain(Some(0)).collect();
     let mut credential: *mut CREDENTIALW = null_mut();
-    let ok = unsafe { CredentialReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) };
+    let ok = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) };
     if ok == 0 || credential.is_null() {
         return None;
     }
@@ -231,7 +231,7 @@ fn windows_credential_token(target: &str) -> Option<String> {
     let result = unsafe {
         let credential_ref = &*credential;
         if credential_ref.CredentialBlob.is_null() || credential_ref.CredentialBlobSize == 0 {
-            CredentialFree(credential as *const std::ffi::c_void);
+            CredFree(credential as *const std::ffi::c_void);
             return None;
         }
         let bytes = std::slice::from_raw_parts(
@@ -247,7 +247,7 @@ fn windows_credential_token(target: &str) -> Option<String> {
         } else {
             String::from_utf8(bytes.to_vec()).ok()
         };
-        CredentialFree(credential as *const std::ffi::c_void);
+        CredFree(credential as *const std::ffi::c_void);
         token
     }?;
 
