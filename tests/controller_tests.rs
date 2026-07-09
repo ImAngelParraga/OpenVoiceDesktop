@@ -48,13 +48,18 @@ async fn toggle_runs_record_transcribe_insert_and_restore_clipboard() {
 #[tokio::test]
 async fn empty_transcript_does_not_paste() {
     let recorder = FakeRecorder::default();
-    let asr = FakeAsr { text: "".to_string() };
+    let asr = FakeAsr {
+        text: "".to_string(),
+    };
     let platform = FakePlatform::new(None);
     let observations = platform.observations.clone();
     let mut controller = VoiceController::new(recorder, asr, platform, Config::default());
 
     assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
-    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::EmptyTranscript);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::EmptyTranscript
+    );
     assert!(observations.lock().unwrap().is_empty());
 }
 
@@ -130,7 +135,10 @@ impl FakePlatform {
 #[async_trait]
 impl PlatformAdapter for FakePlatform {
     async fn clipboard_text(&self) -> Result<Option<String>> {
-        self.observations.lock().unwrap().push("get_clipboard".to_string());
+        self.observations
+            .lock()
+            .unwrap()
+            .push("get_clipboard".to_string());
         Ok(self.clipboard.lock().unwrap().clone())
     }
 
@@ -144,7 +152,10 @@ impl PlatformAdapter for FakePlatform {
     }
 
     async fn trigger_paste(&self) -> Result<()> {
-        self.observations.lock().unwrap().push("trigger_paste".to_string());
+        self.observations
+            .lock()
+            .unwrap()
+            .push("trigger_paste".to_string());
         if self.fail_paste {
             anyhow::bail!("paste failed");
         }

@@ -83,7 +83,10 @@ impl AsrClient for ReqwestAsrClient {
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
-            return Err(anyhow!("ASR request failed with HTTP {status}: {}", sanitize_error_body(&body)));
+            return Err(anyhow!(
+                "ASR request failed with HTTP {status}: {}",
+                sanitize_error_body(&body)
+            ));
         }
 
         Ok(Transcription {
@@ -95,7 +98,10 @@ impl AsrClient for ReqwestAsrClient {
 
 pub fn request_fields(config: &Config) -> AsrRequestFields {
     AsrRequestFields {
-        url: format!("{}/v1/audio/transcriptions", config.asr.base_url.trim_end_matches('/')),
+        url: format!(
+            "{}/v1/audio/transcriptions",
+            config.asr.base_url.trim_end_matches('/')
+        ),
         model: config.asr.model.clone(),
         language: config.asr.language.clone(),
         prompt: config.asr.prompt.clone(),

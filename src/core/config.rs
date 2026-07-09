@@ -101,7 +101,8 @@ impl Default for IpcConfig {
 
 impl Config {
     pub fn default_path() -> Result<PathBuf> {
-        let dir = dirs::config_dir().ok_or_else(|| anyhow!("could not locate user config directory"))?;
+        let dir =
+            dirs::config_dir().ok_or_else(|| anyhow!("could not locate user config directory"))?;
         Ok(dir.join("openvoice-desktop").join("config.toml"))
     }
 
@@ -111,7 +112,9 @@ impl Config {
             let base = dirs::runtime_dir()
                 .or_else(dirs::cache_dir)
                 .ok_or_else(|| anyhow!("could not locate runtime or cache directory"))?;
-            Ok(base.join("openvoice-desktop").join(crate::ipc::LINUX_SOCKET_NAME))
+            Ok(base
+                .join("openvoice-desktop")
+                .join(crate::ipc::LINUX_SOCKET_NAME))
         }
 
         #[cfg(target_os = "windows")]
@@ -123,7 +126,8 @@ impl Config {
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
-            let base = dirs::cache_dir().ok_or_else(|| anyhow!("could not locate cache directory"))?;
+            let base =
+                dirs::cache_dir().ok_or_else(|| anyhow!("could not locate cache directory"))?;
             Ok(base.join("openvoice-desktop").join("daemon.sock"))
         }
     }
@@ -141,8 +145,10 @@ impl Config {
             });
         }
 
-        let contents = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let config: Config = toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
+        let contents =
+            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let config: Config =
+            toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
         let mut warnings = Vec::new();
 
         if config.asr.bearer_token.is_some() {
@@ -176,7 +182,13 @@ pub fn resolve_bearer_token(config: &Config) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn platform_secret_token() -> Option<String> {
     let output = std::process::Command::new("secret-tool")
-        .args(["lookup", "service", "openvoice-desktop", "account", "asr-token"])
+        .args([
+            "lookup",
+            "service",
+            "openvoice-desktop",
+            "account",
+            "asr-token",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {

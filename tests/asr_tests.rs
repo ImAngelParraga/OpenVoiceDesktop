@@ -10,7 +10,10 @@ fn builds_openai_compatible_request_fields() {
     config.asr.prompt = Some("project vocabulary".to_string());
 
     let fields = request_fields(&config);
-    assert_eq!(fields.url, "https://asr.example.test/v1/audio/transcriptions");
+    assert_eq!(
+        fields.url,
+        "https://asr.example.test/v1/audio/transcriptions"
+    );
     assert_eq!(fields.model, "large-v3");
     assert_eq!(fields.language.as_deref(), Some("en"));
     assert_eq!(fields.prompt.as_deref(), Some("project vocabulary"));

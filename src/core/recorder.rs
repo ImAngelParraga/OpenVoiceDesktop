@@ -59,8 +59,12 @@ impl Recorder for CpalRecorder {
         }
 
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or_else(|| anyhow!("no default input device"))?;
-        let supported = device.default_input_config().context("reading default input config")?;
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| anyhow!("no default input device"))?;
+        let supported = device
+            .default_input_config()
+            .context("reading default input config")?;
         let source_rate_hz = supported.sample_rate().0;
         let source_channels = supported.channels();
         let config: cpal::StreamConfig = supported.clone().into();
@@ -81,7 +85,9 @@ impl Recorder for CpalRecorder {
                 let samples = Arc::clone(&samples);
                 device.build_input_stream(
                     &config,
-                    move |data: &[i16], _| push_f32(&samples, data.iter().map(|s| *s as f32 / i16::MAX as f32)),
+                    move |data: &[i16], _| {
+                        push_f32(&samples, data.iter().map(|s| *s as f32 / i16::MAX as f32))
+                    },
                     err_fn,
                     None,
                 )?
@@ -90,7 +96,13 @@ impl Recorder for CpalRecorder {
                 let samples = Arc::clone(&samples);
                 device.build_input_stream(
                     &config,
-                    move |data: &[u16], _| push_f32(&samples, data.iter().map(|s| (*s as f32 / u16::MAX as f32) * 2.0 - 1.0)),
+                    move |data: &[u16], _| {
+                        push_f32(
+                            &samples,
+                            data.iter()
+                                .map(|s| (*s as f32 / u16::MAX as f32) * 2.0 - 1.0),
+                        )
+                    },
                     err_fn,
                     None,
                 )?
@@ -109,7 +121,10 @@ impl Recorder for CpalRecorder {
     }
 
     async fn stop(&mut self) -> Result<RecordedAudio> {
-        let capture = self.capture.take().ok_or_else(|| anyhow!("recorder is not running"))?;
+        let capture = self
+            .capture
+            .take()
+            .ok_or_else(|| anyhow!("recorder is not running"))?;
         drop(capture.stream);
         let samples = capture
             .samples

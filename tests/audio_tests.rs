@@ -1,4 +1,6 @@
-use openvoice_desktop::core::audio::{write_wav, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE};
+use openvoice_desktop::core::audio::{
+    write_wav, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+};
 use openvoice_desktop::core::recorder::RecordedAudio;
 
 #[test]

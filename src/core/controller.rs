@@ -54,7 +54,9 @@ where
                 }
                 result
             }
-            RecordingState::WritingAudio | RecordingState::Transcribing | RecordingState::InsertingText => {
+            RecordingState::WritingAudio
+            | RecordingState::Transcribing
+            | RecordingState::InsertingText => {
                 eprintln!("openvoice-desktop is busy: {:?}", self.state);
                 Ok(ToggleOutcome::Busy { state: self.state })
             }
@@ -62,7 +64,10 @@ where
     }
 
     async fn finish_recording(&mut self) -> Result<ToggleOutcome> {
-        let record_duration = self.recording_started_at.take().map(|start| start.elapsed());
+        let record_duration = self
+            .recording_started_at
+            .take()
+            .map(|start| start.elapsed());
         self.state = RecordingState::WritingAudio;
         let audio = self.recorder.stop().await?;
         let temp_file = tempfile::Builder::new().suffix(".wav").tempfile()?;
@@ -76,7 +81,10 @@ where
 
         self.state = RecordingState::Transcribing;
         let transcription = self.asr.transcribe_file(temp_file.path()).await?;
-        eprintln!("openvoice-desktop asr: upload_response_ms={}", ms(transcription.elapsed));
+        eprintln!(
+            "openvoice-desktop asr: upload_response_ms={}",
+            ms(transcription.elapsed)
+        );
         if transcription.text.is_empty() {
             self.state = RecordingState::Idle;
             return Ok(ToggleOutcome::EmptyTranscript);
@@ -91,7 +99,10 @@ where
             Duration::from_millis(self.config.behavior.clipboard_restore_delay_ms),
         )
         .await?;
-        eprintln!("openvoice-desktop paste: paste_ms={}", ms(paste_start.elapsed()));
+        eprintln!(
+            "openvoice-desktop paste: paste_ms={}",
+            ms(paste_start.elapsed())
+        );
         self.state = RecordingState::Idle;
         Ok(ToggleOutcome::Inserted {
             text: transcription.text,

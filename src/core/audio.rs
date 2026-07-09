@@ -23,7 +23,8 @@ pub fn write_wav(path: &Path, audio: &RecordedAudio) -> Result<WavWriteStats> {
         bits_per_sample: PCM_BITS_PER_SAMPLE,
         sample_format: SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(path, spec).with_context(|| format!("creating {}", path.display()))?;
+    let mut writer =
+        WavWriter::create(path, spec).with_context(|| format!("creating {}", path.display()))?;
     for sample in &audio.samples {
         writer.write_sample(*sample)?;
     }
@@ -35,7 +36,11 @@ pub fn write_wav(path: &Path, audio: &RecordedAudio) -> Result<WavWriteStats> {
     })
 }
 
-pub fn downmix_resample_to_i16(input: &[f32], source_rate: u32, source_channels: u16) -> RecordedAudio {
+pub fn downmix_resample_to_i16(
+    input: &[f32],
+    source_rate: u32,
+    source_channels: u16,
+) -> RecordedAudio {
     let source_channels = source_channels.max(1) as usize;
     let frames = input.len() / source_channels;
     if frames == 0 {
@@ -49,7 +54,11 @@ pub fn downmix_resample_to_i16(input: &[f32], source_rate: u32, source_channels:
     }
 
     if source_rate == DEFAULT_SAMPLE_RATE_HZ {
-        return RecordedAudio::new(float_to_i16(&mono), DEFAULT_SAMPLE_RATE_HZ, DEFAULT_CHANNELS);
+        return RecordedAudio::new(
+            float_to_i16(&mono),
+            DEFAULT_SAMPLE_RATE_HZ,
+            DEFAULT_CHANNELS,
+        );
     }
 
     let ratio = source_rate as f64 / DEFAULT_SAMPLE_RATE_HZ as f64;
@@ -64,7 +73,11 @@ pub fn downmix_resample_to_i16(input: &[f32], source_rate: u32, source_channels:
         output.push(sample.clamp(-1.0, 1.0));
     }
 
-    RecordedAudio::new(float_to_i16(&output), DEFAULT_SAMPLE_RATE_HZ, DEFAULT_CHANNELS)
+    RecordedAudio::new(
+        float_to_i16(&output),
+        DEFAULT_SAMPLE_RATE_HZ,
+        DEFAULT_CHANNELS,
+    )
 }
 
 fn float_to_i16(samples: &[f32]) -> Vec<i16> {

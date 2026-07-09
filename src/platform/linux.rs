@@ -28,7 +28,10 @@ impl PlatformAdapter for LinuxPlatformAdapter {
             .stdin(Stdio::piped())
             .spawn()
             .context("running wl-copy")?;
-        let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("opening wl-copy stdin"))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("opening wl-copy stdin"))?;
         stdin.write_all(text.as_bytes()).await?;
         drop(stdin);
         let status = child.wait().await?;
@@ -51,7 +54,11 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn notify(&self, title: &str, body: &str) -> Result<()> {
-        let status = Command::new("notify-send").arg(title).arg(body).status().await;
+        let status = Command::new("notify-send")
+            .arg(title)
+            .arg(body)
+            .status()
+            .await;
         match status {
             Ok(status) if status.success() => Ok(()),
             _ => {

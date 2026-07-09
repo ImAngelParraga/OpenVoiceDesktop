@@ -5,11 +5,11 @@ use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
-use windows_sys::Win32::Foundation::{HMENU, HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_SPACE,
-    VK_V,
+    RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -17,10 +17,9 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
     GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostQuitMessage, RegisterClassW,
-    RegisterHotKey, SetForegroundWindow, TrackPopupMenu, TranslateMessage, UnregisterHotKey,
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, IDI_APPLICATION, MB_ICONERROR,
-    MB_OK, MOD_CONTROL, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY,
-    WM_HOTKEY, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    SetForegroundWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
+    HMENU, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP,
+    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
 use crate::core::platform::PlatformAdapter;
@@ -62,7 +61,9 @@ impl PlatformAdapter for WindowsPlatformAdapter {
         let text = text.to_string();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut clipboard = arboard::Clipboard::new().context("opening Windows clipboard")?;
-            clipboard.set_text(text).context("setting Windows clipboard text")?;
+            clipboard
+                .set_text(text)
+                .context("setting Windows clipboard text")?;
             Ok(())
         })
         .await??;
@@ -175,7 +176,12 @@ fn keyboard_input(vk: u16, flags: u32) -> INPUT {
     }
 }
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         WM_HOTKEY => {
             send_command(TrayCommand::Toggle);
@@ -240,13 +246,26 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         return;
     }
     AppendMenuW(menu, 0, MENU_TOGGLE, wide("Toggle Recording").as_ptr());
-    AppendMenuW(menu, 0, MENU_OPEN_CONFIG, wide("Open Config Folder").as_ptr());
+    AppendMenuW(
+        menu,
+        0,
+        MENU_OPEN_CONFIG,
+        wide("Open Config Folder").as_ptr(),
+    );
     AppendMenuW(menu, 0, MENU_QUIT, wide("Quit").as_ptr());
 
     let mut point = std::mem::zeroed();
     GetCursorPos(&mut point);
     SetForegroundWindow(hwnd);
-    TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN, point.x, point.y, 0, hwnd, std::ptr::null());
+    TrackPopupMenu(
+        menu,
+        TPM_LEFTALIGN | TPM_BOTTOMALIGN,
+        point.x,
+        point.y,
+        0,
+        hwnd,
+        std::ptr::null(),
+    );
     DestroyMenu(menu);
 }
 
@@ -255,7 +274,9 @@ fn open_config_folder() -> Result<()> {
         .ok_or_else(|| anyhow!("could not locate config directory"))?
         .join("openvoice-desktop");
     std::fs::create_dir_all(&dir)?;
-    std::process::Command::new("explorer.exe").arg(dir).spawn()?;
+    std::process::Command::new("explorer.exe")
+        .arg(dir)
+        .spawn()?;
     Ok(())
 }
 

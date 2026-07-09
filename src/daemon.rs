@@ -18,7 +18,10 @@ pub async fn run(config: Config) -> Result<()> {
 
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("binding daemon socket {}", socket_path.display()))?;
-    eprintln!("openvoice-desktop daemon listening at {}", socket_path.display());
+    eprintln!(
+        "openvoice-desktop daemon listening at {}",
+        socket_path.display()
+    );
 
     let platform = LinuxPlatformAdapter;
     let recorder = CpalRecorder::new();
@@ -141,7 +144,9 @@ pub async fn run(config: Config) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-async fn request_toggle(tx: &tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<String>>) -> String {
+async fn request_toggle(
+    tx: &tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<String>>,
+) -> String {
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     if tx.send(reply_tx).await.is_err() {
         return "error: daemon controller is not running\n".to_string();

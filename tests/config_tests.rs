@@ -1,4 +1,4 @@
-use openvoice_desktop::core::config::{Config, require_private_file};
+use openvoice_desktop::core::config::{require_private_file, Config};
 use std::fs;
 use std::io::Write;
 
