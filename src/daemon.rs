@@ -10,7 +10,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::{CANCEL_COMMAND, TOGGLE_COMMAND};
+    use crate::ipc::{CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, TOGGLE_COMMAND};
     use crate::platform::linux::LinuxPlatformAdapter;
 
     let socket_path = config.socket_path()?;
@@ -34,7 +34,22 @@ pub async fn run(config: Config) -> Result<()> {
                 let (mut stream, _) = result?;
                 let mut command = String::new();
                 stream.read_to_string(&mut command).await?;
-                let response = if command == TOGGLE_COMMAND || command == CANCEL_COMMAND {
+                let response = if command == RELOAD_CONFIG_COMMAND && controller.state() != crate::core::state::RecordingState::Idle {
+                    format!("error: rejected config: controller busy in {:?}\n", controller.state())
+                } else if command == RELOAD_CONFIG_COMMAND {
+                    match Config::load_default().and_then(|loaded| {
+                        crate::core::settings_service::validate_config(&loaded.config)?;
+                        Ok(loaded.config)
+                    }) {
+                        Ok(updated) => {
+                            let recorder = CpalRecorder::new();
+                            let asr = ReqwestAsrClient::new(updated.clone());
+                            controller = VoiceController::new(recorder, asr, LinuxPlatformAdapter, updated);
+                            "Reloaded\n".to_string()
+                        }
+                        Err(error) => format!("error: rejected config: {error}\n"),
+                    }
+                } else if command == TOGGLE_COMMAND || command == CANCEL_COMMAND {
                     let result = if command == TOGGLE_COMMAND {
                         controller.toggle().await
                     } else {
@@ -75,7 +90,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::{CANCEL_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
+    use crate::ipc::{CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
     use crate::platform::windows::{
         handle_tray_command, hide_status_popup, run_tray_loop, show_recording_popup,
         show_status_popup, TrayCommand, WindowsPlatformAdapter,
@@ -105,6 +120,21 @@ pub async fn run(config: Config) -> Result<()> {
                 let result = match request.command {
                     ControllerCommand::Toggle => controller.toggle().await,
                     ControllerCommand::Cancel => controller.cancel().await,
+                    ControllerCommand::Reload(updated) => {
+                        if controller.state() != crate::core::state::RecordingState::Idle {
+                            let _ = request.reply_tx.send(format!(
+                                "error: rejected config: controller busy in {:?}\n",
+                                controller.state()
+                            ));
+                            continue;
+                        }
+                        let recorder = CpalRecorder::new();
+                        let asr = ReqwestAsrClient::new(updated.clone());
+                        controller =
+                            VoiceController::new(recorder, asr, WindowsPlatformAdapter, updated);
+                        let _ = request.reply_tx.send("Reloaded\n".to_string());
+                        continue;
+                    }
                 };
                 let response = match result {
                     Ok(outcome) => format!("{outcome:?}\n"),
@@ -131,6 +161,20 @@ pub async fn run(config: Config) -> Result<()> {
                     request_controller(&pipe_controller_tx, ControllerCommand::Toggle).await
                 } else if command == CANCEL_COMMAND {
                     request_controller(&pipe_controller_tx, ControllerCommand::Cancel).await
+                } else if command == RELOAD_CONFIG_COMMAND {
+                    match Config::load_default().and_then(|loaded| {
+                        crate::core::settings_service::validate_config(&loaded.config)?;
+                        Ok(loaded.config)
+                    }) {
+                        Ok(updated) => {
+                            request_controller(
+                                &pipe_controller_tx,
+                                ControllerCommand::Reload(updated),
+                            )
+                            .await
+                        }
+                        Err(error) => format!("error: rejected config: {error}\n"),
+                    }
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
@@ -237,10 +281,11 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
 }
 
 #[cfg(target_os = "windows")]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ControllerCommand {
     Toggle,
     Cancel,
+    Reload(Config),
 }
 
 #[cfg(target_os = "windows")]

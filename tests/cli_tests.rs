@@ -31,4 +31,5 @@ fn ipc_supports_toggle_and_cancel_commands() {
     assert!(IPC_RS.contains("CANCEL_COMMAND"));
     assert!(IPC_RS.contains("send_toggle"));
     assert!(IPC_RS.contains("send_cancel"));
+    assert!(IPC_RS.contains("send_reload_config"));
 }

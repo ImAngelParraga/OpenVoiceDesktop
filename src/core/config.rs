@@ -640,19 +640,17 @@ fn migrate_config_toml(contents: &str) -> Result<Config> {
 #[cfg(unix)]
 fn write_config_file(path: &Path, contents: &str) -> Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
 
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    file.set_permissions(fs::Permissions::from_mode(0o600))
+    let mut file = atomic_write_file::AtomicWriteFile::open(path)
+        .with_context(|| format!("opening atomic write for {}", path.display()))?;
+    file.as_file()
+        .set_permissions(fs::Permissions::from_mode(0o600))
         .with_context(|| format!("setting permissions on {}", path.display()))?;
     file.write_all(contents.as_bytes())
         .with_context(|| format!("writing {}", path.display()))?;
+    file.commit()
+        .with_context(|| format!("committing atomic write to {}", path.display()))?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))
         .with_context(|| format!("setting permissions on {}", path.display()))?;
     Ok(())
@@ -660,7 +658,14 @@ fn write_config_file(path: &Path, contents: &str) -> Result<()> {
 
 #[cfg(not(unix))]
 fn write_config_file(path: &Path, contents: &str) -> Result<()> {
-    fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
+    use std::io::Write;
+
+    let mut file = atomic_write_file::AtomicWriteFile::open(path)
+        .with_context(|| format!("opening atomic write for {}", path.display()))?;
+    file.write_all(contents.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
+    file.commit()
+        .with_context(|| format!("committing atomic write to {}", path.display()))
 }
 
 pub fn resolve_bearer_token(config: &Config) -> Option<String> {

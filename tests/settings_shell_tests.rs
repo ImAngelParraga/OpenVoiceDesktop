@@ -3,6 +3,9 @@ use openvoice_desktop::settings_shell::{SettingsShellContract, SETTINGS_WINDOW_L
 const MAIN_RS: &str = include_str!("../src/main.rs");
 const SHELL_RS: &str = include_str!("../src/settings_shell.rs");
 const TAURI_CONFIG: &str = include_str!("../tauri.conf.json");
+const SETTINGS_JS: &str = include_str!("../ui/settings.js");
+const DAEMON_RS: &str = include_str!("../src/daemon.rs");
+const IPC_RS: &str = include_str!("../src/ipc.rs");
 
 #[test]
 fn settings_cli_owns_one_native_window_without_browser_or_localhost() {
@@ -44,4 +47,16 @@ fn test_v23_desktop_shell_assets_exist() {
     assert_eq!(config["build"]["frontendDist"], "ui");
     assert!(std::path::Path::new("ui/index.html").is_file());
     assert!(std::path::Path::new("icons/icon.png").is_file());
+}
+
+#[test]
+fn typed_commands_and_daemon_reload_channel_are_connected() {
+    assert!(SHELL_RS.contains("generate_handler![get_settings, save_settings]"));
+    assert!(SETTINGS_JS.contains("invoke(\"get_settings\")"));
+    assert!(SETTINGS_JS.contains("invoke(\"save_settings\""));
+    assert!(IPC_RS.contains("RELOAD_CONFIG_COMMAND"));
+    assert!(IPC_RS.contains("send_reload_config"));
+    assert!(DAEMON_RS.contains("validate_config(&loaded.config)"));
+    assert!(DAEMON_RS.contains("ControllerCommand::Reload(updated)"));
+    assert!(DAEMON_RS.contains("controller busy"));
 }

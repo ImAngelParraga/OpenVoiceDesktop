@@ -1,5 +1,6 @@
 pub const TOGGLE_COMMAND: &str = "toggle\n";
 pub const CANCEL_COMMAND: &str = "cancel\n";
+pub const RELOAD_CONFIG_COMMAND: &str = "reload-config\n";
 
 #[cfg(target_os = "linux")]
 pub const LINUX_SOCKET_NAME: &str = "daemon.sock";
@@ -15,6 +16,11 @@ pub async fn send_toggle(socket_path: &std::path::Path) -> anyhow::Result<String
 #[cfg(target_os = "linux")]
 pub async fn send_cancel(socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(socket_path, CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn send_reload_config(socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(socket_path, RELOAD_CONFIG_COMMAND).await
 }
 
 #[cfg(target_os = "linux")]
@@ -41,6 +47,11 @@ pub async fn send_toggle(_socket_path: &std::path::Path) -> anyhow::Result<Strin
 #[cfg(target_os = "windows")]
 pub async fn send_cancel(_socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "windows")]
+pub async fn send_reload_config(_socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(RELOAD_CONFIG_COMMAND).await
 }
 
 #[cfg(target_os = "windows")]

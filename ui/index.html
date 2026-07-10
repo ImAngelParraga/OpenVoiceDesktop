@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenVoiceDesktop Settings</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="settings.js" defer></script>
+    <script src="settings.js" type="module"></script>
   </head>
   <body>
     <main>
@@ -22,7 +22,9 @@
       </aside>
       <section id="content" tabindex="-1">
         <h2>General</h2>
-        <p>Loading settings…</p>
+        <p id="status">Loading settings…</p>
+        <form id="settings-form"></form>
+        <button id="save" type="button">Save settings</button>
       </section>
     </main>
   </body>
