@@ -12,14 +12,15 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
+    NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
     GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
     HMENU, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP,
-    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
 use crate::core::platform::PlatformAdapter;
@@ -32,6 +33,7 @@ const MENU_OPEN_CONFIG: usize = 1002;
 const MENU_QUIT: usize = 1003;
 
 static COMMAND_TX: OnceLock<mpsc::UnboundedSender<TrayCommand>> = OnceLock::new();
+static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
@@ -119,6 +121,9 @@ pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
         if hwnd == 0 {
             return Err(anyhow!("creating Windows tray window failed"));
         }
+        TRAY_HWND
+            .set(hwnd)
+            .map_err(|_| anyhow!("Windows tray window was already initialized"))?;
 
         if RegisterHotKey(hwnd, HOTKEY_ID, MOD_CONTROL as u32, VK_SPACE as u32) == 0 {
             message_box(
@@ -199,6 +204,10 @@ unsafe extern "system" fn wnd_proc(
             }
             0
         }
+        WM_TRAYICON if lparam as u32 == WM_LBUTTONUP => {
+            send_command(TrayCommand::Toggle);
+            0
+        }
         WM_TRAYICON if lparam as u32 == WM_RBUTTONUP => {
             show_tray_menu(hwnd);
             0
@@ -238,6 +247,26 @@ unsafe fn remove_tray_icon(hwnd: HWND) {
     data.hWnd = hwnd;
     data.uID = TRAY_ID;
     let _ = Shell_NotifyIconW(NIM_DELETE, &mut data);
+}
+
+pub fn notify_tray(title: &str, body: &str) -> Result<()> {
+    let hwnd = *TRAY_HWND
+        .get()
+        .ok_or_else(|| anyhow!("Windows tray window is not initialized"))?;
+    unsafe {
+        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
+        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        data.hWnd = hwnd;
+        data.uID = TRAY_ID;
+        data.uFlags = NIF_INFO;
+        data.dwInfoFlags = NIIF_INFO;
+        copy_tip(&mut data.szInfoTitle, title);
+        copy_tip(&mut data.szInfo, body);
+        if Shell_NotifyIconW(NIM_MODIFY, &mut data) == 0 {
+            return Err(anyhow!("showing Windows tray notification failed"));
+        }
+    }
+    Ok(())
 }
 
 unsafe fn show_tray_menu(hwnd: HWND) {

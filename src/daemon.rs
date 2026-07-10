@@ -72,7 +72,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::recorder::CpalRecorder;
     use crate::ipc::{TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
     use crate::platform::windows::{
-        handle_tray_command, run_tray_loop, TrayCommand, WindowsPlatformAdapter,
+        handle_tray_command, notify_tray, run_tray_loop, TrayCommand, WindowsPlatformAdapter,
     };
 
     let (toggle_tx, toggle_rx) = std_mpsc::channel::<oneshot::Sender<String>>();
@@ -142,6 +142,9 @@ pub async fn run(config: Config) -> Result<()> {
                 Ok(true) => {
                     let response = request_toggle(&tray_toggle_tx).await;
                     eprint!("{response}");
+                    if let Some((title, body)) = toggle_notification(&response) {
+                        notify_tray(title, &body).ok();
+                    }
                 }
                 Ok(false) => {
                     if matches!(command, TrayCommand::Quit) {
@@ -155,6 +158,32 @@ pub async fn run(config: Config) -> Result<()> {
 
     eprintln!("openvoice-desktop Windows tray app starting");
     run_tray_loop(tray_tx)
+}
+
+pub fn toggle_notification(response: &str) -> Option<(&'static str, String)> {
+    let response = response.trim();
+    if response == "Started" {
+        return Some((
+            "OpenVoiceDesktop",
+            "Recording started. Press Ctrl+Space again to stop.".to_string(),
+        ));
+    }
+    if response.starts_with("Inserted") {
+        return Some(("OpenVoiceDesktop", "Transcript inserted.".to_string()));
+    }
+    if response == "EmptyTranscript" {
+        return Some(("OpenVoiceDesktop", "No speech detected.".to_string()));
+    }
+    if response.starts_with("Busy") {
+        return Some((
+            "OpenVoiceDesktop",
+            "Still processing previous recording.".to_string(),
+        ));
+    }
+    if let Some(error) = response.strip_prefix("error: ") {
+        return Some(("OpenVoiceDesktop error", error.to_string()));
+    }
+    None
 }
 
 #[cfg(target_os = "windows")]
