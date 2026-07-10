@@ -13,9 +13,16 @@ fn cli_parity_aliases_preserve_existing_subcommands() {
         "Toggle",
         "Cancel",
         "ConfigPath",
+        "Settings",
     ] {
         assert!(MAIN_RS.contains(expected), "{expected}");
     }
+}
+
+#[test]
+fn cli_settings_command_opens_settings_panel() {
+    assert!(MAIN_RS.contains("run_settings_panel"));
+    assert!(MAIN_RS.contains("Command::Settings"));
 }
 
 #[test]

@@ -53,6 +53,7 @@ V10: History invariant: completed transcript saved with timestamp, text, status,
 V11: UI invariant: all settings visible in UI map to persisted config and can be changed without editing TOML, except explicit advanced raw config path.
 V12: Test invariant: every new platform-independent feature has unit tests; platform behavior has adapter boundary tests or documented manual verification.
 V13: Handy-reference invariant: every Handy-inspired feature task cites `H:<path>` so new agent can inspect upstream behavior.
+V14: Visible settings invariant: Settings UI must be user-invokable from the app surface (`openvoice-desktop settings` and tray Settings where tray exists), render persisted config fields, and save edits without hand-editing TOML.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -99,3 +100,4 @@ T40|x|Remove local-model features from scope|Document exclusions: model download
 
 §B
 id|date|cause|fix
+B1|2026-07-10|Settings work built config/UI contract but no user-invokable settings surface existed|V14

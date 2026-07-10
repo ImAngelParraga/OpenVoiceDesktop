@@ -624,14 +624,21 @@ fn open_config_folder() -> Result<()> {
     Ok(())
 }
 
+fn open_settings_panel() -> Result<()> {
+    let exe = std::env::current_exe().context("locating OpenVoiceDesktop executable")?;
+    std::process::Command::new(exe).arg("settings").spawn()?;
+    Ok(())
+}
+
 pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
     match command {
         TrayCommand::Toggle => Ok(true),
         TrayCommand::Cancel => Ok(false),
-        TrayCommand::Settings
-        | TrayCommand::CopyLastTranscript
-        | TrayCommand::TestEndpoint
-        | TrayCommand::OpenLogs => {
+        TrayCommand::Settings => {
+            tokio::task::spawn_blocking(open_settings_panel).await??;
+            Ok(false)
+        }
+        TrayCommand::CopyLastTranscript | TrayCommand::TestEndpoint | TrayCommand::OpenLogs => {
             show_status_popup("Action available in settings UI.", Some(2_500)).ok();
             Ok(false)
         }

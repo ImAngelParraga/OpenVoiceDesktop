@@ -121,6 +121,15 @@ Default path:
 openvoice-desktop config-path
 ```
 
+Open settings panel:
+
+```bash
+openvoice-desktop settings
+```
+
+This starts a local browser panel for persisted settings and saves changes back
+to the same TOML config. On Windows, tray `Settings` opens this panel.
+
 Example:
 
 ```toml

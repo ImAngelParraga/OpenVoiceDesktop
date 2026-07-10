@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use openvoice_desktop::core::config::{Config, LogLevel};
+use openvoice_desktop::core::settings_panel::run_settings_panel;
 use openvoice_desktop::{daemon, ipc};
 
 #[derive(Debug, Parser)]
@@ -36,6 +37,8 @@ enum Command {
     Cancel,
     /// Print the default config path.
     ConfigPath,
+    /// Open the browser-based settings panel.
+    Settings,
 }
 
 #[tokio::main]
@@ -92,5 +95,6 @@ async fn main() -> Result<()> {
             println!("{}", Config::default_path()?.display());
             Ok(())
         }
+        Command::Settings => run_settings_panel(Config::default_path()?),
     }
 }

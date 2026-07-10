@@ -55,3 +55,15 @@ fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
         "successful paste should not show a transcript inserted popup"
     );
 }
+
+#[test]
+fn test_v11_settings_menu_launches_settings_panel() {
+    assert!(
+        WINDOWS_RS.contains("open_settings_panel"),
+        "Settings tray item must launch visible settings panel"
+    );
+    assert!(
+        WINDOWS_RS.contains(".arg(\"settings\")"),
+        "Settings tray item should reuse openvoice-desktop settings command"
+    );
+}
