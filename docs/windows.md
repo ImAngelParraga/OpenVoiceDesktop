@@ -51,12 +51,11 @@ Token lookup order is:
 
 - Start the tray app: `%LOCALAPPDATA%\OpenVoiceDesktop\openvoice-desktop.exe daemon`
 - Toggle recording: `Ctrl+Space`
-- Toggle recording from tray: left-click the tray icon, or right-click it and choose `Toggle Recording`
 - First press starts recording.
 - Second press stops, uploads WAV audio to `{base_url}/v1/audio/transcriptions`, and pastes the returned transcript.
 - Each toggle shows a Windows tray notification for started, inserted, empty transcript, busy, or error states.
 
-If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Test with tray left-click or run:
+If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Test the daemon with:
 
 ```powershell
 & "$env:LOCALAPPDATA\OpenVoiceDesktop\openvoice-desktop.exe" toggle

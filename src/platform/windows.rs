@@ -20,7 +20,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
     HMENU, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP,
-    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
 use crate::core::platform::PlatformAdapter;
@@ -28,7 +28,6 @@ use crate::core::platform::PlatformAdapter;
 const HOTKEY_ID: i32 = 1;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
-const MENU_TOGGLE: usize = 1001;
 const MENU_OPEN_CONFIG: usize = 1002;
 const MENU_QUIT: usize = 1003;
 
@@ -194,7 +193,6 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_COMMAND => {
             match loword(wparam as usize) {
-                MENU_TOGGLE => send_command(TrayCommand::Toggle),
                 MENU_OPEN_CONFIG => send_command(TrayCommand::OpenConfigFolder),
                 MENU_QUIT => {
                     send_command(TrayCommand::Quit);
@@ -202,10 +200,6 @@ unsafe extern "system" fn wnd_proc(
                 }
                 _ => {}
             }
-            0
-        }
-        WM_TRAYICON if lparam as u32 == WM_LBUTTONUP => {
-            send_command(TrayCommand::Toggle);
             0
         }
         WM_TRAYICON if lparam as u32 == WM_RBUTTONUP => {
@@ -274,7 +268,6 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     if menu == 0 {
         return;
     }
-    AppendMenuW(menu, 0, MENU_TOGGLE, wide("Toggle Recording").as_ptr());
     AppendMenuW(
         menu,
         0,
