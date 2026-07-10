@@ -1,4 +1,7 @@
-use openvoice_desktop::core::config::{require_private_file, Config, CURRENT_SCHEMA_VERSION};
+use openvoice_desktop::core::config::{
+    require_private_file, ClipboardHandling, Config, LogLevel, OverlayPosition, OverlayStyle,
+    PasteMethod, RecordingRetention, TypingTool, CURRENT_SCHEMA_VERSION,
+};
 use std::fs;
 use std::io::Write;
 
@@ -22,6 +25,33 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
     assert!(!loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
+    assert!(!loaded.config.app.start_hidden);
+    assert!(!loaded.config.app.autostart);
+    assert!(loaded.config.app.show_tray_icon);
+    assert!(loaded.config.app.show_overlay);
+    assert_eq!(loaded.config.app.overlay_position, OverlayPosition::Top);
+    assert_eq!(loaded.config.app.overlay_style, OverlayStyle::Compact);
+    assert_eq!(
+        loaded.config.output.paste_method,
+        PasteMethod::ClipboardPaste
+    );
+    assert_eq!(loaded.config.output.typing_tool, TypingTool::Auto);
+    assert_eq!(
+        loaded.config.output.clipboard_handling,
+        ClipboardHandling::RestoreAfterPaste
+    );
+    assert_eq!(loaded.config.output.paste_delay_ms, 25);
+    assert_eq!(loaded.config.output.restore_delay_ms, 250);
+    assert!(loaded.config.text.custom_words.is_empty());
+    assert_eq!(loaded.config.text.fuzzy_correction_threshold, 0.85);
+    assert!(!loaded.config.text.filter_filler_words);
+    assert!(!loaded.config.text.append_trailing_space);
+    assert!(loaded.config.history.enabled);
+    assert_eq!(loaded.config.history.limit, 100);
+    assert_eq!(loaded.config.history.retention, RecordingRetention::Never);
+    assert_eq!(loaded.config.debug.log_level, LogLevel::Info);
+    assert_eq!(loaded.config.debug.recording_buffer_ms, 0);
+    assert!(!loaded.config.onboarding.completed);
 }
 
 #[test]
@@ -40,6 +70,44 @@ timeout_seconds = 45
 [behavior]
 restore_clipboard = false
 clipboard_restore_delay_ms = 100
+
+[app]
+start_hidden = true
+autostart = true
+show_tray_icon = false
+overlay_position = "bottom"
+experimental = true
+
+[output]
+paste_method = "copy-only"
+typing_tool = "wtype"
+clipboard_handling = "copy-only"
+auto_submit = true
+paste_delay_ms = 10
+restore_delay_ms = 20
+external_script_path = "/tmp/paste.sh"
+
+[text]
+custom_words = ["OpenVoice", "Wayland"]
+filter_filler_words = true
+append_trailing_space = true
+translate_language_hint = "es"
+
+[history]
+enabled = false
+limit = 25
+retention = "always"
+recordings_dir = "/tmp/openvoice-recordings"
+
+[debug]
+debug_shortcut = "Ctrl+Alt+L"
+log_level = "debug"
+live_log_viewer = true
+paste_delay_ms = 11
+recording_buffer_ms = 250
+
+[onboarding]
+completed = true
 "#
     )
     .unwrap();
@@ -52,6 +120,38 @@ clipboard_restore_delay_ms = 100
     assert_eq!(loaded.config.asr.prompt.as_deref(), Some("names"));
     assert_eq!(loaded.config.asr.timeout_seconds, 45);
     assert!(!loaded.config.behavior.restore_clipboard);
+    assert!(loaded.config.app.start_hidden);
+    assert!(loaded.config.app.autostart);
+    assert!(!loaded.config.app.show_tray_icon);
+    assert_eq!(loaded.config.app.overlay_position, OverlayPosition::Bottom);
+    assert!(loaded.config.app.experimental);
+    assert_eq!(loaded.config.output.paste_method, PasteMethod::CopyOnly);
+    assert_eq!(loaded.config.output.typing_tool, TypingTool::Wtype);
+    assert_eq!(
+        loaded.config.output.clipboard_handling,
+        ClipboardHandling::CopyOnly
+    );
+    assert!(loaded.config.output.auto_submit);
+    assert_eq!(loaded.config.output.paste_delay_ms, 10);
+    assert_eq!(loaded.config.output.restore_delay_ms, 20);
+    assert_eq!(
+        loaded.config.output.external_script_path.unwrap(),
+        std::path::PathBuf::from("/tmp/paste.sh")
+    );
+    assert_eq!(loaded.config.text.custom_words, ["OpenVoice", "Wayland"]);
+    assert!(loaded.config.text.filter_filler_words);
+    assert!(loaded.config.text.append_trailing_space);
+    assert_eq!(
+        loaded.config.text.translate_language_hint.as_deref(),
+        Some("es")
+    );
+    assert!(!loaded.config.history.enabled);
+    assert_eq!(loaded.config.history.limit, 25);
+    assert_eq!(loaded.config.history.retention, RecordingRetention::Always);
+    assert_eq!(loaded.config.debug.log_level, LogLevel::Debug);
+    assert!(loaded.config.debug.live_log_viewer);
+    assert_eq!(loaded.config.debug.recording_buffer_ms, 250);
+    assert!(loaded.config.onboarding.completed);
 }
 
 #[test]
@@ -102,6 +202,42 @@ cancel_shortcut = "Ctrl+Escape"
     assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Shift+Space");
     assert!(loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Ctrl+Escape");
+    assert_eq!(
+        loaded.config.output.clipboard_handling,
+        ClipboardHandling::RestoreAfterPaste
+    );
+}
+
+#[test]
+fn legacy_clipboard_behavior_migrates_to_output_without_overwriting_token() {
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(
+        file,
+        r#"
+[asr]
+bearer_token = "dev-token"
+
+[behavior]
+restore_clipboard = false
+clipboard_restore_delay_ms = 125
+"#
+    )
+    .unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(file.path(), fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    let loaded = Config::load_from(file.path()).unwrap();
+
+    assert_eq!(loaded.config.asr.bearer_token.as_deref(), Some("dev-token"));
+    assert_eq!(
+        loaded.config.output.clipboard_handling,
+        ClipboardHandling::LeaveTranscript
+    );
+    assert_eq!(loaded.config.output.restore_delay_ms, 125);
 }
 
 #[test]

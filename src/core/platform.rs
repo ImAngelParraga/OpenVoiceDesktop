@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::time::Duration;
 
+use crate::core::config::{ClipboardHandling, OutputConfig, PasteMethod};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasteResult {
     Pasted,
@@ -50,4 +52,37 @@ where
     }
 
     Ok(PasteResult::Pasted)
+}
+
+pub async fn paste_with_output_config<P>(
+    platform: &P,
+    transcript: &str,
+    output: &OutputConfig,
+) -> Result<PasteResult>
+where
+    P: PlatformAdapter,
+{
+    if output.paste_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
+    }
+
+    if matches!(
+        output.paste_method,
+        PasteMethod::CopyOnly | PasteMethod::ExternalScript
+    ) || matches!(output.clipboard_handling, ClipboardHandling::CopyOnly)
+    {
+        platform.set_clipboard_text(transcript).await?;
+        return Ok(PasteResult::LeftInClipboard);
+    }
+
+    paste_with_clipboard_restore(
+        platform,
+        transcript,
+        matches!(
+            output.clipboard_handling,
+            ClipboardHandling::RestoreAfterPaste
+        ),
+        Duration::from_millis(output.restore_delay_ms),
+    )
+    .await
 }

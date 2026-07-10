@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 use crate::core::asr::request_fields;
-use crate::core::config::Config;
+use crate::core::config::{Config, OverlayPosition};
+use crate::core::events::{AppShellEvent, ProcessingStage};
 
 /// Settings window contract adapted from Handy's `H:src/components/Sidebar.tsx`.
 /// The app shell can render this model without coupling core code to Tauri/React.
@@ -52,6 +54,82 @@ pub enum SettingsControlKind {
     Select,
     Action,
     ReadOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnboardingStepId {
+    Permissions,
+    AsrEndpoint,
+    Microphone,
+    Shortcut,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnboardingFlow {
+    pub steps: Vec<OnboardingStepId>,
+    pub show_model_download_step: bool,
+    pub repair_missing_permissions_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionCheck {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub config_key: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AboutSettings {
+    pub version: String,
+    pub license: &'static str,
+    pub repository_url: &'static str,
+    pub config_path: PathBuf,
+    pub app_data_path: PathBuf,
+    pub logs_path: PathBuf,
+    pub acknowledgements: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OverlayView {
+    pub visible: bool,
+    pub mode: OverlayMode,
+    pub position: OverlayPosition,
+    pub show_waveform: bool,
+    pub show_timer: bool,
+    pub show_cancel: bool,
+    pub message: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlayMode {
+    Hidden,
+    Recording,
+    WritingAudio,
+    Uploading,
+    InsertingText,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub timestamp_unix_ms: u64,
+    pub text: String,
+    pub status: HistoryStatus,
+    pub endpoint: String,
+    pub model: String,
+    pub audio_path: Option<PathBuf>,
+    pub saved: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HistoryStatus {
+    Inserted,
+    PasteFailed,
+    Empty,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +289,48 @@ impl SettingsWindowLayout {
                     panel: "advanced-settings",
                     controls: vec![
                         SettingsControl::bound(
+                            "start-hidden",
+                            "Start hidden",
+                            SettingsControlKind::Toggle,
+                            "app.start_hidden",
+                        ),
+                        SettingsControl::bound(
+                            "autostart",
+                            "Autostart",
+                            SettingsControlKind::Toggle,
+                            "app.autostart",
+                        ),
+                        SettingsControl::bound(
+                            "show-tray-icon",
+                            "Show tray icon",
+                            SettingsControlKind::Toggle,
+                            "app.show_tray_icon",
+                        ),
+                        SettingsControl::bound(
+                            "show-overlay",
+                            "Show overlay",
+                            SettingsControlKind::Toggle,
+                            "app.show_overlay",
+                        ),
+                        SettingsControl::bound(
+                            "overlay-position",
+                            "Overlay position",
+                            SettingsControlKind::Select,
+                            "app.overlay_position",
+                        ),
+                        SettingsControl::bound(
+                            "overlay-style",
+                            "Overlay style",
+                            SettingsControlKind::Select,
+                            "app.overlay_style",
+                        ),
+                        SettingsControl::bound(
+                            "experimental",
+                            "Experimental features",
+                            SettingsControlKind::Toggle,
+                            "app.experimental",
+                        ),
+                        SettingsControl::bound(
                             "restore-clipboard",
                             "Restore clipboard after paste",
                             SettingsControlKind::Toggle,
@@ -222,6 +342,78 @@ impl SettingsWindowLayout {
                             SettingsControlKind::Number,
                             "behavior.clipboard_restore_delay_ms",
                         ),
+                        SettingsControl::bound(
+                            "paste-method",
+                            "Paste method",
+                            SettingsControlKind::Select,
+                            "output.paste_method",
+                        ),
+                        SettingsControl::bound(
+                            "typing-tool",
+                            "Typing tool",
+                            SettingsControlKind::Select,
+                            "output.typing_tool",
+                        ),
+                        SettingsControl::bound(
+                            "clipboard-handling",
+                            "Clipboard handling",
+                            SettingsControlKind::Select,
+                            "output.clipboard_handling",
+                        ),
+                        SettingsControl::bound(
+                            "auto-submit",
+                            "Auto-submit",
+                            SettingsControlKind::Toggle,
+                            "output.auto_submit",
+                        ),
+                        SettingsControl::bound(
+                            "paste-delay",
+                            "Paste delay",
+                            SettingsControlKind::Number,
+                            "output.paste_delay_ms",
+                        ),
+                        SettingsControl::bound(
+                            "restore-delay",
+                            "Restore delay",
+                            SettingsControlKind::Number,
+                            "output.restore_delay_ms",
+                        ),
+                        SettingsControl::bound(
+                            "external-script",
+                            "External script",
+                            SettingsControlKind::Text,
+                            "output.external_script_path",
+                        ),
+                        SettingsControl::bound(
+                            "custom-words",
+                            "Custom words",
+                            SettingsControlKind::TextArea,
+                            "text.custom_words",
+                        ),
+                        SettingsControl::bound(
+                            "fuzzy-correction-threshold",
+                            "Correction threshold",
+                            SettingsControlKind::Slider,
+                            "text.fuzzy_correction_threshold",
+                        ),
+                        SettingsControl::bound(
+                            "filter-filler-words",
+                            "Filter filler words",
+                            SettingsControlKind::Toggle,
+                            "text.filter_filler_words",
+                        ),
+                        SettingsControl::bound(
+                            "append-trailing-space",
+                            "Append trailing space",
+                            SettingsControlKind::Toggle,
+                            "text.append_trailing_space",
+                        ),
+                        SettingsControl::bound(
+                            "translate-language-hint",
+                            "Translate language hint",
+                            SettingsControlKind::Text,
+                            "text.translate_language_hint",
+                        ),
                     ],
                 },
                 SettingsSection {
@@ -229,23 +421,106 @@ impl SettingsWindowLayout {
                     label: "History",
                     icon: "history",
                     panel: "history-settings",
-                    controls: vec![SettingsControl::unbound(
-                        "history-placeholder",
-                        "History settings",
-                        SettingsControlKind::ReadOnly,
-                    )],
+                    controls: vec![
+                        SettingsControl::bound(
+                            "history-enabled",
+                            "Save history",
+                            SettingsControlKind::Toggle,
+                            "history.enabled",
+                        ),
+                        SettingsControl::bound(
+                            "history-limit",
+                            "History limit",
+                            SettingsControlKind::Number,
+                            "history.limit",
+                        ),
+                        SettingsControl::bound(
+                            "recording-retention",
+                            "Recording retention",
+                            SettingsControlKind::Select,
+                            "history.retention",
+                        ),
+                        SettingsControl::bound(
+                            "recordings-dir",
+                            "Recordings folder",
+                            SettingsControlKind::Text,
+                            "history.recordings_dir",
+                        ),
+                        SettingsControl::unbound(
+                            "open-recordings-folder",
+                            "Open recordings folder",
+                            SettingsControlKind::Action,
+                        ),
+                        SettingsControl::unbound(
+                            "delete-transcript",
+                            "Delete transcript",
+                            SettingsControlKind::Action,
+                        ),
+                        SettingsControl::unbound(
+                            "retry-transcript",
+                            "Retry transcript",
+                            SettingsControlKind::Action,
+                        ),
+                        SettingsControl::unbound(
+                            "save-transcript",
+                            "Save transcript",
+                            SettingsControlKind::Action,
+                        ),
+                    ],
                 },
                 SettingsSection {
                     id: SettingsSectionId::Debug,
                     label: "Debug",
                     icon: "flask-conical",
                     panel: "debug-settings",
-                    controls: vec![SettingsControl::bound(
-                        "ipc-socket-path",
-                        "IPC socket path",
-                        SettingsControlKind::Text,
-                        "ipc.socket_path",
-                    )],
+                    controls: vec![
+                        SettingsControl::bound(
+                            "debug-shortcut",
+                            "Debug shortcut",
+                            SettingsControlKind::Text,
+                            "debug.debug_shortcut",
+                        ),
+                        SettingsControl::bound(
+                            "log-level",
+                            "Log level",
+                            SettingsControlKind::Select,
+                            "debug.log_level",
+                        ),
+                        SettingsControl::bound(
+                            "live-log-viewer",
+                            "Live log viewer",
+                            SettingsControlKind::Toggle,
+                            "debug.live_log_viewer",
+                        ),
+                        SettingsControl::unbound(
+                            "open-log-directory",
+                            "Open log directory",
+                            SettingsControlKind::Action,
+                        ),
+                        SettingsControl::unbound(
+                            "open-app-data-directory",
+                            "Open app data directory",
+                            SettingsControlKind::Action,
+                        ),
+                        SettingsControl::bound(
+                            "debug-paste-delay",
+                            "Paste delay",
+                            SettingsControlKind::Number,
+                            "debug.paste_delay_ms",
+                        ),
+                        SettingsControl::bound(
+                            "recording-buffer",
+                            "Recording buffer",
+                            SettingsControlKind::Number,
+                            "debug.recording_buffer_ms",
+                        ),
+                        SettingsControl::bound(
+                            "ipc-socket-path",
+                            "IPC socket path",
+                            SettingsControlKind::Text,
+                            "ipc.socket_path",
+                        ),
+                    ],
                 },
                 SettingsSection {
                     id: SettingsSectionId::About,
@@ -264,6 +539,26 @@ impl SettingsWindowLayout {
                             SettingsControlKind::ReadOnly,
                         ),
                         SettingsControl::unbound(
+                            "app-data-path",
+                            "App data path",
+                            SettingsControlKind::ReadOnly,
+                        ),
+                        SettingsControl::unbound(
+                            "logs-path",
+                            "Logs path",
+                            SettingsControlKind::ReadOnly,
+                        ),
+                        SettingsControl::unbound(
+                            "license",
+                            "License",
+                            SettingsControlKind::ReadOnly,
+                        ),
+                        SettingsControl::unbound(
+                            "repository",
+                            "Repository",
+                            SettingsControlKind::ReadOnly,
+                        ),
+                        SettingsControl::unbound(
                             "handy-acknowledgement",
                             "Handy UX reference",
                             SettingsControlKind::ReadOnly,
@@ -273,6 +568,176 @@ impl SettingsWindowLayout {
             ],
         }
     }
+}
+
+impl OnboardingFlow {
+    pub fn from_config(config: &Config, permissions_missing: bool) -> Self {
+        Self {
+            steps: vec![
+                OnboardingStepId::Permissions,
+                OnboardingStepId::AsrEndpoint,
+                OnboardingStepId::Microphone,
+                OnboardingStepId::Shortcut,
+            ],
+            show_model_download_step: false,
+            repair_missing_permissions_only: config.onboarding.completed && permissions_missing,
+        }
+    }
+}
+
+impl PermissionCheck {
+    pub fn current_platform_checks() -> Vec<Self> {
+        let mut checks = Vec::new();
+        #[cfg(target_os = "windows")]
+        {
+            checks.push(Self {
+                id: "windows-mic-privacy",
+                label: "Windows microphone privacy",
+                config_key: None,
+            });
+        }
+        #[cfg(target_os = "linux")]
+        {
+            for (id, label) in [
+                ("wl-copy", "wl-copy clipboard helper"),
+                ("wl-paste", "wl-paste clipboard helper"),
+                ("wtype", "wtype Wayland typing helper"),
+                ("xdotool", "xdotool X11 typing helper"),
+            ] {
+                checks.push(Self {
+                    id,
+                    label,
+                    config_key: None,
+                });
+            }
+        }
+        checks
+    }
+}
+
+impl AboutSettings {
+    pub fn new(config_path: PathBuf, app_data_path: PathBuf, logs_path: PathBuf) -> Self {
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            license: env!("CARGO_PKG_LICENSE"),
+            repository_url: "https://github.com/rankis/OpenVoiceDesktop",
+            config_path,
+            app_data_path,
+            logs_path,
+            acknowledgements: vec!["Handy UX reference: https://github.com/cjpais/Handy"],
+        }
+    }
+}
+
+impl OverlayView {
+    pub fn from_event(config: &Config, event: &AppShellEvent) -> Self {
+        if !config.app.show_overlay {
+            return Self::hidden(config);
+        }
+
+        match event {
+            AppShellEvent::Recording => Self {
+                visible: true,
+                mode: OverlayMode::Recording,
+                position: config.app.overlay_position,
+                show_waveform: true,
+                show_timer: true,
+                show_cancel: true,
+                message: "Recording",
+            },
+            AppShellEvent::Processing { stage } => {
+                let (mode, message) = match stage {
+                    ProcessingStage::WritingAudio => (OverlayMode::WritingAudio, "Writing audio"),
+                    ProcessingStage::Uploading => (OverlayMode::Uploading, "Transcribing"),
+                    ProcessingStage::InsertingText => (OverlayMode::InsertingText, "Inserting"),
+                };
+                Self {
+                    visible: true,
+                    mode,
+                    position: config.app.overlay_position,
+                    show_waveform: false,
+                    show_timer: false,
+                    show_cancel: true,
+                    message,
+                }
+            }
+            AppShellEvent::Error { .. } => Self {
+                visible: true,
+                mode: OverlayMode::Error,
+                position: config.app.overlay_position,
+                show_waveform: false,
+                show_timer: false,
+                show_cancel: false,
+                message: "Error",
+            },
+            AppShellEvent::Inserted | AppShellEvent::Empty | AppShellEvent::Idle => {
+                Self::hidden(config)
+            }
+            AppShellEvent::Busy { .. } => Self {
+                visible: true,
+                mode: OverlayMode::Uploading,
+                position: config.app.overlay_position,
+                show_waveform: false,
+                show_timer: false,
+                show_cancel: true,
+                message: "Busy",
+            },
+        }
+    }
+
+    fn hidden(config: &Config) -> Self {
+        Self {
+            visible: false,
+            mode: OverlayMode::Hidden,
+            position: config.app.overlay_position,
+            show_waveform: false,
+            show_timer: false,
+            show_cancel: false,
+            message: "",
+        }
+    }
+}
+
+impl HistoryEntry {
+    pub fn completed(
+        timestamp_unix_ms: u64,
+        text: String,
+        status: HistoryStatus,
+        config: &Config,
+        audio_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            timestamp_unix_ms,
+            text,
+            status,
+            endpoint: config.asr.base_url.clone(),
+            model: config.asr.model.clone(),
+            audio_path,
+            saved: false,
+        }
+    }
+}
+
+pub fn apply_text_settings(mut text: String, config: &Config) -> String {
+    if config.text.filter_filler_words {
+        let fillers = ["um", "uh", "erm"];
+        text = text
+            .split_whitespace()
+            .filter(|word| {
+                let normalized = word
+                    .trim_matches(|ch: char| !ch.is_alphanumeric())
+                    .to_ascii_lowercase();
+                !fillers.contains(&normalized.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+
+    if config.text.append_trailing_space && !text.ends_with(' ') {
+        text.push(' ');
+    }
+
+    text
 }
 
 impl AsrEndpointSettings {

@@ -5,8 +5,9 @@ use crate::core::asr::AsrClient;
 use crate::core::audio::write_wav;
 use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
-use crate::core::platform::{paste_with_clipboard_restore, PlatformAdapter};
+use crate::core::platform::{paste_with_output_config, PlatformAdapter};
 use crate::core::recorder::Recorder;
+use crate::core::settings_ui::apply_text_settings;
 use crate::core::state::{RecordingState, ToggleOutcome};
 
 pub struct VoiceController<R, A, P, E = NoopEventSink> {
@@ -116,7 +117,8 @@ where
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::Uploading,
         });
-        let transcription = self.asr.transcribe_file(temp_file.path()).await?;
+        let mut transcription = self.asr.transcribe_file(temp_file.path()).await?;
+        transcription.text = apply_text_settings(transcription.text, &self.config);
         eprintln!(
             "openvoice-desktop asr: upload_response_ms={}",
             ms(transcription.elapsed)
@@ -133,13 +135,7 @@ where
             stage: ProcessingStage::InsertingText,
         });
         let paste_start = Instant::now();
-        paste_with_clipboard_restore(
-            &self.platform,
-            &transcription.text,
-            self.config.behavior.restore_clipboard,
-            Duration::from_millis(self.config.behavior.clipboard_restore_delay_ms),
-        )
-        .await?;
+        paste_with_output_config(&self.platform, &transcription.text, &self.config.output).await?;
         eprintln!(
             "openvoice-desktop paste: paste_ms={}",
             ms(paste_start.elapsed())

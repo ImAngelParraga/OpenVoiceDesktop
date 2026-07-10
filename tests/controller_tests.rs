@@ -22,7 +22,8 @@ async fn toggle_runs_record_transcribe_insert_and_restore_clipboard() {
     let observations = platform.observations.clone();
 
     let mut config = Config::default();
-    config.behavior.clipboard_restore_delay_ms = 0;
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
     let mut controller = VoiceController::new(recorder, asr, platform, config);
 
     assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
@@ -97,7 +98,8 @@ async fn app_shell_events_precede_upload_and_paste() {
         observations: observations.clone(),
     };
     let mut config = Config::default();
-    config.behavior.clipboard_restore_delay_ms = 0;
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
     let mut controller = VoiceController::with_event_sink(recorder, asr, platform, config, events);
 
     assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
@@ -127,6 +129,35 @@ async fn app_shell_events_precede_upload_and_paste() {
     );
     assert!(observations.contains(&"event:Inserted".to_string()));
     assert!(observations.contains(&"event:Idle".to_string()));
+}
+
+#[tokio::test]
+async fn copy_only_output_leaves_transcript_without_triggering_paste() {
+    use openvoice_desktop::core::config::{ClipboardHandling, PasteMethod};
+
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "hello world".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(Some("original".to_string()));
+    let observations = platform.observations.clone();
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    config.output.paste_method = PasteMethod::CopyOnly;
+    config.output.clipboard_handling = ClipboardHandling::CopyOnly;
+    let mut controller = VoiceController::new(recorder, asr, platform, config);
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::Inserted {
+            text: "hello world".to_string()
+        }
+    );
+
+    let observations = observations.lock().unwrap().clone();
+    assert_eq!(observations, vec!["set_clipboard:hello world"]);
 }
 
 #[tokio::test]

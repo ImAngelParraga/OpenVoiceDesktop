@@ -16,6 +16,18 @@ pub struct Config {
     #[serde(default)]
     pub behavior: BehaviorConfig,
     #[serde(default)]
+    pub app: AppConfig,
+    #[serde(default)]
+    pub output: OutputConfig,
+    #[serde(default)]
+    pub text: TextConfig,
+    #[serde(default)]
+    pub history: HistoryConfig,
+    #[serde(default)]
+    pub debug: DebugConfig,
+    #[serde(default)]
+    pub onboarding: OnboardingConfig,
+    #[serde(default)]
     pub ipc: IpcConfig,
 }
 
@@ -52,6 +64,125 @@ pub struct BehaviorConfig {
     pub cancel_shortcut: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AppConfig {
+    pub start_hidden: bool,
+    pub autostart: bool,
+    pub show_tray_icon: bool,
+    pub show_overlay: bool,
+    pub overlay_position: OverlayPosition,
+    pub overlay_style: OverlayStyle,
+    pub experimental: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlayPosition {
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlayStyle {
+    Compact,
+    Expanded,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct OutputConfig {
+    pub paste_method: PasteMethod,
+    pub typing_tool: TypingTool,
+    pub clipboard_handling: ClipboardHandling,
+    pub auto_submit: bool,
+    pub paste_delay_ms: u64,
+    pub restore_delay_ms: u64,
+    pub external_script_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PasteMethod {
+    ClipboardPaste,
+    DirectType,
+    CopyOnly,
+    ExternalScript,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TypingTool {
+    Auto,
+    Wtype,
+    Xdotool,
+    SendInput,
+    ExternalScript,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClipboardHandling {
+    RestoreAfterPaste,
+    LeaveTranscript,
+    CopyOnly,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct TextConfig {
+    pub custom_words: Vec<String>,
+    pub fuzzy_correction_threshold: f32,
+    pub filter_filler_words: bool,
+    pub append_trailing_space: bool,
+    pub translate_language_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct HistoryConfig {
+    pub enabled: bool,
+    pub limit: usize,
+    pub retention: RecordingRetention,
+    pub recordings_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecordingRetention {
+    Never,
+    FailedOnly,
+    Always,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DebugConfig {
+    pub debug_shortcut: String,
+    pub log_level: LogLevel,
+    pub live_log_viewer: bool,
+    pub paste_delay_ms: u64,
+    pub recording_buffer_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct OnboardingConfig {
+    pub completed: bool,
+    pub show_permission_repair: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct IpcConfig {
@@ -72,6 +203,12 @@ impl Default for Config {
             asr: AsrConfig::default(),
             audio: AudioConfig::default(),
             behavior: BehaviorConfig::default(),
+            app: AppConfig::default(),
+            output: OutputConfig::default(),
+            text: TextConfig::default(),
+            history: HistoryConfig::default(),
+            debug: DebugConfig::default(),
+            onboarding: OnboardingConfig::default(),
             ipc: IpcConfig::default(),
         }
     }
@@ -112,6 +249,78 @@ impl Default for BehaviorConfig {
             shortcut: "Ctrl+Alt+Space".to_string(),
             push_to_talk: false,
             cancel_shortcut: "Escape".to_string(),
+        }
+    }
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            start_hidden: false,
+            autostart: false,
+            show_tray_icon: true,
+            show_overlay: true,
+            overlay_position: OverlayPosition::Top,
+            overlay_style: OverlayStyle::Compact,
+            experimental: false,
+        }
+    }
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            paste_method: PasteMethod::ClipboardPaste,
+            typing_tool: TypingTool::Auto,
+            clipboard_handling: ClipboardHandling::RestoreAfterPaste,
+            auto_submit: false,
+            paste_delay_ms: 25,
+            restore_delay_ms: 250,
+            external_script_path: None,
+        }
+    }
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self {
+            custom_words: Vec::new(),
+            fuzzy_correction_threshold: 0.85,
+            filter_filler_words: false,
+            append_trailing_space: false,
+            translate_language_hint: None,
+        }
+    }
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            limit: 100,
+            retention: RecordingRetention::Never,
+            recordings_dir: None,
+        }
+    }
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            debug_shortcut: "Ctrl+Alt+D".to_string(),
+            log_level: LogLevel::Info,
+            live_log_viewer: false,
+            paste_delay_ms: 25,
+            recording_buffer_ms: 0,
+        }
+    }
+}
+
+impl Default for OnboardingConfig {
+    fn default() -> Self {
+        Self {
+            completed: false,
+            show_permission_repair: true,
         }
     }
 }
@@ -228,13 +437,43 @@ fn migrate_config_toml(contents: &str) -> Result<Config> {
 
     match schema_version {
         0 => {
-            value
+            let root = value
                 .as_table_mut()
-                .ok_or_else(|| anyhow!("config root must be a TOML table"))?
-                .insert(
-                    "schema_version".to_string(),
-                    toml::Value::Integer(CURRENT_SCHEMA_VERSION.into()),
-                );
+                .ok_or_else(|| anyhow!("config root must be a TOML table"))?;
+            root.insert(
+                "schema_version".to_string(),
+                toml::Value::Integer(CURRENT_SCHEMA_VERSION.into()),
+            );
+            if !root.contains_key("output") {
+                let mut output = toml::map::Map::new();
+                if let Some(behavior) = root.get("behavior").and_then(toml::Value::as_table) {
+                    if let Some(restore) = behavior
+                        .get("restore_clipboard")
+                        .and_then(toml::Value::as_bool)
+                    {
+                        output.insert(
+                            "clipboard_handling".to_string(),
+                            toml::Value::String(
+                                if restore {
+                                    "restore-after-paste"
+                                } else {
+                                    "leave-transcript"
+                                }
+                                .to_string(),
+                            ),
+                        );
+                    }
+                    if let Some(delay) = behavior
+                        .get("clipboard_restore_delay_ms")
+                        .and_then(toml::Value::as_integer)
+                    {
+                        output.insert("restore_delay_ms".to_string(), toml::Value::Integer(delay));
+                    }
+                }
+                if !output.is_empty() {
+                    root.insert("output".to_string(), toml::Value::Table(output));
+                }
+            }
         }
         1 => {}
         version => {
