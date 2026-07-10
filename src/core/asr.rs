@@ -14,6 +14,7 @@ pub struct AsrRequestFields {
     pub language: Option<String>,
     pub prompt: Option<String>,
     pub temperature: f32,
+    pub timeout: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +77,7 @@ impl AsrClient for ReqwestAsrClient {
         let response = self
             .client
             .post(fields.url)
+            .timeout(fields.timeout)
             .bearer_auth(token)
             .multipart(form)
             .send()
@@ -106,6 +108,7 @@ pub fn request_fields(config: &Config) -> AsrRequestFields {
         language: config.asr.language.clone(),
         prompt: config.asr.prompt.clone(),
         temperature: 0.0,
+        timeout: Duration::from_secs(config.asr.timeout_seconds),
     }
 }
 

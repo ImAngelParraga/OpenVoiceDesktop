@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::asr::request_fields;
+use crate::core::config::Config;
+
 /// Settings window contract adapted from Handy's `H:src/components/Sidebar.tsx`.
 /// The app shell can render this model without coupling core code to Tauri/React.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +52,33 @@ pub enum SettingsControlKind {
     Select,
     Action,
     ReadOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AsrTokenSource {
+    Environment,
+    PlatformSecretStore,
+    PlaintextConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AsrTokenStatus {
+    pub configured: bool,
+    pub source: Option<AsrTokenSource>,
+    pub display: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AsrEndpointSettings {
+    pub base_url: String,
+    pub model: String,
+    pub language: Option<String>,
+    pub prompt: Option<String>,
+    pub timeout_seconds: u64,
+    pub transcription_url: String,
+    pub token_status: AsrTokenStatus,
+    pub test_endpoint_action_id: &'static str,
 }
 
 impl SettingsWindowLayout {
@@ -161,6 +191,17 @@ impl SettingsWindowLayout {
                             SettingsControlKind::SecretStatus,
                             "asr.bearer_token",
                         ),
+                        SettingsControl::bound(
+                            "timeout",
+                            "Timeout",
+                            SettingsControlKind::Number,
+                            "asr.timeout_seconds",
+                        ),
+                        SettingsControl::unbound(
+                            "test-endpoint",
+                            "Test endpoint",
+                            SettingsControlKind::Action,
+                        ),
                     ],
                 },
                 SettingsSection {
@@ -230,6 +271,49 @@ impl SettingsWindowLayout {
                     ],
                 },
             ],
+        }
+    }
+}
+
+impl AsrEndpointSettings {
+    pub fn from_config(config: &Config, token_source: Option<AsrTokenSource>) -> Self {
+        let fields = request_fields(config);
+        Self {
+            base_url: config.asr.base_url.clone(),
+            model: config.asr.model.clone(),
+            language: config.asr.language.clone(),
+            prompt: config.asr.prompt.clone(),
+            timeout_seconds: config.asr.timeout_seconds,
+            transcription_url: fields.url,
+            token_status: AsrTokenStatus::from_source(token_source),
+            test_endpoint_action_id: "test-endpoint",
+        }
+    }
+}
+
+impl AsrTokenStatus {
+    pub fn from_source(source: Option<AsrTokenSource>) -> Self {
+        match source {
+            Some(AsrTokenSource::Environment) => Self {
+                configured: true,
+                source,
+                display: "Configured via environment",
+            },
+            Some(AsrTokenSource::PlatformSecretStore) => Self {
+                configured: true,
+                source,
+                display: "Configured in platform secret store",
+            },
+            Some(AsrTokenSource::PlaintextConfig) => Self {
+                configured: true,
+                source,
+                display: "Configured in plaintext config",
+            },
+            None => Self {
+                configured: false,
+                source: None,
+                display: "Not configured",
+            },
         }
     }
 }

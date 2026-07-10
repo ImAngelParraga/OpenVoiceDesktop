@@ -27,6 +27,7 @@ pub struct AsrConfig {
     pub language: Option<String>,
     pub prompt: Option<String>,
     pub bearer_token: Option<String>,
+    pub timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -84,6 +85,7 @@ impl Default for AsrConfig {
             language: None,
             prompt: None,
             bearer_token: None,
+            timeout_seconds: 30,
         }
     }
 }

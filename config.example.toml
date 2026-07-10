@@ -3,6 +3,7 @@ schema_version = 1
 [asr]
 base_url = "http://127.0.0.1:9000"
 model = "whisper-1"
+timeout_seconds = 30
 # language = "en"
 # prompt = "Optional vocabulary or formatting hint"
 # Prefer OPENVOICE_DESKTOP_TOKEN or Secret Service instead of plaintext.

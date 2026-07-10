@@ -18,6 +18,7 @@ fn builds_openai_compatible_request_fields() {
     assert_eq!(fields.language.as_deref(), Some("en"));
     assert_eq!(fields.prompt.as_deref(), Some("project vocabulary"));
     assert_eq!(fields.temperature, 0.0);
+    assert_eq!(fields.timeout.as_secs(), 30);
 }
 
 #[test]

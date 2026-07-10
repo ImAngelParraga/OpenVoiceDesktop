@@ -10,6 +10,7 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.asr.base_url, "http://127.0.0.1:9000");
     assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
     assert_eq!(loaded.config.asr.model, "whisper-1");
+    assert_eq!(loaded.config.asr.timeout_seconds, 30);
     assert_eq!(loaded.config.audio.sample_rate_hz, 16_000);
     assert_eq!(loaded.config.audio.channels, 1);
     assert_eq!(loaded.config.audio.selected_microphone, None);
@@ -34,6 +35,7 @@ base_url = "https://asr.example.test/"
 model = "large-v3"
 language = "en"
 prompt = "names"
+timeout_seconds = 45
 
 [behavior]
 restore_clipboard = false
@@ -47,6 +49,8 @@ clipboard_restore_delay_ms = 100
     assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
     assert_eq!(loaded.config.asr.model, "large-v3");
     assert_eq!(loaded.config.asr.language.as_deref(), Some("en"));
+    assert_eq!(loaded.config.asr.prompt.as_deref(), Some("names"));
+    assert_eq!(loaded.config.asr.timeout_seconds, 45);
     assert!(!loaded.config.behavior.restore_clipboard);
 }
 
@@ -81,6 +85,7 @@ cancel_shortcut = "Ctrl+Escape"
     assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
     assert_eq!(loaded.config.asr.base_url, "https://legacy.example.test");
     assert_eq!(loaded.config.asr.model, "legacy-model");
+    assert_eq!(loaded.config.asr.timeout_seconds, 30);
     assert_eq!(loaded.config.audio.sample_rate_hz, 48_000);
     assert_eq!(loaded.config.audio.channels, 1);
     assert_eq!(

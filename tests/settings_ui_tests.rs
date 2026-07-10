@@ -1,4 +1,8 @@
-use openvoice_desktop::core::settings_ui::{SettingsSectionId, SettingsWindowLayout};
+use openvoice_desktop::core::config::Config;
+use openvoice_desktop::core::settings_ui::{
+    AsrEndpointSettings, AsrTokenSource, SettingsControlKind, SettingsSectionId,
+    SettingsWindowLayout,
+};
 
 #[test]
 fn settings_window_layout_matches_t3_sidebar_sections() {
@@ -67,6 +71,7 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
         for control in &section.controls {
             assert!(
                 control.config_key.is_some()
+                    || matches!(control.kind, SettingsControlKind::Action)
                     || matches!(
                         control.id,
                         "history-placeholder" | "version" | "config-path" | "handy-acknowledgement"
@@ -83,6 +88,7 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"asr.language"));
     assert!(config_keys.contains(&"asr.prompt"));
     assert!(config_keys.contains(&"asr.bearer_token"));
+    assert!(config_keys.contains(&"asr.timeout_seconds"));
     assert!(config_keys.contains(&"behavior.shortcut"));
     assert!(config_keys.contains(&"behavior.push_to_talk"));
     assert!(config_keys.contains(&"behavior.cancel_shortcut"));
@@ -96,6 +102,70 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"behavior.restore_clipboard"));
     assert!(config_keys.contains(&"behavior.clipboard_restore_delay_ms"));
     assert!(config_keys.contains(&"ipc.socket_path"));
+}
+
+#[test]
+fn asr_endpoint_settings_exposes_t5_endpoint_controls() {
+    let layout = SettingsWindowLayout::default_layout();
+    let endpoint = layout
+        .sections
+        .iter()
+        .find(|section| section.id == SettingsSectionId::AsrEndpoint)
+        .unwrap();
+
+    let controls: Vec<(&str, Option<&str>, SettingsControlKind)> = endpoint
+        .controls
+        .iter()
+        .map(|control| (control.id, control.config_key, control.kind))
+        .collect();
+
+    assert_eq!(
+        controls,
+        vec![
+            ("base-url", Some("asr.base_url"), SettingsControlKind::Text),
+            ("model", Some("asr.model"), SettingsControlKind::Text),
+            ("language", Some("asr.language"), SettingsControlKind::Text),
+            ("prompt", Some("asr.prompt"), SettingsControlKind::TextArea),
+            (
+                "token-status",
+                Some("asr.bearer_token"),
+                SettingsControlKind::SecretStatus
+            ),
+            (
+                "timeout",
+                Some("asr.timeout_seconds"),
+                SettingsControlKind::Number
+            ),
+            ("test-endpoint", None, SettingsControlKind::Action),
+        ]
+    );
+}
+
+#[test]
+fn asr_endpoint_settings_model_redacts_token_and_keeps_remote_url() {
+    let mut config = Config::default();
+    config.asr.base_url = "https://asr.example.test/".to_string();
+    config.asr.model = "large-v3".to_string();
+    config.asr.language = Some("en".to_string());
+    config.asr.prompt = Some("secret project vocabulary".to_string());
+    config.asr.bearer_token = Some("super-secret-token".to_string());
+    config.asr.timeout_seconds = 42;
+
+    let model = AsrEndpointSettings::from_config(&config, Some(AsrTokenSource::PlaintextConfig));
+    let serialized = serde_json::to_string(&model).unwrap();
+
+    assert_eq!(
+        model.transcription_url,
+        "https://asr.example.test/v1/audio/transcriptions"
+    );
+    assert_eq!(model.timeout_seconds, 42);
+    assert!(model.token_status.configured);
+    assert_eq!(
+        model.token_status.source,
+        Some(AsrTokenSource::PlaintextConfig)
+    );
+    assert_eq!(model.test_endpoint_action_id, "test-endpoint");
+    assert!(!serialized.contains("super-secret-token"));
 }
 
 #[test]
