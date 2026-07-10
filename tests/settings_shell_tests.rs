@@ -37,3 +37,11 @@ fn production_settings_path_contains_no_localhost_server_or_external_browser() {
     assert!(!SHELL_RS.contains("open_url"));
     assert!(!SHELL_RS.contains("http://127.0.0.1"));
 }
+
+#[test]
+fn test_v23_desktop_shell_assets_exist() {
+    let config: serde_json::Value = serde_json::from_str(TAURI_CONFIG).unwrap();
+    assert_eq!(config["build"]["frontendDist"], "ui");
+    assert!(std::path::Path::new("ui/index.html").is_file());
+    assert!(std::path::Path::new("icons/icon.png").is_file());
+}

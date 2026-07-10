@@ -85,6 +85,7 @@ V19: Device invariant: microphone/output selectors enumerate current devices, id
 V20: Audio-settings invariant: ASR encoding displays effective defaults (`16000` Hz, mono) and validates supported values; feedback device/volume/theme and mute/always-on controls affect real audio lifecycle or remain unavailable.
 V21: Action invariant: every tray/settings action performs named operation and reports success/sanitized failure; no placeholder redirects such as `Action available in settings UI`.
 V22: Completeness invariant: CI maintains explicit inventory of every config field and settings action; adding visible field/action without render, validation, persistence, runtime/action, and test fails.
+V23: Desktop-shell invariant: `cargo test --features desktop-shell` passes on Linux and Windows; every Tauri configured/generated bundle asset exists.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -158,3 +159,4 @@ T64|.|Onboarding state|Implement first-run permission/endpoint/microphone/shortc
 id|date|cause|fix
 B1|2026-07-10|Settings work built config/UI contract but no user-invokable settings surface existed|V14
 B2|2026-07-10|Settings tasks marked complete from schema/model/string tests without render-persist-runtime/action proof, exposing dead controls and placeholder tray actions|V15,V16,V17,V18,V19,V20,V21,V22
+B3|2026-07-10|Tauri generated context required missing default `icons/icon.png`, breaking desktop-shell builds on Linux and Windows|V23
