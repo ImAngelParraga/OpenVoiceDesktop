@@ -4,16 +4,20 @@
 G1: Build OpenVoiceDesktop into Handy-like desktop dictation app: fast visible feedback, polished settings, tray, overlay, configurable behavior.
 G2: Keep primary transcription path remote OpenAI-compatible ASR: record audio, send `{base_url}/v1/audio/transcriptions`, paste returned text.
 G3: Use Handy as UX/reference code, not fork base. Handy ref: `https://github.com/cjpais/Handy`, commit `1c4f21acd2bab81f75a0cd7556cd3bb7399ffd9a`, release `v0.9.1`.
+G4: Settings is production control surface, not schema preview: every visible value/action must describe and control real runtime behavior.
 
 §C
 C1: No local offline model manager in v1. Do not add `transcribe-cpp`, `transcribe-rs`, ONNX, Vulkan, Metal, model downloads, or model unload controls unless later product decision changes.
 C2: Remote ASR endpoint config stays first-class: `base_url`, `model`, token source, language, prompt, timeout/retry.
-C3: UI may use Tauri/React if chosen, but core ASR/record/paste stays testable as Rust library.
+C3: Use Tauri 2 desktop shell with bundled frontend assets and system webview (WebView2 on Windows); core ASR/record/paste stays testable as Rust library. Do not open settings in external browser or expose production settings through localhost HTTP.
 C4: GNOME Wayland and Windows 10/11 remain target platforms. macOS support can be designed but not required by current README.
 C5: Secrets never logged. Token UI must store through platform secret store when possible; config plaintext token remains fallback only.
 C6: Handy code references use `H:<path>` relative to Handy repo at pinned commit. New agent should clone with: `git clone https://github.com/cjpais/Handy /tmp/Handy-review && git -C /tmp/Handy-review checkout 1c4f21acd2bab81f75a0cd7556cd3bb7399ffd9a`.
 C7: Preserve low dependency surface unless feature requires app shell. Avoid importing Handy local inference dependencies.
 C8: UX must feel immediate even when remote ASR latency exists: state changes visible before network call starts.
+C9: Prefer desktop webview window over platform-native widget toolkit. True WinUI widgets are out of scope unless webview accessibility or integration fails.
+C10: No visible enabled control/action may be a placeholder. Unsupported optional features stay hidden or visibly disabled with exact availability reason.
+C11: Settings save must either apply atomically to running daemon or explicitly mark field restart-required before save; silent stale runtime forbidden.
 
 §I
 I.cli: Existing CLI: `openvoice-desktop daemon|toggle|config-path`. Add Handy-like remote-control flags only if compatible: `--toggle-transcription`, `--cancel`, `--start-hidden`, `--debug`.
@@ -38,6 +42,25 @@ I.handy.onboarding: `H:src/App.tsx`, `H:src/components/onboarding/*`, `H:src/com
 I.handy.updates: `H:src/components/update-checker/UpdateChecker.tsx`, `H:src/components/whats-new/*`, `H:src-tauri/src/shortcut/mod.rs` update-related settings. Optional until releases exist.
 I.handy.i18n: `H:src/i18n/*`, `H:src-tauri/src/tray_i18n.rs`, locale JSON files implement app language and tray translations.
 I.handy.portable: `H:src-tauri/src/portable.rs`, `H:src-tauri/src/cli.rs` implement portable mode and extra CLI. Optional.
+I.shell: Tauri 2 owns single-instance lifecycle, settings window, tray, overlays, global shortcuts, native dialogs/openers, autostart, and app events. Existing Rust core remains library/backend.
+I.settings.status: `W` = runtime-effective after daemon restart, `P` = partial/model-only, `D` = dead/misleading. Audit baseline 2026-07-10 follows.
+I.settings.general: `D behavior.shortcut`, `D behavior.push_to_talk`, `D behavior.cancel_shortcut`, `D audio.selected_microphone`, `D audio.mute_while_recording`, `D audio.audio_feedback`, `D audio.selected_output_device`, `D audio.always_on_microphone`, `D audio.audio_feedback_volume`, `D audio.sound_theme`, `D audio.sample_rate_hz`, `D audio.channels`. Windows hotkey is hardcoded `Ctrl+Space`; recorder always uses default input and fixed 16 kHz mono output; sound/mute/always-on paths are not invoked.
+I.settings.asr: `W asr.base_url`, `W asr.model`, `W asr.language`, `W asr.prompt`, `W asr.timeout_seconds` after restart; `P asr.bearer_token` because UI is plaintext password input, not token-source/status/secret-store workflow; `D test-endpoint` action.
+I.settings.app: `D app.start_hidden`, `D app.autostart`, `D app.show_tray_icon`, `D app.show_overlay`, `D app.overlay_position`, `D app.overlay_style`, `D app.experimental`, `D ui.language`, `D ui.theme`, `D updates.check_for_updates`, `D updates.show_whats_new`, `D portable.enabled`, `D behavior.restore_clipboard`, `D behavior.clipboard_restore_delay_ms`. Overlay/theme/tray models exist but active Windows shell does not consume them.
+I.settings.output: `P output.paste_method` because clipboard/direct/copy work but external-script does not execute; `D output.typing_tool`; `W output.clipboard_handling`, `W output.paste_delay_ms`, `W output.restore_delay_ms` after restart; `D output.auto_submit`, `D output.external_script_path`.
+I.settings.text: `D text.custom_words`, `D text.fuzzy_correction_threshold`, `D text.translate_language_hint`, `D text.vad_enabled`, `D text.silence_trim_enabled`; `W text.filter_filler_words`, `W text.append_trailing_space` after restart. VAD helper exists but controller never calls it.
+I.settings.postprocess: `D post_processing.enabled`, `D post_processing.base_url`, `D post_processing.model`, `D post_processing.bearer_token`, `D post_processing.timeout_seconds`; no chat request/runtime consumer.
+I.settings.history: `D history.enabled`, `D history.limit`, `D history.retention`, `D history.recordings_dir`; `D open-recordings-folder`, `D delete-transcript`, `D retry-transcript`, `D save-transcript`; no persistence store or action handlers.
+I.settings.debug: `D debug.debug_shortcut`, `D debug.log_level`, `D debug.live_log_viewer`, `D debug.paste_delay_ms`, `D debug.recording_buffer_ms`, `D debug.pre_recording_buffer_ms`, `D debug.post_recording_buffer_ms`, `D debug.structured_logs`, `D debug.log_directory`; `D diagnostics.store_last_latency_metrics`, `D diagnostics.last_upload_latency_ms`, `D diagnostics.last_http_status`, `D diagnostics.last_sanitized_body`; `P ipc.socket_path` because runtime uses it on Linux but panel cannot render/save it and Windows uses fixed named pipe; `D open-log-directory`, `D open-app-data-directory`.
+I.settings.hidden: `D audio.custom_start_sound`, `D audio.custom_stop_sound`, `D audio.custom_error_sound`, `D updates.release_channel`, `D portable.data_dir`, `D onboarding.completed`, `D onboarding.show_permission_repair`; config fields exist but no complete UI/runtime workflow.
+I.settings.about: `D version/config-path/app-data-path/logs-path/license/repository/handy-acknowledgement`; model exists but browser renderer skips every unbound/read-only control.
+I.settings.crosscut: Browser panel skips all unbound `Action`/`ReadOnly` controls, lacks validation/ranges/options for many bound controls, does not enumerate devices, and writes config without notifying/reloading daemon.
+I.tray.audit: Working: Settings, Cancel, Open Config Folder, Quit. Dead/misleading: Copy Last Transcript, Test Endpoint, Open Logs. Menu enable/state model is not connected to Win32 menu.
+
+§R
+R1: Tauri 2 Windows uses Microsoft Edge WebView2; Windows 10/11 normally provide runtime. `https://v2.tauri.app/start/prerequisites/`; `https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution`
+R2: Tauri 2 global-shortcut plugin supports Windows/Linux registration plus pressed/released events, fitting toggle and push-to-talk. `https://v2.tauri.app/plugin/global-shortcut/`
+R3: Tauri 2 official desktop surfaces cover system tray, autostart, logging, opener, single-instance, updater, window state. `https://v2.tauri.app/plugin/`
 
 §V
 V1: Remote ASR invariant: every transcription request goes to `{base_url.trim_end_matches('/')}/v1/audio/transcriptions`; no local model inference path used by default.
@@ -54,6 +77,14 @@ V11: UI invariant: all settings visible in UI map to persisted config and can be
 V12: Test invariant: every new platform-independent feature has unit tests; platform behavior has adapter boundary tests or documented manual verification.
 V13: Handy-reference invariant: every Handy-inspired feature task cites `H:<path>` so new agent can inspect upstream behavior.
 V14: Visible settings invariant: Settings UI must be user-invokable from the app surface (`openvoice-desktop settings` and tray Settings where tray exists), render persisted config fields, and save edits without hand-editing TOML.
+V15: Honest-control invariant: every visible enabled settings control/action has automated proof of current-value render, validated persistence/action, and runtime consumption; otherwise hidden or disabled with reason.
+V16: Native-window invariant: tray Settings focuses one desktop application window; no external browser, localhost listener, duplicate settings process, or duplicate daemon.
+V17: Live-config invariant: successful Save reports per-field applied/restart-required status; runtime-effective fields update daemon before success response; invalid update preserves prior config/runtime.
+V18: Shortcut invariant: displayed toggle/push-to-talk/cancel shortcuts equal registered shortcuts; default toggle is `Ctrl+Space`; conflicts return visible error without losing prior registration.
+V19: Device invariant: microphone/output selectors enumerate current devices, identify system default, persist stable selection, use selected device, and fall back visibly when device disappears.
+V20: Audio-settings invariant: ASR encoding displays effective defaults (`16000` Hz, mono) and validates supported values; feedback device/volume/theme and mute/always-on controls affect real audio lifecycle or remain unavailable.
+V21: Action invariant: every tray/settings action performs named operation and reports success/sanitized failure; no placeholder redirects such as `Action available in settings UI`.
+V22: Completeness invariant: CI maintains explicit inventory of every config field and settings action; adding visible field/action without render, validation, persistence, runtime/action, and test fails.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -98,6 +129,32 @@ T38|x|Portable mode optional|Support portable config/data next to executable onl
 T39|x|Installer integration|Update Linux and Windows installers for UI shell, autostart, tray, dependencies, config migration.|H:BUILD.md; H:src-tauri/tauri.conf.json; H:src-tauri/nsis/installer.nsi|V8,V9
 T40|x|Remove local-model features from scope|Document exclusions: model download/delete/select, GPU accelerator, model unload, local headless transcription, local streaming internals. Replace with remote endpoint equivalents where needed.|H:src-tauri/src/managers/model.rs; H:src-tauri/src/commands/models.rs; H:src/components/settings/models/*|V1,V13
 
+T41|.|Settings control inventory gate|Encode `I.settings.*` inventory in tests. Require each control state `working` or `unavailable`; delete contract-only tests that pass on string presence.|H:src/components/Sidebar.tsx|V15,V22
+T42|.|Native settings shell|Replace localhost/browser panel with single-instance Tauri 2 settings window; tray/CLI focus existing window; preserve Rust config/core APIs.|H:src/App.tsx; H:src-tauri/src/lib.rs|V14,V16,I.shell
+T43|.|Settings API and live reload|Add typed get/save commands, validation, atomic file write, daemon update channel, per-field apply/restart result, rollback on rejection. Cover every field in `I.settings.*`.|H:src-tauri/src/settings.rs; H:src-tauri/src/commands/mod.rs|V8,V15,V17,V22
+T44|.|Shortcut runtime|Default `behavior.shortcut` to `Ctrl+Space`; parse/register toggle, push-to-talk press/release, cancel, and debug shortcuts; live re-register with conflict rollback.|H:src-tauri/src/shortcut/mod.rs; H:src-tauri/src/shortcut/tauri_impl.rs|V3,V5,V18
+T45|.|Input device settings|Enumerate CPAL microphones, mark default, persist `audio.selected_microphone`, instantiate recorder with selection, refresh list, and visibly fall back if missing. Implement or remove `audio.always_on_microphone` based measured latency value.|H:src/components/settings/MicrophoneSelector.tsx; H:src/components/settings/AlwaysOnMicrophone.tsx|V15,V19,V20
+T46|.|ASR encoding settings|Render `audio.sample_rate_hz=16000` and `audio.channels=1`; choose fixed read-only encoding or implement validated resample/channel targets. Remove editable values that recorder ignores.|H:src-tauri/src/commands/audio.rs|V15,V20
+T47|.|Mute lifecycle|Implement `audio.mute_while_recording` through platform audio-session adapter; always restore on stop, cancel, recorder error, ASR error, paste error, and shutdown.|H:src/components/settings/MuteWhileRecording.tsx|V5,V15,V20
+T48|.|Audio feedback|Enumerate output devices; implement start/stop/error playback, `audio.selected_output_device`, clamped `audio.audio_feedback_volume`, default/minimal/custom `audio.sound_theme`, and custom sound paths; disable dependent controls when feedback off.|H:src-tauri/src/audio_feedback.rs; H:src/components/settings/AudioFeedback.tsx; H:src/components/settings/SoundPicker.tsx|V15,V19,V20
+T49|.|App lifecycle settings|Implement `app.start_hidden`, `app.autostart`, `app.show_tray_icon`, and safe recovery when tray hidden; installer and Tauri autostart state must agree.|H:src/components/settings/StartHidden.tsx; H:src/components/settings/AutostartToggle.tsx; H:src/components/settings/ShowTrayIcon.tsx|V15,V16,V17
+T50|.|Overlay settings|Connect events to real overlay window; implement `app.show_overlay`, `overlay_position`, `overlay_style`, experimental availability, live mic levels, cancel; position/style changes apply live.|H:src/overlay/RecordingOverlay.tsx; H:src/overlay/RecordingOverlay.css|V3,V5,V15,V17
+T51|.|Language, theme, updates|Implement supported locale catalog for `ui.language`; apply `ui.theme` system/light/dark to settings/overlay/tray assets. Hide update controls until release service exists, then implement `updates.check_for_updates`, `updates.show_whats_new`, and `updates.release_channel`.|H:src/i18n/*; H:src/components/settings/ThemeSelector.tsx; H:src/components/update-checker/*|V15,V17
+T52|.|Portable mode|Implement `portable.enabled/data_dir` before config resolution with migration/secret constraints, or remove control from normal builds. Mode change is restart-required and never strands config.|H:src-tauri/src/portable.rs|V8,V15,V17
+T53|.|Output completion|Keep working paste/clipboard/delays; wire `output.typing_tool`; implement auto-submit and external script execution with path/exit validation. Remove legacy `behavior.restore_clipboard/clipboard_restore_delay_ms` UI or map one canonical source.|H:src/components/settings/PasteMethod.tsx; H:src/components/settings/TypingTool.tsx; H:src/components/settings/AutoSubmit.tsx; H:src-tauri/src/clipboard.rs|V6,V7,V9,V15
+T54|.|Text processing completion|Implement UI persistence/runtime for `custom_words`, fuzzy threshold, translate hint; define deterministic correction/translation semantics. Keep filler filtering/trailing space and test interactions/order.|H:src/components/settings/CustomWords.tsx; H:src-tauri/src/audio_toolkit/text.rs|V1,V10,V15
+T55|.|VAD and recording buffers|Call VAD/silence trim before upload; implement empty/trim behavior. Apply recording/pre/post buffers to capture lifecycle with bounded memory; consolidate duplicate buffer fields.|H:src-tauri/src/audio_toolkit/vad/*; H:src/components/settings/VoiceActivityDetection.tsx; H:src/components/settings/debug/RecordingBuffer.tsx|V1,V3,V15
+T56|.|Post-processing|Implement optional OpenAI-compatible chat path for all `post_processing.*` fields, separate secret storage/token, timeout, cancellation, error fallback, and UI status; otherwise hide entire section.|H:src/components/settings/post-processing/*; H:src-tauri/src/llm_client.rs|V1,V2,V5,V15
+T57|.|History subsystem|Persist completed/failed transcripts with endpoint/model metadata; implement `history.enabled/limit/retention/recordings_dir`, retention cleanup, open folder, delete/retry/save actions, and Copy Last Transcript.|H:src-tauri/src/managers/history.rs; H:src/components/settings/history/HistorySettings.tsx|V6,V10,V15,V21
+T58|.|Logging and diagnostics|Add structured rotating file logs honoring level/directory; implement live viewer, open logs/app-data, latency/status/sanitized-body metrics, and define/remove debug shortcut/paste-delay duplication. Never log tokens/transcript body by default.|H:src/components/settings/debug/*; H:src-tauri/src/commands/mod.rs|V2,V15,V21
+T59|.|ASR token and endpoint test|Show actual token source/status; write secrets to Credential Manager/Secret Service, plaintext only explicit fallback. Test endpoint with configured URL/model/auth/timeout and show latency/status/sanitized response without recording.|H:src/components/settings/general/ModelSettingsCard.tsx; H:src/components/settings/debug/LiveLogViewer.tsx|V1,V2,V15,V21
+T60|.|About and paths|Render version/license/repository/config/app-data/log paths and acknowledgement as read-only values/actions; validate `ipc.socket_path`, platform applicability, and restart requirement.|H:src/components/settings/about/AboutSettings.tsx|V13,V15,V17,V21
+T61|.|Tray action/state completion|Connect dynamic menu model; implement Copy Last Transcript, Test Endpoint, Open Logs; enable Cancel only while active; reflect recording/processing/error icon state; remove placeholder message.|H:src-tauri/src/tray.rs|V3,V4,V15,V21
+T62|.|Installer and process lifecycle|Package Tauri/WebView prerequisites, stop/upgrade running binary safely, enforce one daemon/settings instance, preserve config, create correct autostart entry, and test install-upgrade-start path.|H:BUILD.md; H:src-tauri/tauri.conf.json|V8,V16,V17
+T63|.|Settings end-to-end matrix|Windows UI automation: open from tray, inspect defaults/options, modify each working control, assert file and runtime, exercise every action/error. Linux adapter tests plus documented manual GNOME pass.|H:src/App.tsx|V12,V15,V16,V17,V18,V19,V20,V21,V22
+T64|.|Onboarding state|Implement first-run permission/endpoint/microphone/shortcut flow backed by `onboarding.completed` and `onboarding.show_permission_repair`, or remove both fields until onboarding ships.|H:src/App.tsx; H:src/components/onboarding/*|V8,V15,V22
+
 §B
 id|date|cause|fix
 B1|2026-07-10|Settings work built config/UI contract but no user-invokable settings surface existed|V14
+B2|2026-07-10|Settings tasks marked complete from schema/model/string tests without render-persist-runtime/action proof, exposing dead controls and placeholder tray actions|V15,V16,V17,V18,V19,V20,V21,V22
