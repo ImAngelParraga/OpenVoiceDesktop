@@ -3,7 +3,7 @@ use anyhow::Result;
 
 #[cfg(target_os = "linux")]
 pub async fn run(config: Config) -> Result<()> {
-    use anyhow::{anyhow, Context};
+    use anyhow::Context;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
 
