@@ -7,9 +7,9 @@ use std::sync::{Mutex, OnceLock};
 use tokio::sync::mpsc;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, InvalidateRect,
-    SetBkMode, SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT,
-    TRANSPARENT,
+    BeginPaint, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
+    FillRect, InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
+    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -37,7 +37,11 @@ const HOTKEY_ID: i32 = 1;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_STATUS_POPUP: u32 = WM_APP + 2;
-const STATUS_POPUP_TIMER_ID: usize = 1;
+const WM_STATUS_HIDE: u32 = WM_APP + 3;
+const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
+const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
+const STATUS_POPUP_WIDTH: i32 = 220;
+const STATUS_POPUP_HEIGHT: i32 = 40;
 const MENU_OPEN_CONFIG: usize = 1002;
 const MENU_QUIT: usize = 1003;
 
@@ -46,6 +50,14 @@ static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
 static STATUS_POPUP_HWND: OnceLock<HWND> = OnceLock::new();
 static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
+static STATUS_POPUP_MODE: OnceLock<Mutex<StatusPopupMode>> = OnceLock::new();
+static STATUS_POPUP_FRAME: OnceLock<Mutex<u32>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusPopupMode {
+    Text,
+    RecordingBars,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
@@ -266,9 +278,41 @@ pub fn show_status_popup(text: &str, timeout_ms: Option<u32>) -> Result<()> {
     *text_lock.lock().unwrap() = text.to_string();
     let timeout_lock = STATUS_POPUP_TIMEOUT_MS.get_or_init(|| Mutex::new(None));
     *timeout_lock.lock().unwrap() = timeout_ms;
+    let mode_lock = STATUS_POPUP_MODE.get_or_init(|| Mutex::new(StatusPopupMode::Text));
+    *mode_lock.lock().unwrap() = StatusPopupMode::Text;
     unsafe {
         if PostMessageW(hwnd, WM_STATUS_POPUP, 0, 0) == 0 {
             return Err(anyhow!("posting Windows status popup message failed"));
+        }
+    }
+    Ok(())
+}
+
+pub fn show_recording_popup() -> Result<()> {
+    let hwnd = *STATUS_POPUP_HWND
+        .get()
+        .ok_or_else(|| anyhow!("Windows status popup is not initialized"))?;
+    let timeout_lock = STATUS_POPUP_TIMEOUT_MS.get_or_init(|| Mutex::new(None));
+    *timeout_lock.lock().unwrap() = None;
+    let mode_lock = STATUS_POPUP_MODE.get_or_init(|| Mutex::new(StatusPopupMode::Text));
+    *mode_lock.lock().unwrap() = StatusPopupMode::RecordingBars;
+    let frame_lock = STATUS_POPUP_FRAME.get_or_init(|| Mutex::new(0));
+    *frame_lock.lock().unwrap() = 0;
+    unsafe {
+        if PostMessageW(hwnd, WM_STATUS_POPUP, 0, 0) == 0 {
+            return Err(anyhow!("posting Windows recording popup message failed"));
+        }
+    }
+    Ok(())
+}
+
+pub fn hide_status_popup() -> Result<()> {
+    let hwnd = *STATUS_POPUP_HWND
+        .get()
+        .ok_or_else(|| anyhow!("Windows status popup is not initialized"))?;
+    unsafe {
+        if PostMessageW(hwnd, WM_STATUS_HIDE, 0, 0) == 0 {
+            return Err(anyhow!("posting Windows status popup hide message failed"));
         }
     }
     Ok(())
@@ -322,19 +366,42 @@ unsafe extern "system" fn status_popup_wnd_proc(
             position_status_popup(hwnd);
             InvalidateRect(hwnd, std::ptr::null(), 1);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            KillTimer(hwnd, STATUS_POPUP_TIMER_ID);
+            KillTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID);
+            KillTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID);
+            let mode = *STATUS_POPUP_MODE
+                .get_or_init(|| Mutex::new(StatusPopupMode::Text))
+                .lock()
+                .unwrap();
+            if mode == StatusPopupMode::RecordingBars {
+                SetTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID, 120, None);
+            }
             let timeout_ms = STATUS_POPUP_TIMEOUT_MS
                 .get_or_init(|| Mutex::new(None))
                 .lock()
                 .unwrap()
                 .unwrap_or(0);
             if timeout_ms > 0 {
-                SetTimer(hwnd, STATUS_POPUP_TIMER_ID, timeout_ms, None);
+                SetTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID, timeout_ms, None);
             }
             0
         }
-        WM_TIMER if wparam == STATUS_POPUP_TIMER_ID => {
+        WM_STATUS_HIDE => {
+            KillTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID);
+            KillTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID);
             ShowWindow(hwnd, SW_HIDE);
+            0
+        }
+        WM_TIMER if wparam == STATUS_POPUP_HIDE_TIMER_ID => {
+            KillTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID);
+            KillTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID);
+            ShowWindow(hwnd, SW_HIDE);
+            0
+        }
+        WM_TIMER if wparam == STATUS_POPUP_ANIMATION_TIMER_ID => {
+            let frame_lock = STATUS_POPUP_FRAME.get_or_init(|| Mutex::new(0));
+            let mut frame = frame_lock.lock().unwrap();
+            *frame = (*frame).wrapping_add(1);
+            InvalidateRect(hwnd, std::ptr::null(), 1);
             0
         }
         WM_PAINT => {
@@ -346,10 +413,14 @@ unsafe extern "system" fn status_popup_wnd_proc(
 }
 
 unsafe fn position_status_popup(hwnd: HWND) {
-    let width = 360;
-    let height = 54;
+    let width = STATUS_POPUP_WIDTH;
+    let height = STATUS_POPUP_HEIGHT;
     let x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
-    let y = GetSystemMetrics(SM_CYSCREEN) - height - 72;
+    let y = GetSystemMetrics(SM_CYSCREEN) - height - 64;
+    let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, height, height);
+    if region != 0 {
+        SetWindowRgn(hwnd, region, 1);
+    }
     SetWindowPos(
         hwnd,
         HWND_TOPMOST,
@@ -367,33 +438,82 @@ unsafe fn paint_status_popup(hwnd: HWND) {
     let rect = RECT {
         left: 0,
         top: 0,
-        right: 360,
-        bottom: 54,
+        right: STATUS_POPUP_WIDTH,
+        bottom: STATUS_POPUP_HEIGHT,
     };
     let brush = CreateSolidBrush(rgb(17, 20, 24));
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
-    SetBkMode(hdc, TRANSPARENT as i32);
-    SetTextColor(hdc, rgb(244, 247, 250));
-    let text = STATUS_POPUP_TEXT
-        .get_or_init(|| Mutex::new(String::new()))
-        .lock()
-        .unwrap()
-        .clone();
-    let mut text_rect = RECT {
-        left: 16,
-        top: 0,
-        right: 344,
-        bottom: 54,
-    };
-    DrawTextW(
+    let pen = CreatePen(PS_SOLID, 1, rgb(30, 34, 39));
+    let old_brush = SelectObject(hdc, brush);
+    let old_pen = SelectObject(hdc, pen);
+    RoundRect(
         hdc,
-        wide(&text).as_ptr(),
-        -1,
-        &mut text_rect,
-        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom,
+        STATUS_POPUP_HEIGHT,
+        STATUS_POPUP_HEIGHT,
     );
+    SelectObject(hdc, old_pen);
+    SelectObject(hdc, old_brush);
+    DeleteObject(pen);
+    DeleteObject(brush);
+
+    let mode = *STATUS_POPUP_MODE
+        .get_or_init(|| Mutex::new(StatusPopupMode::Text))
+        .lock()
+        .unwrap();
+    if mode == StatusPopupMode::RecordingBars {
+        draw_recording_bars(hdc);
+    } else {
+        SetBkMode(hdc, TRANSPARENT as i32);
+        SetTextColor(hdc, rgb(244, 247, 250));
+        let text = STATUS_POPUP_TEXT
+            .get_or_init(|| Mutex::new(String::new()))
+            .lock()
+            .unwrap()
+            .clone();
+        let mut text_rect = RECT {
+            left: 14,
+            top: 0,
+            right: STATUS_POPUP_WIDTH - 14,
+            bottom: STATUS_POPUP_HEIGHT,
+        };
+        DrawTextW(
+            hdc,
+            wide(&text).as_ptr(),
+            -1,
+            &mut text_rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+    }
     EndPaint(hwnd, &ps);
+}
+
+unsafe fn draw_recording_bars(hdc: isize) {
+    let frame = *STATUS_POPUP_FRAME
+        .get_or_init(|| Mutex::new(0))
+        .lock()
+        .unwrap();
+    let heights = [12, 18, 24, 28, 22, 16, 10, 14, 20, 26, 18, 12];
+    let bar_width = 7;
+    let gap = 4;
+    let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
+    let mut x = (STATUS_POPUP_WIDTH - total_width) / 2;
+    let brush = CreateSolidBrush(rgb(244, 247, 250));
+    for index in 0..heights.len() {
+        let height = heights[((index as u32 + frame) as usize) % heights.len()];
+        let y = (STATUS_POPUP_HEIGHT - height) / 2;
+        let rect = RECT {
+            left: x,
+            top: y,
+            right: x + bar_width,
+            bottom: y + height,
+        };
+        FillRect(hdc, &rect, brush);
+        x += bar_width + gap;
+    }
+    DeleteObject(brush);
 }
 
 fn load_logo_icon() -> Option<isize> {

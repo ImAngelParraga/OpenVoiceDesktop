@@ -31,3 +31,27 @@ fn test_v4_tray_uses_logo_icon_and_no_notification_balloon() {
         "Windows Ctrl+Space feedback should use small status popup UI"
     );
 }
+
+#[test]
+fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
+    assert!(
+        WINDOWS_RS.contains("const STATUS_POPUP_WIDTH: i32 = 220"),
+        "status popup should stay compact"
+    );
+    assert!(
+        WINDOWS_RS.contains("draw_recording_bars"),
+        "recording feedback should use bar UI instead of long recording text"
+    );
+    assert!(
+        WINDOWS_RS.contains("show_recording_popup"),
+        "started recording should switch the popup into recording bar mode"
+    );
+    assert!(
+        !WINDOWS_RS.contains("Processing audio"),
+        "processing state should not say 'Processing audio'"
+    );
+    assert!(
+        !WINDOWS_RS.contains("Transcript inserted"),
+        "successful paste should not show a transcript inserted popup"
+    );
+}
