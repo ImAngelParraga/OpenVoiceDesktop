@@ -163,6 +163,10 @@ Install helpers:
 sudo apt install wl-clipboard wtype libsecret-tools
 ```
 
+Linux paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`.
+`wl-copy`/`wl-paste` handle clipboard restore. Install `dotool`,
+`ydotool`, or `xdotool` only if your desktop needs that fallback.
+
 Install and enable the user service:
 
 ```bash
@@ -194,3 +198,7 @@ The core modules are independent of GNOME and Windows:
 - `platform::windows`: Windows tray, hotkey, clipboard paste, and status popup adapter
 
 Timing logs include record duration, WAV write time, upload/response time, and paste time. Bearer tokens are never printed.
+
+V1 intentionally excludes local model download/delete/select, GPU accelerator,
+model unload, local headless transcription, and local streaming internals.
+Configure remote ASR endpoint settings instead.

@@ -43,3 +43,17 @@ The controller emits these events:
 App-shell work must not add local model inference. The only transcription path
 remains `ReqwestAsrClient`, which builds requests for
 `{base_url.trim_end_matches('/')}/v1/audio/transcriptions`.
+
+## V1 Exclusions
+
+OpenVoiceDesktop V1 excludes Handy local-model features:
+
+- model download/delete/select
+- GPU accelerator selection
+- model unload controls
+- local headless transcription
+- local streaming internals
+
+Use remote endpoint equivalents instead: ASR `base_url`, ASR `model`, endpoint
+test/diagnostics, and disabled experimental live overlay until an endpoint
+streaming contract exists.

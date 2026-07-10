@@ -10,9 +10,12 @@ sudo apt install wl-clipboard wtype libsecret-tools
 
 - `wl-copy` and `wl-paste` handle clipboard save/set/restore.
 - `wtype` sends `Ctrl+V` on Wayland.
+- `dotool` and `ydotool` are supported Wayland fallback typing tools when installed.
+- `xdotool` is the X11 fallback.
 - `secret-tool` reads the token from Secret Service.
 
-If `wtype` cannot paste into the focused app, OpenVoiceDesktop leaves the transcript in the clipboard and notifies the user.
+Paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`.
+If none can paste into the focused app, OpenVoiceDesktop leaves the transcript in the clipboard and notifies the user.
 
 ## Shortcut
 

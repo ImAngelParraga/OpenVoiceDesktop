@@ -1,6 +1,9 @@
 use openvoice_desktop::core::audio::{
-    write_wav, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+    audio_feedback_plan, mute_restore_plan, recording_buffer_plan, resolve_input_device,
+    resolve_output_device, vad_decision, write_wav, AudioFeedbackEvent, DeviceSelection,
+    VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
+use openvoice_desktop::core::config::{AudioConfig, TextConfig};
 use openvoice_desktop::core::recorder::RecordedAudio;
 
 #[test]
@@ -28,4 +31,78 @@ fn ten_seconds_is_about_320kb_plus_header() {
 
     let stats = write_wav(file.path(), &audio).unwrap();
     assert!((319_000..=321_000).contains(&stats.bytes));
+}
+
+#[test]
+fn selected_audio_devices_fallback_when_missing() {
+    let mut config = AudioConfig::default();
+    config.selected_microphone = Some("Studio Mic".to_string());
+    config.selected_output_device = Some("Headphones".to_string());
+    let devices = vec!["Laptop Mic".to_string(), "Speakers".to_string()];
+
+    assert_eq!(
+        resolve_input_device(&config, &devices),
+        DeviceSelection::DefaultWithMissingSelected {
+            missing: "Studio Mic".to_string()
+        }
+    );
+    assert_eq!(
+        resolve_output_device(&config, &devices),
+        DeviceSelection::DefaultWithMissingSelected {
+            missing: "Headphones".to_string()
+        }
+    );
+}
+
+#[test]
+fn audio_feedback_and_mute_plans_restore_after_finish() {
+    let mut config = AudioConfig::default();
+    config.audio_feedback = true;
+    config.mute_while_recording = true;
+    config.audio_feedback_volume = 2.0;
+
+    let feedback = audio_feedback_plan(&config, AudioFeedbackEvent::Start).unwrap();
+    assert_eq!(feedback.volume, 1.0);
+    assert_eq!(feedback.event, AudioFeedbackEvent::Start);
+
+    let mute = mute_restore_plan(&config);
+    assert!(mute.mute_before_recording);
+    assert!(mute.restore_after_finish);
+}
+
+#[test]
+fn vad_is_optional_and_never_blocks_raw_remote_asr_when_disabled() {
+    let config = TextConfig::default();
+    assert_eq!(vad_decision(&[0, 0, 0], &config), VadDecision::RawRemoteAsr);
+
+    let mut enabled = TextConfig::default();
+    enabled.vad_enabled = true;
+    assert_eq!(vad_decision(&[0, 0, 0], &enabled), VadDecision::EmptyClip);
+
+    enabled.silence_trim_enabled = true;
+    assert_eq!(
+        vad_decision(&[0, 0, 512, 800, 0], &enabled),
+        VadDecision::Trim {
+            leading_samples: 2,
+            trailing_samples: 1
+        }
+    );
+}
+
+#[test]
+fn recording_buffer_uses_specific_pre_post_or_legacy_value() {
+    assert_eq!(
+        recording_buffer_plan(250, 0, 0),
+        openvoice_desktop::core::audio::RecordingBufferPlan {
+            pre_ms: 250,
+            post_ms: 250
+        }
+    );
+    assert_eq!(
+        recording_buffer_plan(250, 100, 200),
+        openvoice_desktop::core::audio::RecordingBufferPlan {
+            pre_ms: 100,
+            post_ms: 200
+        }
+    );
 }

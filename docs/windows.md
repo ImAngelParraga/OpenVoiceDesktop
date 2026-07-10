@@ -62,6 +62,8 @@ If `Ctrl+Space` does nothing, another Windows feature or app may have captured t
 ```
 
 The Windows adapter saves the current clipboard text, sets the transcript, sends `Ctrl+V`, then restores the previous clipboard after the configured delay.
+Paste behavior follows `[output]`: `clipboard-paste` restores or leaves the clipboard according to `clipboard_handling`, `copy-only` never sends `Ctrl+V`, and `direct-type` uses the native `SendInput` path.
+Paste errors are surfaced as user-facing error feedback while the transcript remains available through the clipboard/history path.
 
 ## Uninstall
 

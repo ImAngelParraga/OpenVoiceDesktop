@@ -13,10 +13,15 @@ timeout_seconds = 30
 sample_rate_hz = 16000
 channels = 1
 # selected_microphone = "default"
+always_on_microphone = false
 mute_while_recording = false
 audio_feedback = false
 # selected_output_device = "default"
 audio_feedback_volume = 0.5
+sound_theme = "default"
+# custom_start_sound = "/path/start.wav"
+# custom_stop_sound = "/path/stop.wav"
+# custom_error_sound = "/path/error.wav"
 
 [behavior]
 restore_clipboard = true
@@ -24,3 +29,61 @@ clipboard_restore_delay_ms = 250
 shortcut = "Ctrl+Alt+Space"
 push_to_talk = false
 cancel_shortcut = "Escape"
+
+[output]
+paste_method = "clipboard-paste"
+typing_tool = "auto"
+clipboard_handling = "restore-after-paste"
+auto_submit = false
+paste_delay_ms = 25
+restore_delay_ms = 250
+# external_script_path = "/path/paste.sh"
+
+[text]
+custom_words = []
+fuzzy_correction_threshold = 0.85
+filter_filler_words = false
+append_trailing_space = false
+vad_enabled = false
+silence_trim_enabled = false
+# translate_language_hint = "es"
+
+[history]
+enabled = true
+limit = 100
+retention = "never"
+# recordings_dir = "/path/openvoice-recordings"
+
+[debug]
+debug_shortcut = "Ctrl+Alt+D"
+log_level = "info"
+live_log_viewer = false
+paste_delay_ms = 25
+recording_buffer_ms = 0
+pre_recording_buffer_ms = 0
+post_recording_buffer_ms = 0
+structured_logs = true
+# log_directory = "/path/openvoice-logs"
+
+[diagnostics]
+store_last_latency_metrics = true
+
+[post_processing]
+enabled = false
+base_url = "http://127.0.0.1:9000"
+model = "gpt-4o-mini"
+timeout_seconds = 30
+# bearer_token = "replace-with-separate-llm-token-only"
+
+[ui]
+language = "en"
+theme = "system"
+
+[updates]
+check_for_updates = false
+show_whats_new = false
+# release_channel = "stable"
+
+[portable]
+enabled = false
+# data_dir = "/path/portable-data"

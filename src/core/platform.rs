@@ -15,6 +15,10 @@ pub trait PlatformAdapter: Send + Sync {
     async fn clipboard_text(&self) -> Result<Option<String>>;
     async fn set_clipboard_text(&self, text: &str) -> Result<()>;
     async fn trigger_paste(&self) -> Result<()>;
+    async fn type_text(&self, text: &str) -> Result<()> {
+        self.set_clipboard_text(text).await?;
+        self.trigger_paste().await
+    }
     async fn notify(&self, title: &str, body: &str) -> Result<()>;
 }
 
@@ -66,12 +70,27 @@ where
         tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
     }
 
-    if matches!(
-        output.paste_method,
-        PasteMethod::CopyOnly | PasteMethod::ExternalScript
-    ) || matches!(output.clipboard_handling, ClipboardHandling::CopyOnly)
+    if matches!(output.paste_method, PasteMethod::DirectType) {
+        platform.type_text(transcript).await?;
+        return Ok(PasteResult::Pasted);
+    }
+
+    if matches!(output.paste_method, PasteMethod::CopyOnly)
+        || matches!(output.clipboard_handling, ClipboardHandling::CopyOnly)
     {
         platform.set_clipboard_text(transcript).await?;
+        return Ok(PasteResult::LeftInClipboard);
+    }
+
+    if matches!(output.paste_method, PasteMethod::ExternalScript) {
+        platform.set_clipboard_text(transcript).await?;
+        platform
+            .notify(
+                "OpenVoiceDesktop external paste",
+                "Transcript copied; run the configured external paste script from the app shell.",
+            )
+            .await
+            .ok();
         return Ok(PasteResult::LeftInClipboard);
     }
 

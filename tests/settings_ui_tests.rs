@@ -2,9 +2,9 @@ use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::events::{AppShellEvent, ProcessingStage};
 use openvoice_desktop::core::settings_ui::{
     apply_text_settings, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
-    HistoryStatus, LiveOverlayCapability, OnboardingFlow, OnboardingStepId, OverlayMode,
-    OverlayView, PermissionCheck, SettingsControlKind, SettingsSectionId, SettingsWindowLayout,
-    TrayIconState, TrayMenuAction, TrayMenuModel,
+    HistoryStatus, LiveOverlayCapability, LocalModelExclusion, OnboardingFlow, OnboardingStepId,
+    OverlayMode, OverlayView, PermissionCheck, SettingsControlKind, SettingsSectionId,
+    SettingsWindowLayout, ThemeSelection, TrayIconState, TrayMenuAction, TrayMenuModel, UserToast,
 };
 use std::path::PathBuf;
 
@@ -103,10 +103,12 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"behavior.push_to_talk"));
     assert!(config_keys.contains(&"behavior.cancel_shortcut"));
     assert!(config_keys.contains(&"audio.selected_microphone"));
+    assert!(config_keys.contains(&"audio.always_on_microphone"));
     assert!(config_keys.contains(&"audio.mute_while_recording"));
     assert!(config_keys.contains(&"audio.audio_feedback"));
     assert!(config_keys.contains(&"audio.selected_output_device"));
     assert!(config_keys.contains(&"audio.audio_feedback_volume"));
+    assert!(config_keys.contains(&"audio.sound_theme"));
     assert!(config_keys.contains(&"audio.sample_rate_hz"));
     assert!(config_keys.contains(&"audio.channels"));
     assert!(config_keys.contains(&"behavior.restore_clipboard"));
@@ -130,6 +132,11 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"text.filter_filler_words"));
     assert!(config_keys.contains(&"text.append_trailing_space"));
     assert!(config_keys.contains(&"text.translate_language_hint"));
+    assert!(config_keys.contains(&"text.vad_enabled"));
+    assert!(config_keys.contains(&"text.silence_trim_enabled"));
+    assert!(config_keys.contains(&"post_processing.enabled"));
+    assert!(config_keys.contains(&"post_processing.base_url"));
+    assert!(config_keys.contains(&"post_processing.model"));
     assert!(config_keys.contains(&"history.enabled"));
     assert!(config_keys.contains(&"history.limit"));
     assert!(config_keys.contains(&"history.retention"));
@@ -139,6 +146,16 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"debug.live_log_viewer"));
     assert!(config_keys.contains(&"debug.paste_delay_ms"));
     assert!(config_keys.contains(&"debug.recording_buffer_ms"));
+    assert!(config_keys.contains(&"debug.pre_recording_buffer_ms"));
+    assert!(config_keys.contains(&"debug.post_recording_buffer_ms"));
+    assert!(config_keys.contains(&"debug.structured_logs"));
+    assert!(config_keys.contains(&"debug.log_directory"));
+    assert!(config_keys.contains(&"diagnostics.store_last_latency_metrics"));
+    assert!(config_keys.contains(&"ui.language"));
+    assert!(config_keys.contains(&"ui.theme"));
+    assert!(config_keys.contains(&"updates.check_for_updates"));
+    assert!(config_keys.contains(&"updates.show_whats_new"));
+    assert!(config_keys.contains(&"portable.enabled"));
     assert!(config_keys.contains(&"ipc.socket_path"));
 }
 
@@ -460,6 +477,44 @@ fn asr_endpoint_settings_model_redacts_token_and_keeps_remote_url() {
 }
 
 #[test]
+fn user_toasts_redact_raw_error_details_for_ui() {
+    let toast = UserToast::from_event(&AppShellEvent::Error {
+        message: "ASR failed with authorization Bearer secret-token".to_string(),
+    })
+    .unwrap();
+
+    assert_eq!(toast.title, "ASR failed");
+    assert!(toast.safe_for_ui);
+    assert!(!toast.body.contains("secret-token"));
+    assert!(toast.body.contains("[redacted]"));
+}
+
+#[test]
+fn theme_selection_applies_to_window_overlay_and_tray() {
+    let config = Config::default();
+    let theme = ThemeSelection::from_config(&config);
+
+    assert!(theme.applies_to_window);
+    assert!(theme.applies_to_overlay);
+    assert!(theme.applies_to_tray);
+}
+
+#[test]
+fn local_model_features_are_explicitly_out_of_scope() {
+    let exclusions = LocalModelExclusion::v1_exclusions();
+    let features: Vec<&str> = exclusions.iter().map(|item| item.feature).collect();
+
+    assert!(features.contains(&"model download/delete/select"));
+    assert!(features.contains(&"GPU accelerator"));
+    assert!(features.contains(&"model unload"));
+    assert!(features.contains(&"local headless transcription"));
+    assert!(features.contains(&"local streaming internals"));
+    assert!(exclusions
+        .iter()
+        .all(|item| item.replacement.contains("remote") || item.replacement.contains("endpoint")));
+}
+
+#[test]
 fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
     let layout = SettingsWindowLayout::default_layout();
     let general = layout
@@ -484,7 +539,9 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
             ("mute-while-recording", Some("audio.mute_while_recording")),
             ("audio-feedback", Some("audio.audio_feedback")),
             ("output-device", Some("audio.selected_output_device")),
+            ("always-on-microphone", Some("audio.always_on_microphone")),
             ("volume", Some("audio.audio_feedback_volume")),
+            ("sound-theme", Some("audio.sound_theme")),
             ("sample-rate", Some("audio.sample_rate_hz")),
             ("channels", Some("audio.channels")),
         ]

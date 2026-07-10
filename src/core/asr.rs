@@ -23,6 +23,13 @@ pub struct Transcription {
     pub elapsed: Duration,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsrDiagnostic {
+    pub http_status: u16,
+    pub latency_ms: u128,
+    pub sanitized_body: String,
+}
+
 #[async_trait]
 pub trait AsrClient: Send + Sync {
     async fn transcribe_file(&self, path: &Path) -> Result<Transcription>;
@@ -87,7 +94,7 @@ impl AsrClient for ReqwestAsrClient {
         if !status.is_success() {
             return Err(anyhow!(
                 "ASR request failed with HTTP {status}: {}",
-                sanitize_error_body(&body)
+                sanitize_error_body(&body, resolve_bearer_token(&self.config).as_deref())
             ));
         }
 
@@ -127,9 +134,52 @@ pub fn parse_transcription_text(body: &str) -> Result<String> {
     Ok(text)
 }
 
-fn sanitize_error_body(body: &str) -> String {
+pub fn asr_diagnostic(
+    status: u16,
+    latency: Duration,
+    body: &str,
+    token: Option<&str>,
+) -> AsrDiagnostic {
+    AsrDiagnostic {
+        http_status: status,
+        latency_ms: latency.as_millis(),
+        sanitized_body: sanitize_error_body(body, token),
+    }
+}
+
+pub fn sanitize_error_body(body: &str, token: Option<&str>) -> String {
     const MAX: usize = 500;
     let mut sanitized = body.replace('\n', " ");
+    if let Some(token) = token.filter(|token| !token.is_empty()) {
+        sanitized = sanitized.replace(token, "[redacted]");
+    }
+    for key in ["bearer_token", "api_key", "authorization"] {
+        sanitized = redact_jsonish_value(&sanitized, key);
+    }
     sanitized.truncate(MAX);
     sanitized
+}
+
+fn redact_jsonish_value(input: &str, key: &str) -> String {
+    let needle = format!("\"{key}\"");
+    let Some(start) = input.to_ascii_lowercase().find(&needle) else {
+        return input.to_string();
+    };
+    let Some(colon) = input[start..].find(':').map(|offset| start + offset) else {
+        return input.to_string();
+    };
+    let Some(open_quote) = input[colon..].find('"').map(|offset| colon + offset) else {
+        return input.to_string();
+    };
+    let Some(close_quote) = input[open_quote + 1..]
+        .find('"')
+        .map(|offset| open_quote + 1 + offset)
+    else {
+        return input.to_string();
+    };
+    let mut output = String::with_capacity(input.len());
+    output.push_str(&input[..open_quote + 1]);
+    output.push_str("[redacted]");
+    output.push_str(&input[close_quote..]);
+    output
 }

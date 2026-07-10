@@ -83,6 +83,7 @@ Install these manually:
   - ALSA development headers
   - wl-clipboard
   - wtype
+  - optional fallback typing tools: dotool, ydotool, or xdotool
   - libsecret tools / secret-tool
   - notify-send
 EOF
@@ -186,6 +187,7 @@ Next steps:
      systemctl --user enable --now openvoice-desktop.service
   4. In GNOME Settings, bind Ctrl+Space to:
      ${BIN_DIR}/openvoice-desktop toggle
+  5. If wtype cannot paste in your session, install dotool, ydotool, or xdotool for fallback paste.
 
 Check logs:
   journalctl --user -u openvoice-desktop.service -f

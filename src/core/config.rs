@@ -26,6 +26,16 @@ pub struct Config {
     #[serde(default)]
     pub debug: DebugConfig,
     #[serde(default)]
+    pub diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    pub post_processing: PostProcessingConfig,
+    #[serde(default)]
+    pub ui: UiConfig,
+    #[serde(default)]
+    pub updates: UpdatesConfig,
+    #[serde(default)]
+    pub portable: PortableConfig,
+    #[serde(default)]
     pub onboarding: OnboardingConfig,
     #[serde(default)]
     pub ipc: IpcConfig,
@@ -48,10 +58,15 @@ pub struct AudioConfig {
     pub sample_rate_hz: u32,
     pub channels: u16,
     pub selected_microphone: Option<String>,
+    pub always_on_microphone: bool,
     pub mute_while_recording: bool,
     pub audio_feedback: bool,
     pub selected_output_device: Option<String>,
     pub audio_feedback_volume: f32,
+    pub sound_theme: SoundTheme,
+    pub custom_start_sound: Option<PathBuf>,
+    pub custom_stop_sound: Option<PathBuf>,
+    pub custom_error_sound: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -116,6 +131,8 @@ pub enum PasteMethod {
 pub enum TypingTool {
     Auto,
     Wtype,
+    Dotool,
+    Ydotool,
     Xdotool,
     SendInput,
     ExternalScript,
@@ -137,6 +154,8 @@ pub struct TextConfig {
     pub filter_filler_words: bool,
     pub append_trailing_space: bool,
     pub translate_language_hint: Option<String>,
+    pub vad_enabled: bool,
+    pub silence_trim_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -164,6 +183,67 @@ pub struct DebugConfig {
     pub live_log_viewer: bool,
     pub paste_delay_ms: u64,
     pub recording_buffer_ms: u64,
+    pub pre_recording_buffer_ms: u64,
+    pub post_recording_buffer_ms: u64,
+    pub structured_logs: bool,
+    pub log_directory: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DiagnosticsConfig {
+    pub store_last_latency_metrics: bool,
+    pub last_upload_latency_ms: Option<u64>,
+    pub last_http_status: Option<u16>,
+    pub last_sanitized_body: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PostProcessingConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    pub bearer_token: Option<String>,
+    pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct UiConfig {
+    pub language: String,
+    pub theme: Theme,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SoundTheme {
+    Default,
+    Minimal,
+    Custom,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    pub check_for_updates: bool,
+    pub show_whats_new: bool,
+    pub release_channel: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PortableConfig {
+    pub enabled: bool,
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -208,6 +288,11 @@ impl Default for Config {
             text: TextConfig::default(),
             history: HistoryConfig::default(),
             debug: DebugConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
+            post_processing: PostProcessingConfig::default(),
+            ui: UiConfig::default(),
+            updates: UpdatesConfig::default(),
+            portable: PortableConfig::default(),
             onboarding: OnboardingConfig::default(),
             ipc: IpcConfig::default(),
         }
@@ -233,10 +318,15 @@ impl Default for AudioConfig {
             sample_rate_hz: 16_000,
             channels: 1,
             selected_microphone: None,
+            always_on_microphone: false,
             mute_while_recording: false,
             audio_feedback: false,
             selected_output_device: None,
             audio_feedback_volume: 0.5,
+            sound_theme: SoundTheme::Default,
+            custom_start_sound: None,
+            custom_stop_sound: None,
+            custom_error_sound: None,
         }
     }
 }
@@ -289,6 +379,8 @@ impl Default for TextConfig {
             filter_filler_words: false,
             append_trailing_space: false,
             translate_language_hint: None,
+            vad_enabled: false,
+            silence_trim_enabled: false,
         }
     }
 }
@@ -312,6 +404,61 @@ impl Default for DebugConfig {
             live_log_viewer: false,
             paste_delay_ms: 25,
             recording_buffer_ms: 0,
+            pre_recording_buffer_ms: 0,
+            post_recording_buffer_ms: 0,
+            structured_logs: true,
+            log_directory: None,
+        }
+    }
+}
+
+impl Default for DiagnosticsConfig {
+    fn default() -> Self {
+        Self {
+            store_last_latency_metrics: true,
+            last_upload_latency_ms: None,
+            last_http_status: None,
+            last_sanitized_body: None,
+        }
+    }
+}
+
+impl Default for PostProcessingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: "http://127.0.0.1:9000".to_string(),
+            model: "gpt-4o-mini".to_string(),
+            bearer_token: None,
+            timeout_seconds: 30,
+        }
+    }
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: "en".to_string(),
+            theme: Theme::System,
+        }
+    }
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check_for_updates: false,
+            show_whats_new: false,
+            release_channel: None,
+        }
+    }
+}
+
+impl Default for PortableConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            data_dir: None,
         }
     }
 }

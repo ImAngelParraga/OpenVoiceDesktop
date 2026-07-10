@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::core::asr::request_fields;
-use crate::core::config::{Config, OverlayPosition};
+use crate::core::config::{Config, OverlayPosition, Theme};
 use crate::core::events::{AppShellEvent, ProcessingStage};
 use crate::core::state::RecordingState;
 
@@ -203,6 +203,27 @@ pub struct AsrEndpointSettings {
     pub test_endpoint_action_id: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserToast {
+    pub title: &'static str,
+    pub body: String,
+    pub safe_for_ui: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalModelExclusion {
+    pub feature: &'static str,
+    pub replacement: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeSelection {
+    pub selected: Theme,
+    pub applies_to_window: bool,
+    pub applies_to_overlay: bool,
+    pub applies_to_tray: bool,
+}
+
 impl SettingsWindowLayout {
     pub fn default_layout() -> Self {
         Self {
@@ -258,10 +279,22 @@ impl SettingsWindowLayout {
                             "audio.selected_output_device",
                         ),
                         SettingsControl::bound(
+                            "always-on-microphone",
+                            "Always-on microphone",
+                            SettingsControlKind::Toggle,
+                            "audio.always_on_microphone",
+                        ),
+                        SettingsControl::bound(
                             "volume",
                             "Volume",
                             SettingsControlKind::Slider,
                             "audio.audio_feedback_volume",
+                        ),
+                        SettingsControl::bound(
+                            "sound-theme",
+                            "Sound theme",
+                            SettingsControlKind::Select,
+                            "audio.sound_theme",
                         ),
                         SettingsControl::bound(
                             "sample-rate",
@@ -375,6 +408,36 @@ impl SettingsWindowLayout {
                             "app.experimental",
                         ),
                         SettingsControl::bound(
+                            "language",
+                            "Language",
+                            SettingsControlKind::Select,
+                            "ui.language",
+                        ),
+                        SettingsControl::bound(
+                            "theme",
+                            "Theme",
+                            SettingsControlKind::Select,
+                            "ui.theme",
+                        ),
+                        SettingsControl::bound(
+                            "update-checks",
+                            "Update checks",
+                            SettingsControlKind::Toggle,
+                            "updates.check_for_updates",
+                        ),
+                        SettingsControl::bound(
+                            "show-whats-new",
+                            "Show what's new",
+                            SettingsControlKind::Toggle,
+                            "updates.show_whats_new",
+                        ),
+                        SettingsControl::bound(
+                            "portable-mode",
+                            "Portable mode",
+                            SettingsControlKind::Toggle,
+                            "portable.enabled",
+                        ),
+                        SettingsControl::bound(
                             "restore-clipboard",
                             "Restore clipboard after paste",
                             SettingsControlKind::Toggle,
@@ -457,6 +520,36 @@ impl SettingsWindowLayout {
                             "Translate language hint",
                             SettingsControlKind::Text,
                             "text.translate_language_hint",
+                        ),
+                        SettingsControl::bound(
+                            "vad-enabled",
+                            "Voice activity detection",
+                            SettingsControlKind::Toggle,
+                            "text.vad_enabled",
+                        ),
+                        SettingsControl::bound(
+                            "silence-trim",
+                            "Silence trim",
+                            SettingsControlKind::Toggle,
+                            "text.silence_trim_enabled",
+                        ),
+                        SettingsControl::bound(
+                            "post-processing-enabled",
+                            "Post-processing",
+                            SettingsControlKind::Toggle,
+                            "post_processing.enabled",
+                        ),
+                        SettingsControl::bound(
+                            "post-processing-url",
+                            "Post-processing URL",
+                            SettingsControlKind::Text,
+                            "post_processing.base_url",
+                        ),
+                        SettingsControl::bound(
+                            "post-processing-model",
+                            "Post-processing model",
+                            SettingsControlKind::Text,
+                            "post_processing.model",
                         ),
                     ],
                 },
@@ -559,6 +652,36 @@ impl SettingsWindowLayout {
                             "debug.recording_buffer_ms",
                         ),
                         SettingsControl::bound(
+                            "pre-recording-buffer",
+                            "Pre-recording buffer",
+                            SettingsControlKind::Number,
+                            "debug.pre_recording_buffer_ms",
+                        ),
+                        SettingsControl::bound(
+                            "post-recording-buffer",
+                            "Post-recording buffer",
+                            SettingsControlKind::Number,
+                            "debug.post_recording_buffer_ms",
+                        ),
+                        SettingsControl::bound(
+                            "structured-logs",
+                            "Structured logs",
+                            SettingsControlKind::Toggle,
+                            "debug.structured_logs",
+                        ),
+                        SettingsControl::bound(
+                            "log-directory",
+                            "Log directory",
+                            SettingsControlKind::Text,
+                            "debug.log_directory",
+                        ),
+                        SettingsControl::bound(
+                            "store-latency-metrics",
+                            "Store latency metrics",
+                            SettingsControlKind::Toggle,
+                            "diagnostics.store_last_latency_metrics",
+                        ),
+                        SettingsControl::bound(
                             "ipc-socket-path",
                             "IPC socket path",
                             SettingsControlKind::Text,
@@ -646,6 +769,8 @@ impl PermissionCheck {
                 ("wl-copy", "wl-copy clipboard helper"),
                 ("wl-paste", "wl-paste clipboard helper"),
                 ("wtype", "wtype Wayland typing helper"),
+                ("dotool", "dotool Wayland typing helper"),
+                ("ydotool", "ydotool Wayland typing helper"),
                 ("xdotool", "xdotool X11 typing helper"),
             ] {
                 checks.push(Self {
@@ -907,6 +1032,82 @@ impl AsrTokenStatus {
             },
         }
     }
+}
+
+impl UserToast {
+    pub fn from_event(event: &AppShellEvent) -> Option<Self> {
+        let AppShellEvent::Error { message } = event else {
+            return None;
+        };
+        let lower = message.to_ascii_lowercase();
+        let title = if lower.contains("microphone") || lower.contains("input device") {
+            "Microphone unavailable"
+        } else if lower.contains("paste") || lower.contains("clipboard") {
+            "Paste failed"
+        } else if lower.contains("asr") || lower.contains("http") || lower.contains("endpoint") {
+            "ASR failed"
+        } else {
+            "OpenVoiceDesktop error"
+        };
+        Some(Self {
+            title,
+            body: redact_sensitive(message),
+            safe_for_ui: true,
+        })
+    }
+}
+
+impl LocalModelExclusion {
+    pub fn v1_exclusions() -> Vec<Self> {
+        vec![
+            Self {
+                feature: "model download/delete/select",
+                replacement: "remote ASR endpoint base_url/model settings",
+            },
+            Self {
+                feature: "GPU accelerator",
+                replacement: "remote ASR service capacity",
+            },
+            Self {
+                feature: "model unload",
+                replacement: "endpoint health/test action",
+            },
+            Self {
+                feature: "local headless transcription",
+                replacement: "daemon toggle using remote ASR",
+            },
+            Self {
+                feature: "local streaming internals",
+                replacement: "disabled experimental live overlay until endpoint streaming exists",
+            },
+        ]
+    }
+}
+
+impl ThemeSelection {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            selected: config.ui.theme,
+            applies_to_window: true,
+            applies_to_overlay: true,
+            applies_to_tray: true,
+        }
+    }
+}
+
+fn redact_sensitive(input: &str) -> String {
+    let mut output = input.to_string();
+    for marker in ["Bearer ", "bearer ", "api_key=", "bearer_token="] {
+        if let Some(start) = output.find(marker) {
+            let value_start = start + marker.len();
+            let value_end = output[value_start..]
+                .find(char::is_whitespace)
+                .map(|offset| value_start + offset)
+                .unwrap_or(output.len());
+            output.replace_range(value_start..value_end, "[redacted]");
+        }
+    }
+    output
 }
 
 impl SettingsControl {

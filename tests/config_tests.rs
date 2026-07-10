@@ -1,6 +1,6 @@
 use openvoice_desktop::core::config::{
     require_private_file, ClipboardHandling, Config, LogLevel, OverlayPosition, OverlayStyle,
-    PasteMethod, RecordingRetention, TypingTool, CURRENT_SCHEMA_VERSION,
+    PasteMethod, RecordingRetention, SoundTheme, Theme, TypingTool, CURRENT_SCHEMA_VERSION,
 };
 use std::fs;
 use std::io::Write;
@@ -17,10 +17,12 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.audio.sample_rate_hz, 16_000);
     assert_eq!(loaded.config.audio.channels, 1);
     assert_eq!(loaded.config.audio.selected_microphone, None);
+    assert!(!loaded.config.audio.always_on_microphone);
     assert!(!loaded.config.audio.mute_while_recording);
     assert!(!loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
+    assert_eq!(loaded.config.audio.sound_theme, SoundTheme::Default);
     assert!(loaded.config.behavior.restore_clipboard);
     assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
     assert!(!loaded.config.behavior.push_to_talk);
@@ -46,11 +48,23 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.text.fuzzy_correction_threshold, 0.85);
     assert!(!loaded.config.text.filter_filler_words);
     assert!(!loaded.config.text.append_trailing_space);
+    assert!(!loaded.config.text.vad_enabled);
+    assert!(!loaded.config.text.silence_trim_enabled);
     assert!(loaded.config.history.enabled);
     assert_eq!(loaded.config.history.limit, 100);
     assert_eq!(loaded.config.history.retention, RecordingRetention::Never);
     assert_eq!(loaded.config.debug.log_level, LogLevel::Info);
     assert_eq!(loaded.config.debug.recording_buffer_ms, 0);
+    assert_eq!(loaded.config.debug.pre_recording_buffer_ms, 0);
+    assert_eq!(loaded.config.debug.post_recording_buffer_ms, 0);
+    assert!(loaded.config.debug.structured_logs);
+    assert!(loaded.config.diagnostics.store_last_latency_metrics);
+    assert!(!loaded.config.post_processing.enabled);
+    assert_eq!(loaded.config.post_processing.model, "gpt-4o-mini");
+    assert_eq!(loaded.config.ui.language, "en");
+    assert_eq!(loaded.config.ui.theme, Theme::System);
+    assert!(!loaded.config.updates.check_for_updates);
+    assert!(!loaded.config.portable.enabled);
     assert!(!loaded.config.onboarding.completed);
 }
 
@@ -66,6 +80,10 @@ model = "large-v3"
 language = "en"
 prompt = "names"
 timeout_seconds = 45
+
+[audio]
+always_on_microphone = true
+sound_theme = "minimal"
 
 [behavior]
 restore_clipboard = false
@@ -92,6 +110,8 @@ custom_words = ["OpenVoice", "Wayland"]
 filter_filler_words = true
 append_trailing_space = true
 translate_language_hint = "es"
+vad_enabled = true
+silence_trim_enabled = true
 
 [history]
 enabled = false
@@ -105,6 +125,35 @@ log_level = "debug"
 live_log_viewer = true
 paste_delay_ms = 11
 recording_buffer_ms = 250
+pre_recording_buffer_ms = 100
+post_recording_buffer_ms = 200
+structured_logs = false
+log_directory = "/tmp/openvoice-logs"
+
+[diagnostics]
+store_last_latency_metrics = true
+last_upload_latency_ms = 321
+last_http_status = 503
+last_sanitized_body = "unavailable"
+
+[post_processing]
+enabled = true
+base_url = "https://llm.example.test"
+model = "gpt-test"
+timeout_seconds = 12
+
+[ui]
+language = "en"
+theme = "dark"
+
+[updates]
+check_for_updates = true
+show_whats_new = true
+release_channel = "stable"
+
+[portable]
+enabled = true
+data_dir = "/tmp/portable-data"
 
 [onboarding]
 completed = true
@@ -125,6 +174,8 @@ completed = true
     assert!(!loaded.config.app.show_tray_icon);
     assert_eq!(loaded.config.app.overlay_position, OverlayPosition::Bottom);
     assert!(loaded.config.app.experimental);
+    assert!(loaded.config.audio.always_on_microphone);
+    assert_eq!(loaded.config.audio.sound_theme, SoundTheme::Minimal);
     assert_eq!(loaded.config.output.paste_method, PasteMethod::CopyOnly);
     assert_eq!(loaded.config.output.typing_tool, TypingTool::Wtype);
     assert_eq!(
@@ -145,12 +196,29 @@ completed = true
         loaded.config.text.translate_language_hint.as_deref(),
         Some("es")
     );
+    assert!(loaded.config.text.vad_enabled);
+    assert!(loaded.config.text.silence_trim_enabled);
     assert!(!loaded.config.history.enabled);
     assert_eq!(loaded.config.history.limit, 25);
     assert_eq!(loaded.config.history.retention, RecordingRetention::Always);
     assert_eq!(loaded.config.debug.log_level, LogLevel::Debug);
     assert!(loaded.config.debug.live_log_viewer);
     assert_eq!(loaded.config.debug.recording_buffer_ms, 250);
+    assert_eq!(loaded.config.debug.pre_recording_buffer_ms, 100);
+    assert_eq!(loaded.config.debug.post_recording_buffer_ms, 200);
+    assert!(!loaded.config.debug.structured_logs);
+    assert_eq!(loaded.config.diagnostics.last_upload_latency_ms, Some(321));
+    assert_eq!(loaded.config.diagnostics.last_http_status, Some(503));
+    assert!(loaded.config.post_processing.enabled);
+    assert_eq!(
+        loaded.config.post_processing.base_url,
+        "https://llm.example.test"
+    );
+    assert_eq!(loaded.config.post_processing.model, "gpt-test");
+    assert_eq!(loaded.config.ui.theme, Theme::Dark);
+    assert!(loaded.config.updates.check_for_updates);
+    assert!(loaded.config.updates.show_whats_new);
+    assert!(loaded.config.portable.enabled);
     assert!(loaded.config.onboarding.completed);
 }
 

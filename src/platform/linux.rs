@@ -4,6 +4,7 @@ use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use crate::core::config::TypingTool;
 use crate::core::platform::PlatformAdapter;
 
 #[derive(Debug, Clone, Default)]
@@ -42,14 +43,24 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn trigger_paste(&self) -> Result<()> {
-        if command_succeeds("wtype", &["-M", "ctrl", "-P", "v", "-p", "v", "-m", "ctrl"]).await {
-            return Ok(());
-        }
-        if command_succeeds("xdotool", &["key", "ctrl+v"]).await {
-            return Ok(());
+        for command in linux_paste_command_candidates(TypingTool::Auto) {
+            if command_succeeds(command.program, &command.args).await {
+                return Ok(());
+            }
         }
         Err(anyhow!(
-            "could not synthesize paste; install wtype for Wayland or xdotool for X11"
+            "could not synthesize paste; install wtype/dotool/ydotool for Wayland or xdotool for X11"
+        ))
+    }
+
+    async fn type_text(&self, text: &str) -> Result<()> {
+        for command in linux_type_command_candidates(TypingTool::Auto, text) {
+            if command_succeeds(command.program, &command.args).await {
+                return Ok(());
+            }
+        }
+        Err(anyhow!(
+            "could not type text directly; install wtype/dotool/ydotool for Wayland or xdotool for X11"
         ))
     }
 
@@ -69,10 +80,76 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 }
 
-async fn command_succeeds(program: &str, args: &[&str]) -> bool {
+async fn command_succeeds(program: &str, args: &[String]) -> bool {
     match Command::new(program).args(args).output().await {
         Ok(output) if output.status.success() => true,
         Ok(_) => false,
         Err(_) => false,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxCommand {
+    pub program: &'static str,
+    pub args: Vec<String>,
+}
+
+impl LinuxCommand {
+    fn new(program: &'static str, args: &[&str]) -> Self {
+        Self {
+            program,
+            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        }
+    }
+}
+
+pub fn linux_paste_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
+    match tool {
+        TypingTool::Auto => vec![
+            wtype_paste(),
+            dotool_paste(),
+            ydotool_paste(),
+            xdotool_paste(),
+        ],
+        TypingTool::Wtype => vec![wtype_paste()],
+        TypingTool::Dotool => vec![dotool_paste()],
+        TypingTool::Ydotool => vec![ydotool_paste()],
+        TypingTool::Xdotool => vec![xdotool_paste()],
+        TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
+    }
+}
+
+pub fn linux_type_command_candidates(tool: TypingTool, text: &str) -> Vec<LinuxCommand> {
+    match tool {
+        TypingTool::Auto => vec![
+            LinuxCommand::new("wtype", &[text]),
+            LinuxCommand::new("dotool", &["type", text]),
+            LinuxCommand::new("ydotool", &["type", text]),
+            LinuxCommand::new("xdotool", &["type", "--clearmodifiers", text]),
+        ],
+        TypingTool::Wtype => vec![LinuxCommand::new("wtype", &[text])],
+        TypingTool::Dotool => vec![LinuxCommand::new("dotool", &["type", text])],
+        TypingTool::Ydotool => vec![LinuxCommand::new("ydotool", &["type", text])],
+        TypingTool::Xdotool => vec![LinuxCommand::new(
+            "xdotool",
+            &["type", "--clearmodifiers", text],
+        )],
+        TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
+    }
+}
+
+fn wtype_paste() -> LinuxCommand {
+    LinuxCommand::new("wtype", &["-M", "ctrl", "-P", "v", "-p", "v", "-m", "ctrl"])
+}
+
+fn dotool_paste() -> LinuxCommand {
+    LinuxCommand::new("dotool", &["key", "ctrl+v"])
+}
+
+fn ydotool_paste() -> LinuxCommand {
+    LinuxCommand::new("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"])
+}
+
+fn xdotool_paste() -> LinuxCommand {
+    LinuxCommand::new("xdotool", &["key", "ctrl+v"])
 }
