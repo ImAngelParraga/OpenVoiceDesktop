@@ -57,7 +57,7 @@ V13: Handy-reference invariant: every Handy-inspired feature task cites `H:<path
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller
-T2|.|Settings schema v1|Add schema version, migration, defaults, persistence. Map existing TOML into UI settings without token loss.|H:src-tauri/src/settings.rs|V2,V8,V11,I.config
+T2|x|Settings schema v1|Add schema version, migration, defaults, persistence. Map existing TOML into UI settings without token loss.|H:src-tauri/src/settings.rs|V2,V8,V11,I.config
 T3|.|Settings window layout|Build Handy-like sidebar sections adapted to our app: General, ASR Endpoint, Advanced, History, Debug, About. No Models section except remote ASR model field.|H:src/components/Sidebar.tsx|V11,V13,I.handy.sidebar
 T4|.|General settings|Shortcut, push-to-talk, cancel shortcut, microphone selector, mute while recording, audio feedback, output device, volume.|H:src/components/settings/general/GeneralSettings.tsx|V3,V5,V11
 T5|.|ASR endpoint settings|UI for `base_url`, `model`, `language`, `prompt`, token source/status, test endpoint, timeout. Replace Handy local model card with endpoint card.|H:src/components/settings/general/ModelSettingsCard.tsx; H:src/components/model-selector/*|V1,V2,V11,I.asr

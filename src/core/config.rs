@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Config {
+    #[serde(default = "current_schema_version")]
+    pub schema_version: u32,
     #[serde(default)]
     pub asr: AsrConfig,
     #[serde(default)]
@@ -55,6 +59,7 @@ pub struct LoadedConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            schema_version: CURRENT_SCHEMA_VERSION,
             asr: AsrConfig::default(),
             audio: AudioConfig::default(),
             behavior: BehaviorConfig::default(),
@@ -147,8 +152,8 @@ impl Config {
 
         let contents =
             fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let config: Config =
-            toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
+        let config = migrate_config_toml(&contents)
+            .with_context(|| format!("parsing {}", path.display()))?;
         let mut warnings = Vec::new();
 
         if config.asr.bearer_token.is_some() {
@@ -163,12 +168,95 @@ impl Config {
         })
     }
 
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        let mut config = self.clone();
+        config.schema_version = CURRENT_SCHEMA_VERSION;
+
+        let contents = toml::to_string_pretty(&config).context("serializing config")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("creating config directory {}", parent.display()))?;
+        }
+
+        write_config_file(path, &contents)?;
+
+        if config.asr.bearer_token.is_some() {
+            require_private_file(path)?;
+        }
+
+        Ok(())
+    }
+
     pub fn socket_path(&self) -> Result<PathBuf> {
         match &self.ipc.socket_path {
             Some(path) => Ok(path.clone()),
             None => Self::default_socket_path(),
         }
     }
+}
+
+fn current_schema_version() -> u32 {
+    CURRENT_SCHEMA_VERSION
+}
+
+fn migrate_config_toml(contents: &str) -> Result<Config> {
+    let mut value: toml::Value = toml::from_str(contents).context("parsing TOML")?;
+    let schema_version = match value.get("schema_version") {
+        Some(version) => version
+            .as_integer()
+            .ok_or_else(|| anyhow!("schema_version must be an integer"))?,
+        None => 0,
+    };
+
+    match schema_version {
+        0 => {
+            value
+                .as_table_mut()
+                .ok_or_else(|| anyhow!("config root must be a TOML table"))?
+                .insert(
+                    "schema_version".to_string(),
+                    toml::Value::Integer(CURRENT_SCHEMA_VERSION.into()),
+                );
+        }
+        1 => {}
+        version => {
+            return Err(anyhow!(
+                "unsupported config schema_version {}; this build supports {}",
+                version,
+                CURRENT_SCHEMA_VERSION
+            ));
+        }
+    }
+
+    let mut config: Config = value.try_into().context("deserializing config")?;
+    config.schema_version = CURRENT_SCHEMA_VERSION;
+    Ok(config)
+}
+
+#[cfg(unix)]
+fn write_config_file(path: &Path, contents: &str) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("setting permissions on {}", path.display()))?;
+    file.write_all(contents.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("setting permissions on {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_config_file(path: &Path, contents: &str) -> Result<()> {
+    fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
 }
 
 pub fn resolve_bearer_token(config: &Config) -> Option<String> {
