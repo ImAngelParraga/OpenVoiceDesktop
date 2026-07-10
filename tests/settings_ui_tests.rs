@@ -83,9 +83,49 @@ fn settings_window_layout_maps_visible_controls_to_config_or_read_only_state() {
     assert!(config_keys.contains(&"asr.language"));
     assert!(config_keys.contains(&"asr.prompt"));
     assert!(config_keys.contains(&"asr.bearer_token"));
+    assert!(config_keys.contains(&"behavior.shortcut"));
+    assert!(config_keys.contains(&"behavior.push_to_talk"));
+    assert!(config_keys.contains(&"behavior.cancel_shortcut"));
+    assert!(config_keys.contains(&"audio.selected_microphone"));
+    assert!(config_keys.contains(&"audio.mute_while_recording"));
+    assert!(config_keys.contains(&"audio.audio_feedback"));
+    assert!(config_keys.contains(&"audio.selected_output_device"));
+    assert!(config_keys.contains(&"audio.audio_feedback_volume"));
     assert!(config_keys.contains(&"audio.sample_rate_hz"));
     assert!(config_keys.contains(&"audio.channels"));
     assert!(config_keys.contains(&"behavior.restore_clipboard"));
     assert!(config_keys.contains(&"behavior.clipboard_restore_delay_ms"));
     assert!(config_keys.contains(&"ipc.socket_path"));
+}
+
+#[test]
+fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
+    let layout = SettingsWindowLayout::default_layout();
+    let general = layout
+        .sections
+        .iter()
+        .find(|section| section.id == SettingsSectionId::General)
+        .unwrap();
+
+    let controls: Vec<(&str, Option<&str>)> = general
+        .controls
+        .iter()
+        .map(|control| (control.id, control.config_key))
+        .collect();
+
+    assert_eq!(
+        controls,
+        vec![
+            ("shortcut", Some("behavior.shortcut")),
+            ("push-to-talk", Some("behavior.push_to_talk")),
+            ("cancel-shortcut", Some("behavior.cancel_shortcut")),
+            ("microphone", Some("audio.selected_microphone")),
+            ("mute-while-recording", Some("audio.mute_while_recording")),
+            ("audio-feedback", Some("audio.audio_feedback")),
+            ("output-device", Some("audio.selected_output_device")),
+            ("volume", Some("audio.audio_feedback_volume")),
+            ("sample-rate", Some("audio.sample_rate_hz")),
+            ("channels", Some("audio.channels")),
+        ]
+    );
 }

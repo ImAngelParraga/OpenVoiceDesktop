@@ -34,6 +34,11 @@ pub struct AsrConfig {
 pub struct AudioConfig {
     pub sample_rate_hz: u32,
     pub channels: u16,
+    pub selected_microphone: Option<String>,
+    pub mute_while_recording: bool,
+    pub audio_feedback: bool,
+    pub selected_output_device: Option<String>,
+    pub audio_feedback_volume: f32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -41,6 +46,9 @@ pub struct AudioConfig {
 pub struct BehaviorConfig {
     pub restore_clipboard: bool,
     pub clipboard_restore_delay_ms: u64,
+    pub shortcut: String,
+    pub push_to_talk: bool,
+    pub cancel_shortcut: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -85,6 +93,11 @@ impl Default for AudioConfig {
         Self {
             sample_rate_hz: 16_000,
             channels: 1,
+            selected_microphone: None,
+            mute_while_recording: false,
+            audio_feedback: false,
+            selected_output_device: None,
+            audio_feedback_volume: 0.5,
         }
     }
 }
@@ -94,6 +107,9 @@ impl Default for BehaviorConfig {
         Self {
             restore_clipboard: true,
             clipboard_restore_delay_ms: 250,
+            shortcut: "Ctrl+Alt+Space".to_string(),
+            push_to_talk: false,
+            cancel_shortcut: "Escape".to_string(),
         }
     }
 }

@@ -11,7 +11,15 @@ model = "whisper-1"
 [audio]
 sample_rate_hz = 16000
 channels = 1
+# selected_microphone = "default"
+mute_while_recording = false
+audio_feedback = false
+# selected_output_device = "default"
+audio_feedback_volume = 0.5
 
 [behavior]
 restore_clipboard = true
 clipboard_restore_delay_ms = 250
+shortcut = "Ctrl+Alt+Space"
+push_to_talk = false
+cancel_shortcut = "Escape"

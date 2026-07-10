@@ -44,6 +44,7 @@ pub enum SettingsControlKind {
     TextArea,
     SecretStatus,
     Number,
+    Slider,
     Toggle,
     Select,
     Action,
@@ -62,6 +63,54 @@ impl SettingsWindowLayout {
                     icon: "hand",
                     panel: "general-settings",
                     controls: vec![
+                        SettingsControl::bound(
+                            "shortcut",
+                            "Shortcut",
+                            SettingsControlKind::Text,
+                            "behavior.shortcut",
+                        ),
+                        SettingsControl::bound(
+                            "push-to-talk",
+                            "Push to talk",
+                            SettingsControlKind::Toggle,
+                            "behavior.push_to_talk",
+                        ),
+                        SettingsControl::bound(
+                            "cancel-shortcut",
+                            "Cancel shortcut",
+                            SettingsControlKind::Text,
+                            "behavior.cancel_shortcut",
+                        ),
+                        SettingsControl::bound(
+                            "microphone",
+                            "Microphone",
+                            SettingsControlKind::Select,
+                            "audio.selected_microphone",
+                        ),
+                        SettingsControl::bound(
+                            "mute-while-recording",
+                            "Mute while recording",
+                            SettingsControlKind::Toggle,
+                            "audio.mute_while_recording",
+                        ),
+                        SettingsControl::bound(
+                            "audio-feedback",
+                            "Audio feedback",
+                            SettingsControlKind::Toggle,
+                            "audio.audio_feedback",
+                        ),
+                        SettingsControl::bound(
+                            "output-device",
+                            "Output device",
+                            SettingsControlKind::Select,
+                            "audio.selected_output_device",
+                        ),
+                        SettingsControl::bound(
+                            "volume",
+                            "Volume",
+                            SettingsControlKind::Slider,
+                            "audio.audio_feedback_volume",
+                        ),
                         SettingsControl::bound(
                             "sample-rate",
                             "Sample rate",

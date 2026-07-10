@@ -12,7 +12,15 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.asr.model, "whisper-1");
     assert_eq!(loaded.config.audio.sample_rate_hz, 16_000);
     assert_eq!(loaded.config.audio.channels, 1);
+    assert_eq!(loaded.config.audio.selected_microphone, None);
+    assert!(!loaded.config.audio.mute_while_recording);
+    assert!(!loaded.config.audio.audio_feedback);
+    assert_eq!(loaded.config.audio.selected_output_device, None);
+    assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
     assert!(loaded.config.behavior.restore_clipboard);
+    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
+    assert!(!loaded.config.behavior.push_to_talk);
+    assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
 }
 
 #[test]
@@ -54,6 +62,16 @@ model = "legacy-model"
 
 [audio]
 sample_rate_hz = 48000
+selected_microphone = "Studio Mic"
+mute_while_recording = true
+audio_feedback = true
+selected_output_device = "Headphones"
+audio_feedback_volume = 0.75
+
+[behavior]
+shortcut = "Ctrl+Shift+Space"
+push_to_talk = true
+cancel_shortcut = "Ctrl+Escape"
 "#
     )
     .unwrap();
@@ -65,6 +83,49 @@ sample_rate_hz = 48000
     assert_eq!(loaded.config.asr.model, "legacy-model");
     assert_eq!(loaded.config.audio.sample_rate_hz, 48_000);
     assert_eq!(loaded.config.audio.channels, 1);
+    assert_eq!(
+        loaded.config.audio.selected_microphone.as_deref(),
+        Some("Studio Mic")
+    );
+    assert!(loaded.config.audio.mute_while_recording);
+    assert!(loaded.config.audio.audio_feedback);
+    assert_eq!(
+        loaded.config.audio.selected_output_device.as_deref(),
+        Some("Headphones")
+    );
+    assert_eq!(loaded.config.audio.audio_feedback_volume, 0.75);
+    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Shift+Space");
+    assert!(loaded.config.behavior.push_to_talk);
+    assert_eq!(loaded.config.behavior.cancel_shortcut, "Ctrl+Escape");
+}
+
+#[test]
+fn legacy_config_without_general_settings_uses_general_defaults() {
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(
+        file,
+        r#"
+[asr]
+model = "legacy-model"
+
+[audio]
+sample_rate_hz = 48000
+"#
+    )
+    .unwrap();
+
+    let loaded = Config::load_from(file.path()).unwrap();
+
+    assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
+    assert_eq!(loaded.config.audio.sample_rate_hz, 48_000);
+    assert_eq!(loaded.config.audio.selected_microphone, None);
+    assert!(!loaded.config.audio.mute_while_recording);
+    assert!(!loaded.config.audio.audio_feedback);
+    assert_eq!(loaded.config.audio.selected_output_device, None);
+    assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
+    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
+    assert!(!loaded.config.behavior.push_to_talk);
+    assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
     assert!(loaded.config.behavior.restore_clipboard);
 }
 
