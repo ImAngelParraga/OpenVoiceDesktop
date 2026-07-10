@@ -5,4 +5,5 @@ pub mod controller;
 pub mod events;
 pub mod platform;
 pub mod recorder;
+pub mod settings_ui;
 pub mod state;
