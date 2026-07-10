@@ -1,0 +1,221 @@
+use serde::{Deserialize, Serialize};
+
+/// Auditable settings contract. Entries mirror `SPEC.md` `I.settings.*`.
+/// Handy inventory reference: `H:src/components/Sidebar.tsx`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InventoryKind {
+    Field,
+    Action,
+    ReadOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityProof {
+    pub render: bool,
+    pub validation: bool,
+    pub persistence: bool,
+    pub runtime_or_action: bool,
+    pub automated_test: bool,
+}
+
+impl CapabilityProof {
+    pub const COMPLETE: Self = Self {
+        render: true,
+        validation: true,
+        persistence: true,
+        runtime_or_action: true,
+        automated_test: true,
+    };
+
+    pub const fn is_complete(self) -> bool {
+        self.render
+            && self.validation
+            && self.persistence
+            && self.runtime_or_action
+            && self.automated_test
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum ControlState {
+    Working { proof: CapabilityProof },
+    Unavailable { reason: &'static str },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryEntry {
+    pub id: &'static str,
+    pub kind: InventoryKind,
+    pub state: ControlState,
+}
+
+impl InventoryEntry {
+    pub const fn working(id: &'static str, kind: InventoryKind) -> Self {
+        Self {
+            id,
+            kind,
+            state: ControlState::Working {
+                proof: CapabilityProof::COMPLETE,
+            },
+        }
+    }
+
+    pub const fn unavailable(id: &'static str, kind: InventoryKind, reason: &'static str) -> Self {
+        Self {
+            id,
+            kind,
+            state: ControlState::Unavailable { reason },
+        }
+    }
+}
+
+const NOT_RUNTIME: &str = "not consumed by current runtime";
+const NOT_IMPLEMENTED: &str = "operation not implemented";
+const NOT_RENDERED: &str = "not rendered by current settings surface";
+const PARTIAL: &str = "partial implementation lacks complete render-persist-runtime proof";
+
+macro_rules! w {
+    ($id:literal) => {
+        InventoryEntry::working($id, InventoryKind::Field)
+    };
+}
+macro_rules! wa {
+    ($id:literal) => {
+        InventoryEntry::working($id, InventoryKind::Action)
+    };
+}
+macro_rules! u {
+    ($id:literal) => {
+        InventoryEntry::unavailable($id, InventoryKind::Field, NOT_RUNTIME)
+    };
+    ($id:literal, $reason:expr) => {
+        InventoryEntry::unavailable($id, InventoryKind::Field, $reason)
+    };
+}
+macro_rules! a {
+    ($id:literal) => {
+        InventoryEntry::unavailable($id, InventoryKind::Action, NOT_IMPLEMENTED)
+    };
+}
+macro_rules! r {
+    ($id:literal) => {
+        InventoryEntry::unavailable($id, InventoryKind::ReadOnly, NOT_RENDERED)
+    };
+}
+
+pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
+    // I.settings.general
+    u!("behavior.shortcut"),
+    u!("behavior.push_to_talk"),
+    u!("behavior.cancel_shortcut"),
+    u!("audio.selected_microphone"),
+    u!("audio.mute_while_recording"),
+    u!("audio.audio_feedback"),
+    u!("audio.selected_output_device"),
+    u!("audio.always_on_microphone"),
+    u!("audio.audio_feedback_volume"),
+    u!("audio.sound_theme"),
+    u!("audio.sample_rate_hz"),
+    u!("audio.channels"),
+    // I.settings.asr
+    w!("asr.base_url"),
+    w!("asr.model"),
+    w!("asr.language"),
+    w!("asr.prompt"),
+    w!("asr.timeout_seconds"),
+    u!("asr.bearer_token", PARTIAL),
+    a!("test-endpoint"),
+    // I.settings.app
+    u!("app.start_hidden"),
+    u!("app.autostart"),
+    u!("app.show_tray_icon"),
+    u!("app.show_overlay"),
+    u!("app.overlay_position"),
+    u!("app.overlay_style"),
+    u!("app.experimental"),
+    u!("ui.language"),
+    u!("ui.theme"),
+    u!("updates.check_for_updates"),
+    u!("updates.show_whats_new"),
+    u!("portable.enabled"),
+    u!("behavior.restore_clipboard"),
+    u!("behavior.clipboard_restore_delay_ms"),
+    // I.settings.output
+    u!("output.paste_method", PARTIAL),
+    u!("output.typing_tool"),
+    w!("output.clipboard_handling"),
+    w!("output.paste_delay_ms"),
+    w!("output.restore_delay_ms"),
+    u!("output.auto_submit"),
+    u!("output.external_script_path"),
+    // I.settings.text
+    u!("text.custom_words"),
+    u!("text.fuzzy_correction_threshold"),
+    u!("text.translate_language_hint"),
+    u!("text.vad_enabled"),
+    u!("text.silence_trim_enabled"),
+    w!("text.filter_filler_words"),
+    w!("text.append_trailing_space"),
+    // I.settings.postprocess
+    u!("post_processing.enabled"),
+    u!("post_processing.base_url"),
+    u!("post_processing.model"),
+    u!("post_processing.bearer_token"),
+    u!("post_processing.timeout_seconds"),
+    // I.settings.history
+    u!("history.enabled"),
+    u!("history.limit"),
+    u!("history.retention"),
+    u!("history.recordings_dir"),
+    a!("open-recordings-folder"),
+    a!("delete-transcript"),
+    a!("retry-transcript"),
+    a!("save-transcript"),
+    // I.settings.debug
+    u!("debug.debug_shortcut"),
+    u!("debug.log_level"),
+    u!("debug.live_log_viewer"),
+    u!("debug.paste_delay_ms"),
+    u!("debug.recording_buffer_ms"),
+    u!("debug.pre_recording_buffer_ms"),
+    u!("debug.post_recording_buffer_ms"),
+    u!("debug.structured_logs"),
+    u!("debug.log_directory"),
+    u!("diagnostics.store_last_latency_metrics"),
+    u!("diagnostics.last_upload_latency_ms"),
+    u!("diagnostics.last_http_status"),
+    u!("diagnostics.last_sanitized_body"),
+    u!("ipc.socket_path", PARTIAL),
+    a!("open-log-directory"),
+    a!("open-app-data-directory"),
+    // I.settings.hidden
+    u!("audio.custom_start_sound"),
+    u!("audio.custom_stop_sound"),
+    u!("audio.custom_error_sound"),
+    u!("updates.release_channel"),
+    u!("portable.data_dir"),
+    u!("onboarding.completed"),
+    u!("onboarding.show_permission_repair"),
+    // I.settings.about
+    r!("version"),
+    r!("config-path"),
+    r!("app-data-path"),
+    r!("logs-path"),
+    r!("license"),
+    r!("repository"),
+    r!("handy-acknowledgement"),
+    // I.tray.audit
+    wa!("tray.settings"),
+    wa!("tray.cancel"),
+    wa!("tray.open-config-folder"),
+    wa!("tray.quit"),
+    a!("tray.copy-last-transcript"),
+    a!("tray.test-endpoint"),
+    a!("tray.open-logs"),
+];
+
+pub fn inventory_entry(id: &str) -> Option<&'static InventoryEntry> {
+    SETTINGS_INVENTORY.iter().find(|entry| entry.id == id)
+}

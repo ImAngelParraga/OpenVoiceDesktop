@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::core::asr::request_fields;
 use crate::core::config::{Config, OverlayPosition, Theme};
 use crate::core::events::{AppShellEvent, ProcessingStage};
+use crate::core::settings_inventory::{inventory_entry, ControlState};
 use crate::core::state::RecordingState;
 
 /// Settings window contract adapted from Handy's `H:src/components/Sidebar.tsx`.
@@ -41,6 +42,16 @@ pub struct SettingsControl {
     pub label: &'static str,
     pub kind: SettingsControlKind,
     pub config_key: Option<&'static str>,
+}
+
+impl SettingsControl {
+    pub fn inventory_id(&self) -> &str {
+        self.config_key.unwrap_or(self.id)
+    }
+
+    pub fn state(&self) -> Option<ControlState> {
+        inventory_entry(self.inventory_id()).map(|entry| entry.state)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
