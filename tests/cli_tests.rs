@@ -20,8 +20,8 @@ fn cli_parity_aliases_preserve_existing_subcommands() {
 }
 
 #[test]
-fn cli_settings_command_opens_settings_panel() {
-    assert!(MAIN_RS.contains("run_settings_panel"));
+fn cli_settings_command_opens_native_settings_shell() {
+    assert!(MAIN_RS.contains("settings_shell::run()"));
     assert!(MAIN_RS.contains("Command::Settings"));
 }
 

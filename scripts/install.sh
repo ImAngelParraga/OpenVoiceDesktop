@@ -68,19 +68,20 @@ need_cmd() {
 install_deps() {
   if need_cmd apt-get; then
     sudo apt-get update
-    sudo apt-get install -y build-essential pkg-config libasound2-dev wl-clipboard wtype libsecret-tools libnotify-bin
+    sudo apt-get install -y build-essential pkg-config libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev wl-clipboard wtype libsecret-tools libnotify-bin
   elif need_cmd dnf; then
-    sudo dnf install -y gcc gcc-c++ make pkgconf-pkg-config alsa-lib-devel wl-clipboard wtype libsecret libnotify
+    sudo dnf install -y gcc gcc-c++ make pkgconf-pkg-config alsa-lib-devel webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel wl-clipboard wtype libsecret libnotify
   elif need_cmd pacman; then
-    sudo pacman -Syu --needed base-devel pkgconf alsa-lib wl-clipboard wtype libsecret libnotify
+    sudo pacman -Syu --needed base-devel pkgconf alsa-lib webkit2gtk-4.1 libappindicator-gtk3 librsvg wl-clipboard wtype libsecret libnotify
   elif need_cmd zypper; then
-    sudo zypper install -y gcc gcc-c++ make pkgconf-pkg-config alsa-devel wl-clipboard wtype libsecret-tools libnotify-tools
+    sudo zypper install -y gcc gcc-c++ make pkgconf-pkg-config alsa-devel webkit2gtk3-devel libappindicator3-1 librsvg-devel wl-clipboard wtype libsecret-tools libnotify-tools
   else
     cat >&2 <<'EOF'
 Could not detect apt, dnf, pacman, or zypper.
 Install these manually:
   - Rust build tools: gcc/make/pkg-config
   - ALSA development headers
+  - WebKitGTK 4.1, appindicator, and librsvg development headers
   - wl-clipboard
   - wtype
   - optional fallback typing tools: dotool, ydotool, or xdotool
@@ -127,7 +128,7 @@ EOF
 fi
 
 if [[ "${BUILD}" -eq 1 ]]; then
-  cargo build --release
+  cargo build --release --features desktop-shell
 fi
 
 if [[ ! -x target/release/openvoice-desktop ]]; then

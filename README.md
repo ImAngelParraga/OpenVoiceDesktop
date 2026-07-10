@@ -108,7 +108,7 @@ journalctl --user -u openvoice-desktop.service -f
 
 ```bash
 cargo test
-cargo build --release
+cargo build --release --features desktop-shell
 ```
 
 The binary is `target/release/openvoice-desktop`.

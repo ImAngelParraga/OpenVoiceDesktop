@@ -107,7 +107,7 @@ function Install-FromSource {
     Install-RustIfMissing
     Push-Location $SourceDir
     try {
-        cargo build --release
+        cargo build --release --features desktop-shell
         $BuiltExe = Join-Path $SourceDir "target\release\$ExeName"
         if (-not (Test-Path $BuiltExe)) {
             throw "Build completed but $BuiltExe was not found."

@@ -1,0 +1,16 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { display: grid; grid-template-columns: 15rem 1fr; min-height: 100vh; }
+aside { border-right: 1px solid color-mix(in srgb, CanvasText 18%, transparent); padding: 1.5rem; }
+h1 { font-size: 1.05rem; margin: 0 0 1.5rem; }
+nav { display: grid; gap: .35rem; }
+nav button { border: 0; border-radius: .5rem; padding: .7rem .8rem; text-align: left; background: transparent; color: inherit; }
+nav button:hover, nav button.active { background: color-mix(in srgb, AccentColor 18%, transparent); }
+#content { padding: 2rem 2.5rem; outline: none; }

@@ -6,7 +6,6 @@ pub mod events;
 pub mod platform;
 pub mod recorder;
 pub mod settings_inventory;
-pub mod settings_panel;
 pub mod settings_ui;
 pub mod shortcut;
 pub mod state;

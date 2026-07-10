@@ -1,8 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use openvoice_desktop::core::config::{Config, LogLevel};
-use openvoice_desktop::core::settings_panel::run_settings_panel;
-use openvoice_desktop::{daemon, ipc};
+use openvoice_desktop::{daemon, ipc, settings_shell};
 
 #[derive(Debug, Parser)]
 #[command(name = "openvoice-desktop")]
@@ -37,7 +36,7 @@ enum Command {
     Cancel,
     /// Print the default config path.
     ConfigPath,
-    /// Open the browser-based settings panel.
+    /// Open or focus the native settings window.
     Settings,
 }
 
@@ -95,6 +94,6 @@ async fn main() -> Result<()> {
             println!("{}", Config::default_path()?.display());
             Ok(())
         }
-        Command::Settings => run_settings_panel(Config::default_path()?),
+        Command::Settings => settings_shell::run(),
     }
 }

@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux build deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - run: cargo test
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: cargo test --features desktop-shell
 
   windows-release:
     name: Build Windows release artifact
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
+      - run: cargo build --release --features desktop-shell
       - name: Package
         shell: pwsh
         run: |
