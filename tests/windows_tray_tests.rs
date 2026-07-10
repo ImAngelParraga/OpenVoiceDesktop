@@ -15,3 +15,19 @@ fn test_v3_tray_left_click_does_not_toggle_recording() {
         "tray commands must not include a recording toggle"
     );
 }
+
+#[test]
+fn test_v4_tray_uses_logo_icon_and_no_notification_balloon() {
+    assert!(
+        WINDOWS_RS.contains("include_bytes!(\"../../assets/logo.ico\")"),
+        "Windows tray icon must use the generated logo icon asset"
+    );
+    assert!(
+        !WINDOWS_RS.contains("NIF_INFO"),
+        "Windows Ctrl+Space feedback must use app popup UI, not notification balloons"
+    );
+    assert!(
+        WINDOWS_RS.contains("show_status_popup"),
+        "Windows Ctrl+Space feedback should use small status popup UI"
+    );
+}

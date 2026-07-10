@@ -72,7 +72,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::recorder::CpalRecorder;
     use crate::ipc::{TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
     use crate::platform::windows::{
-        handle_tray_command, notify_tray, run_tray_loop, TrayCommand, WindowsPlatformAdapter,
+        handle_tray_command, run_tray_loop, show_status_popup, TrayCommand, WindowsPlatformAdapter,
     };
 
     let (toggle_tx, toggle_rx) = std_mpsc::channel::<oneshot::Sender<String>>();
@@ -140,10 +140,11 @@ pub async fn run(config: Config) -> Result<()> {
         while let Some(command) = tray_rx.recv().await {
             match handle_tray_command(command).await {
                 Ok(true) => {
+                    show_status_popup("Processing audio...", None).ok();
                     let response = request_toggle(&tray_toggle_tx).await;
                     eprint!("{response}");
-                    if let Some((title, body)) = toggle_notification(&response) {
-                        notify_tray(title, &body).ok();
+                    if let Some(status) = toggle_status_popup(&response) {
+                        show_status_popup(status.text, status.timeout_ms).ok();
                     }
                 }
                 Ok(false) => {
@@ -160,28 +161,43 @@ pub async fn run(config: Config) -> Result<()> {
     run_tray_loop(tray_tx)
 }
 
-pub fn toggle_notification(response: &str) -> Option<(&'static str, String)> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToggleStatusPopup {
+    pub text: &'static str,
+    pub timeout_ms: Option<u32>,
+}
+
+pub fn toggle_status_popup(response: &str) -> Option<ToggleStatusPopup> {
     let response = response.trim();
     if response == "Started" {
-        return Some((
-            "OpenVoiceDesktop",
-            "Recording started. Press Ctrl+Space again to stop.".to_string(),
-        ));
+        return Some(ToggleStatusPopup {
+            text: "Recording audio... Press Ctrl+Space to stop.",
+            timeout_ms: None,
+        });
     }
     if response.starts_with("Inserted") {
-        return Some(("OpenVoiceDesktop", "Transcript inserted.".to_string()));
+        return Some(ToggleStatusPopup {
+            text: "Transcript inserted.",
+            timeout_ms: Some(2_000),
+        });
     }
     if response == "EmptyTranscript" {
-        return Some(("OpenVoiceDesktop", "No speech detected.".to_string()));
+        return Some(ToggleStatusPopup {
+            text: "No speech detected.",
+            timeout_ms: Some(2_500),
+        });
     }
     if response.starts_with("Busy") {
-        return Some((
-            "OpenVoiceDesktop",
-            "Still processing previous recording.".to_string(),
-        ));
+        return Some(ToggleStatusPopup {
+            text: "Still processing previous recording.",
+            timeout_ms: Some(2_500),
+        });
     }
-    if let Some(error) = response.strip_prefix("error: ") {
-        return Some(("OpenVoiceDesktop error", error.to_string()));
+    if response.starts_with("error: ") {
+        return Some(ToggleStatusPopup {
+            text: "OpenVoiceDesktop error. Check configuration.",
+            timeout_ms: Some(4_000),
+        });
     }
     None
 }

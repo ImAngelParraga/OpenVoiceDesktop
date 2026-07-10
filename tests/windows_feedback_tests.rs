@@ -1,31 +1,40 @@
-use openvoice_desktop::daemon::toggle_notification;
+use openvoice_desktop::daemon::{toggle_status_popup, ToggleStatusPopup};
 
 #[test]
-fn test_v2_hotkey_toggle_responses_have_visible_feedback() {
+fn test_v4_hotkey_toggle_responses_have_status_popup_feedback() {
     assert_eq!(
-        toggle_notification("Started\n"),
-        Some((
-            "OpenVoiceDesktop",
-            "Recording started. Press Ctrl+Space again to stop.".to_string()
-        ))
+        toggle_status_popup("Started\n"),
+        Some(ToggleStatusPopup {
+            text: "Recording audio... Press Ctrl+Space to stop.",
+            timeout_ms: None,
+        })
     );
     assert_eq!(
-        toggle_notification("Inserted { text: \"hello\" }\n"),
-        Some(("OpenVoiceDesktop", "Transcript inserted.".to_string()))
+        toggle_status_popup("Inserted { text: \"hello\" }\n"),
+        Some(ToggleStatusPopup {
+            text: "Transcript inserted.",
+            timeout_ms: Some(2_000),
+        })
     );
     assert_eq!(
-        toggle_notification("EmptyTranscript\n"),
-        Some(("OpenVoiceDesktop", "No speech detected.".to_string()))
+        toggle_status_popup("EmptyTranscript\n"),
+        Some(ToggleStatusPopup {
+            text: "No speech detected.",
+            timeout_ms: Some(2_500),
+        })
     );
     assert_eq!(
-        toggle_notification("Busy { state: Transcribing }\n"),
-        Some((
-            "OpenVoiceDesktop",
-            "Still processing previous recording.".to_string()
-        ))
+        toggle_status_popup("Busy { state: Transcribing }\n"),
+        Some(ToggleStatusPopup {
+            text: "Still processing previous recording.",
+            timeout_ms: Some(2_500),
+        })
     );
     assert_eq!(
-        toggle_notification("error: missing token\n"),
-        Some(("OpenVoiceDesktop error", "missing token".to_string()))
+        toggle_status_popup("error: missing token\n"),
+        Some(ToggleStatusPopup {
+            text: "OpenVoiceDesktop error. Check configuration.",
+            timeout_ms: Some(4_000),
+        })
     );
 }

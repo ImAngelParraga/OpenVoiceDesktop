@@ -53,7 +53,7 @@ Token lookup order is:
 - Toggle recording: `Ctrl+Space`
 - First press starts recording.
 - Second press stops, uploads WAV audio to `{base_url}/v1/audio/transcriptions`, and pastes the returned transcript.
-- Each toggle shows a Windows tray notification for started, inserted, empty transcript, busy, or error states.
+- `Ctrl+Space` shows a small bottom-of-screen status popup for recording, processing, inserted, empty transcript, busy, or error states. It does not use Windows notification balloons.
 
 If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Test the daemon with:
 

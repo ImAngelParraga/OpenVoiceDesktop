@@ -24,7 +24,7 @@ Use it when:
 3. First press starts recording.
 4. Second press stops recording, writes a 16 kHz mono 16-bit PCM WAV, uploads it to `{base_url}/v1/audio/transcriptions`, and pastes the returned `text`.
 
-On Windows, the tray app shows notifications for recording, success, empty transcript, busy, and error states.
+On Windows, the tray app shows a small bottom-of-screen status popup for recording, success, empty transcript, busy, and error states.
 
 WAV is the default because short desktop dictation clips are usually under 10 seconds. The payload is about 32 KB/sec, so a 10 second phrase is roughly 320 KB plus the WAV header. Opus can be added later if benchmarks show it improves end-to-end latency for long clips or slow networks.
 
@@ -191,6 +191,6 @@ The core modules are independent of GNOME and Windows:
 - `core::controller`: idle to recording to transcribing to insertion state machine
 - `core::platform`: clipboard/paste/notification trait and restore helper
 - `platform::linux`: GNOME Wayland command-backed adapter
-- `platform::windows`: Windows tray, hotkey, clipboard paste, and notification adapter
+- `platform::windows`: Windows tray, hotkey, clipboard paste, and status popup adapter
 
 Timing logs include record duration, WAV write time, upload/response time, and paste time. Bearer tokens are never printed.

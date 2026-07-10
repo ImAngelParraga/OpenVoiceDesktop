@@ -3,36 +3,49 @@ use async_trait::async_trait;
 use std::ffi::OsStr;
 use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::mpsc;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Gdi::{
+    BeginPaint, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, InvalidateRect,
+    SetBkMode, SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT,
+    TRANSPARENT,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
     KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
-    NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
-    GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
-    HMENU, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP,
-    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
+    LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
+    SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
+    CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN,
+    SM_CYSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN,
+    TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_PAINT, WM_RBUTTONUP, WM_TIMER,
+    WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
 use crate::core::platform::PlatformAdapter;
 
+const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
+const WM_STATUS_POPUP: u32 = WM_APP + 2;
+const STATUS_POPUP_TIMER_ID: usize = 1;
 const MENU_OPEN_CONFIG: usize = 1002;
 const MENU_QUIT: usize = 1003;
 
 static COMMAND_TX: OnceLock<mpsc::UnboundedSender<TrayCommand>> = OnceLock::new();
 static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
+static STATUS_POPUP_HWND: OnceLock<HWND> = OnceLock::new();
+static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
+static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
@@ -76,10 +89,7 @@ impl PlatformAdapter for WindowsPlatformAdapter {
     }
 
     async fn notify(&self, title: &str, body: &str) -> Result<()> {
-        let title = title.to_string();
-        let body = body.to_string();
-        tokio::task::spawn_blocking(move || message_box(&title, &body)).await??;
-        Ok(())
+        show_status_popup(&format!("{title}: {body}"), Some(4_000))
     }
 }
 
@@ -102,6 +112,7 @@ pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
         if RegisterClassW(&wnd) == 0 {
             return Err(anyhow!("registering Windows tray window class failed"));
         }
+        register_status_popup_class(hinstance)?;
 
         let hwnd = CreateWindowExW(
             0,
@@ -123,6 +134,10 @@ pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
         TRAY_HWND
             .set(hwnd)
             .map_err(|_| anyhow!("Windows tray window was already initialized"))?;
+        let popup_hwnd = create_status_popup_window(hinstance)?;
+        STATUS_POPUP_HWND
+            .set(popup_hwnd)
+            .map_err(|_| anyhow!("Windows status popup was already initialized"))?;
 
         if RegisterHotKey(hwnd, HOTKEY_ID, MOD_CONTROL as u32, VK_SPACE as u32) == 0 {
             message_box(
@@ -227,7 +242,7 @@ unsafe fn add_tray_icon(hwnd: HWND) -> Result<()> {
     data.uID = TRAY_ID;
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     data.uCallbackMessage = WM_TRAYICON;
-    data.hIcon = LoadIconW(0, IDI_APPLICATION);
+    data.hIcon = load_logo_icon().unwrap_or_else(|| LoadIconW(0, IDI_APPLICATION));
     copy_tip(&mut data.szTip, "OpenVoiceDesktop");
     if Shell_NotifyIconW(NIM_ADD, &mut data) == 0 {
         return Err(anyhow!("adding Windows tray icon failed"));
@@ -243,24 +258,186 @@ unsafe fn remove_tray_icon(hwnd: HWND) {
     let _ = Shell_NotifyIconW(NIM_DELETE, &mut data);
 }
 
-pub fn notify_tray(title: &str, body: &str) -> Result<()> {
-    let hwnd = *TRAY_HWND
+pub fn show_status_popup(text: &str, timeout_ms: Option<u32>) -> Result<()> {
+    let hwnd = *STATUS_POPUP_HWND
         .get()
-        .ok_or_else(|| anyhow!("Windows tray window is not initialized"))?;
+        .ok_or_else(|| anyhow!("Windows status popup is not initialized"))?;
+    let text_lock = STATUS_POPUP_TEXT.get_or_init(|| Mutex::new(String::new()));
+    *text_lock.lock().unwrap() = text.to_string();
+    let timeout_lock = STATUS_POPUP_TIMEOUT_MS.get_or_init(|| Mutex::new(None));
+    *timeout_lock.lock().unwrap() = timeout_ms;
     unsafe {
-        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-        data.hWnd = hwnd;
-        data.uID = TRAY_ID;
-        data.uFlags = NIF_INFO;
-        data.dwInfoFlags = NIIF_INFO;
-        copy_tip(&mut data.szInfoTitle, title);
-        copy_tip(&mut data.szInfo, body);
-        if Shell_NotifyIconW(NIM_MODIFY, &mut data) == 0 {
-            return Err(anyhow!("showing Windows tray notification failed"));
+        if PostMessageW(hwnd, WM_STATUS_POPUP, 0, 0) == 0 {
+            return Err(anyhow!("posting Windows status popup message failed"));
         }
     }
     Ok(())
+}
+
+unsafe fn register_status_popup_class(hinstance: isize) -> Result<()> {
+    let class_name = wide("OpenVoiceDesktopStatusPopup");
+    let wnd = WNDCLASSW {
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(status_popup_wnd_proc),
+        hInstance: hinstance,
+        lpszClassName: class_name.as_ptr(),
+        hCursor: 0,
+        ..std::mem::zeroed()
+    };
+    if RegisterClassW(&wnd) == 0 {
+        return Err(anyhow!("registering Windows status popup class failed"));
+    }
+    Ok(())
+}
+
+unsafe fn create_status_popup_window(hinstance: isize) -> Result<HWND> {
+    let hwnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        wide("OpenVoiceDesktopStatusPopup").as_ptr(),
+        wide("OpenVoiceDesktop status").as_ptr(),
+        WS_POPUP,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        hinstance,
+        std::ptr::null(),
+    );
+    if hwnd == 0 {
+        return Err(anyhow!("creating Windows status popup failed"));
+    }
+    Ok(hwnd)
+}
+
+unsafe extern "system" fn status_popup_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_STATUS_POPUP => {
+            position_status_popup(hwnd);
+            InvalidateRect(hwnd, std::ptr::null(), 1);
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            KillTimer(hwnd, STATUS_POPUP_TIMER_ID);
+            let timeout_ms = STATUS_POPUP_TIMEOUT_MS
+                .get_or_init(|| Mutex::new(None))
+                .lock()
+                .unwrap()
+                .unwrap_or(0);
+            if timeout_ms > 0 {
+                SetTimer(hwnd, STATUS_POPUP_TIMER_ID, timeout_ms, None);
+            }
+            0
+        }
+        WM_TIMER if wparam == STATUS_POPUP_TIMER_ID => {
+            ShowWindow(hwnd, SW_HIDE);
+            0
+        }
+        WM_PAINT => {
+            paint_status_popup(hwnd);
+            0
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+unsafe fn position_status_popup(hwnd: HWND) {
+    let width = 360;
+    let height = 54;
+    let x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
+    let y = GetSystemMetrics(SM_CYSCREEN) - height - 72;
+    SetWindowPos(
+        hwnd,
+        HWND_TOPMOST,
+        x,
+        y,
+        width,
+        height,
+        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+    );
+}
+
+unsafe fn paint_status_popup(hwnd: HWND) {
+    let mut ps: PAINTSTRUCT = std::mem::zeroed();
+    let hdc = BeginPaint(hwnd, &mut ps);
+    let rect = RECT {
+        left: 0,
+        top: 0,
+        right: 360,
+        bottom: 54,
+    };
+    let brush = CreateSolidBrush(rgb(17, 20, 24));
+    FillRect(hdc, &rect, brush);
+    DeleteObject(brush);
+    SetBkMode(hdc, TRANSPARENT as i32);
+    SetTextColor(hdc, rgb(244, 247, 250));
+    let text = STATUS_POPUP_TEXT
+        .get_or_init(|| Mutex::new(String::new()))
+        .lock()
+        .unwrap()
+        .clone();
+    let mut text_rect = RECT {
+        left: 16,
+        top: 0,
+        right: 344,
+        bottom: 54,
+    };
+    DrawTextW(
+        hdc,
+        wide(&text).as_ptr(),
+        -1,
+        &mut text_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
+    EndPaint(hwnd, &ps);
+}
+
+fn load_logo_icon() -> Option<isize> {
+    let image = select_ico_image(LOGO_ICO, 32)?;
+    let icon = unsafe {
+        CreateIconFromResourceEx(image.as_ptr(), image.len() as u32, 1, 0x0003_0000, 0, 0, 0)
+    };
+    if icon == 0 {
+        None
+    } else {
+        Some(icon)
+    }
+}
+
+fn select_ico_image(data: &[u8], preferred_size: u8) -> Option<&[u8]> {
+    if data.len() < 6 || data[0..4] != [0, 0, 1, 0] {
+        return None;
+    }
+    let count = u16::from_le_bytes([data[4], data[5]]) as usize;
+    let mut selected = None;
+    for index in 0..count {
+        let offset = 6 + index * 16;
+        let entry = data.get(offset..offset + 16)?;
+        let size = if entry[0] == 0 {
+            256
+        } else {
+            entry[0] as usize
+        };
+        let bytes = u32::from_le_bytes([entry[8], entry[9], entry[10], entry[11]]) as usize;
+        let image_offset =
+            u32::from_le_bytes([entry[12], entry[13], entry[14], entry[15]]) as usize;
+        let image = data.get(image_offset..image_offset + bytes)?;
+        if entry[0] == preferred_size {
+            return Some(image);
+        }
+        if selected.is_none() || size == 32 {
+            selected = Some(image);
+        }
+    }
+    selected
+}
+
+fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
+    red as u32 | ((green as u32) << 8) | ((blue as u32) << 16)
 }
 
 unsafe fn show_tray_menu(hwnd: HWND) {
