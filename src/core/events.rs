@@ -3,9 +3,11 @@ use crate::core::state::RecordingState;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppShellEvent {
     Recording,
+    MicLevel { bucket: u8 },
     Processing { stage: ProcessingStage },
     Inserted,
     Empty,
+    Canceled,
     Busy { state: RecordingState },
     Error { message: String },
     Idle,

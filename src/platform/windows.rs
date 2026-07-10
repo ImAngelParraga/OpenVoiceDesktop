@@ -42,8 +42,13 @@ const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
 const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
 const STATUS_POPUP_WIDTH: i32 = 220;
 const STATUS_POPUP_HEIGHT: i32 = 40;
-const MENU_OPEN_CONFIG: usize = 1002;
-const MENU_QUIT: usize = 1003;
+const MENU_SETTINGS: usize = 1001;
+const MENU_COPY_LAST_TRANSCRIPT: usize = 1002;
+const MENU_CANCEL: usize = 1003;
+const MENU_TEST_ENDPOINT: usize = 1004;
+const MENU_OPEN_LOGS: usize = 1005;
+const MENU_OPEN_CONFIG: usize = 1006;
+const MENU_QUIT: usize = 1007;
 
 static COMMAND_TX: OnceLock<mpsc::UnboundedSender<TrayCommand>> = OnceLock::new();
 static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
@@ -62,6 +67,11 @@ enum StatusPopupMode {
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
     Toggle,
+    Settings,
+    CopyLastTranscript,
+    Cancel,
+    TestEndpoint,
+    OpenLogs,
     OpenConfigFolder,
     Quit,
 }
@@ -220,6 +230,11 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_COMMAND => {
             match loword(wparam as usize) {
+                MENU_SETTINGS => send_command(TrayCommand::Settings),
+                MENU_COPY_LAST_TRANSCRIPT => send_command(TrayCommand::CopyLastTranscript),
+                MENU_CANCEL => send_command(TrayCommand::Cancel),
+                MENU_TEST_ENDPOINT => send_command(TrayCommand::TestEndpoint),
+                MENU_OPEN_LOGS => send_command(TrayCommand::OpenLogs),
                 MENU_OPEN_CONFIG => send_command(TrayCommand::OpenConfigFolder),
                 MENU_QUIT => {
                     send_command(TrayCommand::Quit);
@@ -565,6 +580,16 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     if menu == 0 {
         return;
     }
+    AppendMenuW(menu, 0, MENU_SETTINGS, wide("Settings").as_ptr());
+    AppendMenuW(
+        menu,
+        0,
+        MENU_COPY_LAST_TRANSCRIPT,
+        wide("Copy Last Transcript").as_ptr(),
+    );
+    AppendMenuW(menu, 0, MENU_CANCEL, wide("Cancel").as_ptr());
+    AppendMenuW(menu, 0, MENU_TEST_ENDPOINT, wide("Test Endpoint").as_ptr());
+    AppendMenuW(menu, 0, MENU_OPEN_LOGS, wide("Open Logs").as_ptr());
     AppendMenuW(
         menu,
         0,
@@ -602,6 +627,14 @@ fn open_config_folder() -> Result<()> {
 pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
     match command {
         TrayCommand::Toggle => Ok(true),
+        TrayCommand::Cancel => Ok(false),
+        TrayCommand::Settings
+        | TrayCommand::CopyLastTranscript
+        | TrayCommand::TestEndpoint
+        | TrayCommand::OpenLogs => {
+            show_status_popup("Action available in settings UI.", Some(2_500)).ok();
+            Ok(false)
+        }
         TrayCommand::OpenConfigFolder => {
             tokio::task::spawn_blocking(open_config_folder).await??;
             Ok(false)

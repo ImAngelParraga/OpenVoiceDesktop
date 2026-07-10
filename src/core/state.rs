@@ -13,4 +13,5 @@ pub enum ToggleOutcome {
     Busy { state: RecordingState },
     Inserted { text: String },
     EmptyTranscript,
+    Canceled,
 }

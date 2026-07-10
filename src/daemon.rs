@@ -10,7 +10,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::TOGGLE_COMMAND;
+    use crate::ipc::{CANCEL_COMMAND, TOGGLE_COMMAND};
     use crate::platform::linux::LinuxPlatformAdapter;
 
     let socket_path = config.socket_path()?;
@@ -34,8 +34,13 @@ pub async fn run(config: Config) -> Result<()> {
                 let (mut stream, _) = result?;
                 let mut command = String::new();
                 stream.read_to_string(&mut command).await?;
-                let response = if command == TOGGLE_COMMAND {
-                    match controller.toggle().await {
+                let response = if command == TOGGLE_COMMAND || command == CANCEL_COMMAND {
+                    let result = if command == TOGGLE_COMMAND {
+                        controller.toggle().await
+                    } else {
+                        controller.cancel().await
+                    };
+                    match result {
                         Ok(outcome) => format!("{outcome:?}\n"),
                         Err(error) => format!("error: {error}\n"),
                     }
@@ -70,13 +75,13 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::{TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
+    use crate::ipc::{CANCEL_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME};
     use crate::platform::windows::{
         handle_tray_command, hide_status_popup, run_tray_loop, show_recording_popup,
         show_status_popup, TrayCommand, WindowsPlatformAdapter,
     };
 
-    let (toggle_tx, toggle_rx) = std_mpsc::channel::<oneshot::Sender<String>>();
+    let (controller_tx, controller_rx) = std_mpsc::channel::<ControllerRequest>();
     let controller_config = config.clone();
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -96,17 +101,21 @@ pub async fn run(config: Config) -> Result<()> {
             let platform = WindowsPlatformAdapter;
             let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
 
-            while let Ok(reply_tx) = toggle_rx.recv() {
-                let response = match controller.toggle().await {
+            while let Ok(request) = controller_rx.recv() {
+                let result = match request.command {
+                    ControllerCommand::Toggle => controller.toggle().await,
+                    ControllerCommand::Cancel => controller.cancel().await,
+                };
+                let response = match result {
                     Ok(outcome) => format!("{outcome:?}\n"),
                     Err(error) => format!("error: {error}\n"),
                 };
-                let _ = reply_tx.send(response);
+                let _ = request.reply_tx.send(response);
             }
         });
     });
 
-    let pipe_toggle_tx = toggle_tx.clone();
+    let pipe_controller_tx = controller_tx.clone();
     tokio::spawn(async move {
         loop {
             let result = async {
@@ -119,7 +128,9 @@ pub async fn run(config: Config) -> Result<()> {
                 let mut command = String::new();
                 server.read_to_string(&mut command).await?;
                 let response = if command == TOGGLE_COMMAND {
-                    request_toggle(&pipe_toggle_tx).await
+                    request_controller(&pipe_controller_tx, ControllerCommand::Toggle).await
+                } else if command == CANCEL_COMMAND {
+                    request_controller(&pipe_controller_tx, ControllerCommand::Cancel).await
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
@@ -136,13 +147,14 @@ pub async fn run(config: Config) -> Result<()> {
     });
 
     let (tray_tx, mut tray_rx) = mpsc::unbounded_channel::<TrayCommand>();
-    let tray_toggle_tx = toggle_tx.clone();
+    let tray_controller_tx = controller_tx.clone();
     tokio::spawn(async move {
         while let Some(command) = tray_rx.recv().await {
             match handle_tray_command(command).await {
                 Ok(true) => {
                     show_status_popup("processing", None).ok();
-                    let response = request_toggle(&tray_toggle_tx).await;
+                    let response =
+                        request_controller(&tray_controller_tx, ControllerCommand::Toggle).await;
                     eprint!("{response}");
                     match toggle_status_popup(&response) {
                         ToggleStatusPopup::ShowText { text, timeout_ms } => {
@@ -154,8 +166,17 @@ pub async fn run(config: Config) -> Result<()> {
                         ToggleStatusPopup::Hide => {
                             hide_status_popup().ok();
                         }
+                        ToggleStatusPopup::Canceled => {
+                            hide_status_popup().ok();
+                        }
                         ToggleStatusPopup::None => {}
                     }
+                }
+                Ok(false) if matches!(command, TrayCommand::Cancel) => {
+                    let response =
+                        request_controller(&tray_controller_tx, ControllerCommand::Cancel).await;
+                    eprint!("{response}");
+                    hide_status_popup().ok();
                 }
                 Ok(false) => {
                     if matches!(command, TrayCommand::Quit) {
@@ -179,6 +200,7 @@ pub enum ToggleStatusPopup {
         timeout_ms: Option<u32>,
     },
     Hide,
+    Canceled,
     None,
 }
 
@@ -202,6 +224,9 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
             timeout_ms: Some(2_500),
         };
     }
+    if response == "Canceled" {
+        return ToggleStatusPopup::Canceled;
+    }
     if response.starts_with("error: ") {
         return ToggleStatusPopup::ShowText {
             text: "OpenVoiceDesktop error. Check configuration.",
@@ -212,11 +237,25 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
 }
 
 #[cfg(target_os = "windows")]
-async fn request_toggle(
-    tx: &std::sync::mpsc::Sender<tokio::sync::oneshot::Sender<String>>,
+#[derive(Debug, Clone, Copy)]
+enum ControllerCommand {
+    Toggle,
+    Cancel,
+}
+
+#[cfg(target_os = "windows")]
+struct ControllerRequest {
+    command: ControllerCommand,
+    reply_tx: tokio::sync::oneshot::Sender<String>,
+}
+
+#[cfg(target_os = "windows")]
+async fn request_controller(
+    tx: &std::sync::mpsc::Sender<ControllerRequest>,
+    command: ControllerCommand,
 ) -> String {
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    if tx.send(reply_tx).is_err() {
+    if tx.send(ControllerRequest { command, reply_tx }).is_err() {
         return "error: daemon controller is not running\n".to_string();
     }
     reply_rx

@@ -2,8 +2,9 @@ use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::events::{AppShellEvent, ProcessingStage};
 use openvoice_desktop::core::settings_ui::{
     apply_text_settings, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
-    HistoryStatus, OnboardingFlow, OnboardingStepId, OverlayMode, OverlayView, PermissionCheck,
-    SettingsControlKind, SettingsSectionId, SettingsWindowLayout,
+    HistoryStatus, LiveOverlayCapability, OnboardingFlow, OnboardingStepId, OverlayMode,
+    OverlayView, PermissionCheck, SettingsControlKind, SettingsSectionId, SettingsWindowLayout,
+    TrayIconState, TrayMenuAction, TrayMenuModel,
 };
 use std::path::PathBuf;
 
@@ -321,6 +322,64 @@ fn overlay_models_recording_and_processing_states_without_success_message() {
     let inserted = OverlayView::from_event(&config, &AppShellEvent::Inserted);
     assert!(!inserted.visible);
     assert_eq!(inserted.message, "");
+}
+
+#[test]
+fn live_overlay_is_disabled_for_batch_remote_asr() {
+    let mut config = Config::default();
+    config.app.experimental = true;
+
+    let capability = LiveOverlayCapability::batch_asr_default(&config);
+
+    assert!(!capability.enabled);
+    assert!(capability.experimental);
+    assert!(capability.reason.contains("Remote batch ASR"));
+}
+
+#[test]
+fn overlay_accepts_normalized_mic_level_buckets() {
+    let config = Config::default();
+    let overlay = OverlayView::from_event(&config, &AppShellEvent::MicLevel { bucket: 99 });
+
+    assert!(overlay.visible);
+    assert_eq!(overlay.mode, OverlayMode::Recording);
+    assert_eq!(overlay.level_bucket, Some(10));
+}
+
+#[test]
+fn tray_model_maps_states_and_menu_actions_without_models() {
+    assert_eq!(
+        TrayIconState::from_event(&AppShellEvent::Recording),
+        TrayIconState::Recording
+    );
+    assert_eq!(
+        TrayIconState::from_event(&AppShellEvent::Processing {
+            stage: ProcessingStage::Uploading
+        }),
+        TrayIconState::Processing
+    );
+
+    let menu = TrayMenuModel::for_state(TrayIconState::Processing, true);
+    let actions: Vec<TrayMenuAction> = menu.items.iter().map(|item| item.action).collect();
+    let labels: Vec<&str> = menu.items.iter().map(|item| item.label.as_str()).collect();
+
+    assert_eq!(
+        actions,
+        vec![
+            TrayMenuAction::Settings,
+            TrayMenuAction::CopyLastTranscript,
+            TrayMenuAction::Cancel,
+            TrayMenuAction::TestEndpoint,
+            TrayMenuAction::OpenLogs,
+            TrayMenuAction::OpenConfig,
+            TrayMenuAction::Quit,
+        ]
+    );
+    assert!(menu
+        .items
+        .iter()
+        .any(|item| item.action == TrayMenuAction::Cancel && item.enabled));
+    assert!(!labels.iter().any(|label| label.contains("Model")));
 }
 
 #[test]

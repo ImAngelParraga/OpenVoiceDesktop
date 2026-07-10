@@ -132,6 +132,99 @@ async fn app_shell_events_precede_upload_and_paste() {
 }
 
 #[tokio::test]
+async fn cancel_stops_recording_and_hides_overlay() {
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "hello world".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(None);
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let events = FakeEventSink {
+        observations: observations.clone(),
+    };
+    let mut controller =
+        VoiceController::with_event_sink(recorder, asr, platform, Config::default(), events);
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(controller.cancel().await.unwrap(), ToggleOutcome::Canceled);
+    assert_eq!(controller.state(), RecordingState::Idle);
+
+    let observations = observations.lock().unwrap().clone();
+    assert!(observations.contains(&"event:Canceled".to_string()));
+    assert!(observations.contains(&"event:Idle".to_string()));
+}
+
+#[tokio::test]
+async fn cancel_before_upload_suppresses_asr_and_paste() {
+    let recorder = FakeRecorder::default();
+    let asr_observations = Arc::new(Mutex::new(Vec::new()));
+    let asr = FakeAsr {
+        text: "late text".to_string(),
+        observations: asr_observations.clone(),
+    };
+    let platform = FakePlatform::new(None);
+    let platform_observations = platform.observations.clone();
+    let mut controller = VoiceController::new(recorder, asr, platform, Config::default());
+    let cancel = controller.cancel_handle();
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    cancel.cancel();
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Canceled);
+
+    assert!(asr_observations.lock().unwrap().is_empty());
+    assert!(platform_observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn late_asr_result_after_cancel_is_not_pasted() {
+    let recorder = FakeRecorder::default();
+    let handle_slot = Arc::new(Mutex::new(None));
+    let asr = CancelingAsr {
+        handle_slot: handle_slot.clone(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(None);
+    let platform_observations = platform.observations.clone();
+    let mut controller = VoiceController::new(recorder, asr, platform, Config::default());
+    *handle_slot.lock().unwrap() = Some(controller.cancel_handle());
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Canceled);
+    assert!(platform_observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn mic_level_event_uses_normalized_bucket() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let recorder = FakeRecorder {
+        samples: vec![0, i16::MAX],
+        ..FakeRecorder::default()
+    };
+    let asr = FakeAsr {
+        text: "".to_string(),
+        observations: observations.clone(),
+    };
+    let platform = FakePlatform::new(None);
+    let events = FakeEventSink {
+        observations: observations.clone(),
+    };
+    let mut controller =
+        VoiceController::with_event_sink(recorder, asr, platform, Config::default(), events);
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::EmptyTranscript
+    );
+
+    assert!(observations
+        .lock()
+        .unwrap()
+        .contains(&"event:MicLevel { bucket: 10 }".to_string()));
+}
+
+#[tokio::test]
 async fn copy_only_output_leaves_transcript_without_triggering_paste() {
     use openvoice_desktop::core::config::{ClipboardHandling, PasteMethod};
 
@@ -186,10 +279,20 @@ async fn app_shell_event_reports_empty_transcript() {
     assert!(observations.contains(&"event:Idle".to_string()));
 }
 
-#[derive(Default)]
 struct FakeRecorder {
     running: bool,
+    samples: Vec<i16>,
     observations: Arc<Mutex<Vec<String>>>,
+}
+
+impl Default for FakeRecorder {
+    fn default() -> Self {
+        Self {
+            running: false,
+            samples: vec![0; 160],
+            observations: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -210,7 +313,7 @@ impl Recorder for FakeRecorder {
             .push("recorder:stop".to_string());
         assert!(self.running);
         self.running = false;
-        Ok(RecordedAudio::new(vec![0; 160], 16_000, 1))
+        Ok(RecordedAudio::new(self.samples.clone(), 16_000, 1))
     }
 }
 
@@ -228,6 +331,26 @@ impl AsrClient for FakeAsr {
             .push("asr:transcribe".to_string());
         Ok(Transcription {
             text: self.text.clone(),
+            elapsed: Duration::from_millis(12),
+        })
+    }
+}
+
+struct CancelingAsr {
+    handle_slot: Arc<Mutex<Option<openvoice_desktop::core::controller::CancelHandle>>>,
+    observations: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl AsrClient for CancelingAsr {
+    async fn transcribe_file(&self, _path: &Path) -> Result<Transcription> {
+        self.observations
+            .lock()
+            .unwrap()
+            .push("asr:transcribe".to_string());
+        self.handle_slot.lock().unwrap().as_ref().unwrap().cancel();
+        Ok(Transcription {
+            text: "late text".to_string(),
             elapsed: Duration::from_millis(12),
         })
     }

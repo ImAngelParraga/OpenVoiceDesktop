@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::core::asr::request_fields;
 use crate::core::config::{Config, OverlayPosition};
 use crate::core::events::{AppShellEvent, ProcessingStage};
+use crate::core::state::RecordingState;
 
 /// Settings window contract adapted from Handy's `H:src/components/Sidebar.tsx`.
 /// The app shell can render this model without coupling core code to Tauri/React.
@@ -98,6 +99,7 @@ pub struct OverlayView {
     pub show_waveform: bool,
     pub show_timer: bool,
     pub show_cancel: bool,
+    pub level_bucket: Option<u8>,
     pub message: &'static str,
 }
 
@@ -106,10 +108,52 @@ pub struct OverlayView {
 pub enum OverlayMode {
     Hidden,
     Recording,
+    LiveStreaming,
     WritingAudio,
     Uploading,
     InsertingText,
     Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveOverlayCapability {
+    pub enabled: bool,
+    pub experimental: bool,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrayIconState {
+    Idle,
+    Recording,
+    Processing,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrayMenuAction {
+    Settings,
+    CopyLastTranscript,
+    Cancel,
+    TestEndpoint,
+    OpenLogs,
+    OpenConfig,
+    Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayMenuItem {
+    pub action: TrayMenuAction,
+    pub label: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayMenuModel {
+    pub state: TrayIconState,
+    pub items: Vec<TrayMenuItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -643,6 +687,17 @@ impl OverlayView {
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
+                level_bucket: None,
+                message: "Recording",
+            },
+            AppShellEvent::MicLevel { bucket } => Self {
+                visible: true,
+                mode: OverlayMode::Recording,
+                position: config.app.overlay_position,
+                show_waveform: true,
+                show_timer: true,
+                show_cancel: true,
+                level_bucket: Some((*bucket).min(10)),
                 message: "Recording",
             },
             AppShellEvent::Processing { stage } => {
@@ -658,6 +713,7 @@ impl OverlayView {
                     show_waveform: false,
                     show_timer: false,
                     show_cancel: true,
+                    level_bucket: None,
                     message,
                 }
             }
@@ -668,11 +724,13 @@ impl OverlayView {
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: false,
+                level_bucket: None,
                 message: "Error",
             },
-            AppShellEvent::Inserted | AppShellEvent::Empty | AppShellEvent::Idle => {
-                Self::hidden(config)
-            }
+            AppShellEvent::Inserted
+            | AppShellEvent::Empty
+            | AppShellEvent::Canceled
+            | AppShellEvent::Idle => Self::hidden(config),
             AppShellEvent::Busy { .. } => Self {
                 visible: true,
                 mode: OverlayMode::Uploading,
@@ -680,6 +738,7 @@ impl OverlayView {
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: true,
+                level_bucket: None,
                 message: "Busy",
             },
         }
@@ -693,7 +752,74 @@ impl OverlayView {
             show_waveform: false,
             show_timer: false,
             show_cancel: false,
+            level_bucket: None,
             message: "",
+        }
+    }
+}
+
+impl LiveOverlayCapability {
+    pub fn batch_asr_default(config: &Config) -> Self {
+        Self {
+            enabled: false,
+            experimental: config.app.experimental,
+            reason: "Remote batch ASR does not provide streaming partials",
+        }
+    }
+}
+
+impl TrayIconState {
+    pub fn from_event(event: &AppShellEvent) -> Self {
+        match event {
+            AppShellEvent::Recording | AppShellEvent::MicLevel { .. } => Self::Recording,
+            AppShellEvent::Processing { .. } | AppShellEvent::Busy { .. } => Self::Processing,
+            AppShellEvent::Error { .. } => Self::Error,
+            AppShellEvent::Inserted
+            | AppShellEvent::Empty
+            | AppShellEvent::Canceled
+            | AppShellEvent::Idle => Self::Idle,
+        }
+    }
+
+    pub fn from_recording_state(state: RecordingState) -> Self {
+        match state {
+            RecordingState::Idle => Self::Idle,
+            RecordingState::Recording => Self::Recording,
+            RecordingState::WritingAudio
+            | RecordingState::Transcribing
+            | RecordingState::InsertingText => Self::Processing,
+        }
+    }
+}
+
+impl TrayMenuModel {
+    pub fn for_state(state: TrayIconState, has_last_transcript: bool) -> Self {
+        let busy = matches!(state, TrayIconState::Recording | TrayIconState::Processing);
+        Self {
+            state,
+            items: vec![
+                TrayMenuItem::new(TrayMenuAction::Settings, "Settings", !busy),
+                TrayMenuItem::new(
+                    TrayMenuAction::CopyLastTranscript,
+                    "Copy Last Transcript",
+                    has_last_transcript,
+                ),
+                TrayMenuItem::new(TrayMenuAction::Cancel, "Cancel", busy),
+                TrayMenuItem::new(TrayMenuAction::TestEndpoint, "Test Endpoint", !busy),
+                TrayMenuItem::new(TrayMenuAction::OpenLogs, "Open Logs", true),
+                TrayMenuItem::new(TrayMenuAction::OpenConfig, "Open Config", true),
+                TrayMenuItem::new(TrayMenuAction::Quit, "Quit", true),
+            ],
+        }
+    }
+}
+
+impl TrayMenuItem {
+    fn new(action: TrayMenuAction, label: &'static str, enabled: bool) -> Self {
+        Self {
+            action,
+            label: label.to_string(),
+            enabled,
         }
     }
 }

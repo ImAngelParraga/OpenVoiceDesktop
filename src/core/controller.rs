@@ -1,4 +1,8 @@
 use anyhow::Result;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use crate::core::asr::AsrClient;
@@ -18,6 +22,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     config: Config,
     state: RecordingState,
     recording_started_at: Option<Instant>,
+    cancel_requested: Arc<AtomicBool>,
 }
 
 impl<R, A, P> VoiceController<R, A, P, NoopEventSink>
@@ -47,6 +52,7 @@ where
             config,
             state: RecordingState::Idle,
             recording_started_at: None,
+            cancel_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -54,9 +60,40 @@ where
         self.state
     }
 
+    pub fn cancel_handle(&self) -> CancelHandle {
+        CancelHandle {
+            requested: Arc::clone(&self.cancel_requested),
+        }
+    }
+
+    pub async fn cancel(&mut self) -> Result<ToggleOutcome> {
+        self.cancel_requested.store(true, Ordering::SeqCst);
+        match self.state {
+            RecordingState::Idle => {
+                self.events.emit(AppShellEvent::Idle);
+                Ok(ToggleOutcome::Canceled)
+            }
+            RecordingState::Recording => {
+                self.recording_started_at = None;
+                let _ = self.recorder.stop().await;
+                self.state = RecordingState::Idle;
+                self.events.emit(AppShellEvent::Canceled);
+                self.events.emit(AppShellEvent::Idle);
+                Ok(ToggleOutcome::Canceled)
+            }
+            RecordingState::WritingAudio
+            | RecordingState::Transcribing
+            | RecordingState::InsertingText => {
+                self.events.emit(AppShellEvent::Canceled);
+                Ok(ToggleOutcome::Canceled)
+            }
+        }
+    }
+
     pub async fn toggle(&mut self) -> Result<ToggleOutcome> {
         let result = match self.state {
             RecordingState::Idle => {
+                self.cancel_requested.store(false, Ordering::SeqCst);
                 self.state = RecordingState::Recording;
                 self.events.emit(AppShellEvent::Recording);
                 if let Err(error) = self.recorder.start().await {
@@ -104,8 +141,15 @@ where
             stage: ProcessingStage::WritingAudio,
         });
         let audio = self.recorder.stop().await?;
+        self.emit_mic_level(&audio.samples);
+        if self.is_cancel_requested() {
+            return Ok(self.finish_canceled());
+        }
         let temp_file = tempfile::Builder::new().suffix(".wav").tempfile()?;
         let wav_stats = write_wav(temp_file.path(), &audio)?;
+        if self.is_cancel_requested() {
+            return Ok(self.finish_canceled());
+        }
         eprintln!(
             "openvoice-desktop audio: record_ms={} wav_write_ms={} wav_bytes={}",
             ms(record_duration.unwrap_or_default()),
@@ -118,6 +162,9 @@ where
             stage: ProcessingStage::Uploading,
         });
         let mut transcription = self.asr.transcribe_file(temp_file.path()).await?;
+        if self.is_cancel_requested() {
+            return Ok(self.finish_canceled());
+        }
         transcription.text = apply_text_settings(transcription.text, &self.config);
         eprintln!(
             "openvoice-desktop asr: upload_response_ms={}",
@@ -147,8 +194,49 @@ where
             text: transcription.text,
         })
     }
+
+    fn is_cancel_requested(&self) -> bool {
+        self.cancel_requested.load(Ordering::SeqCst)
+    }
+
+    fn finish_canceled(&mut self) -> ToggleOutcome {
+        self.recording_started_at = None;
+        self.state = RecordingState::Idle;
+        self.events.emit(AppShellEvent::Canceled);
+        self.events.emit(AppShellEvent::Idle);
+        ToggleOutcome::Canceled
+    }
+
+    fn emit_mic_level(&self, samples: &[i16]) {
+        if samples.is_empty() {
+            self.events.emit(AppShellEvent::MicLevel { bucket: 0 });
+            return;
+        }
+        let peak = samples
+            .iter()
+            .map(|sample| sample.unsigned_abs() as u32)
+            .max()
+            .unwrap_or(0);
+        let bucket = ((peak * 10) / i16::MAX as u32).min(10) as u8;
+        self.events.emit(AppShellEvent::MicLevel { bucket });
+    }
 }
 
 fn ms(duration: Duration) -> u128 {
     duration.as_millis()
+}
+
+#[derive(Debug, Clone)]
+pub struct CancelHandle {
+    requested: Arc<AtomicBool>,
+}
+
+impl CancelHandle {
+    pub fn cancel(&self) {
+        self.requested.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_canceled(&self) -> bool {
+        self.requested.load(Ordering::SeqCst)
+    }
 }
