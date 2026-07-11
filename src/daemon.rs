@@ -21,6 +21,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::ipc::{CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND};
     use crate::platform::linux::LinuxPlatformAdapter;
 
+    crate::core::lifecycle::acquire_daemon_instance()?;
     let socket_path = config.socket_path()?;
     prepare_socket(socket_path.as_path())?;
 
@@ -111,6 +112,7 @@ pub async fn run(_config: Config) -> Result<()> {
 
 #[cfg(target_os = "windows")]
 pub async fn run(config: Config) -> Result<()> {
+    crate::core::lifecycle::acquire_daemon_instance()?;
     use anyhow::Context;
     use std::sync::mpsc as std_mpsc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -422,7 +424,12 @@ fn prepare_socket(socket_path: &std::path::Path) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow!("socket path has no parent: {}", socket_path.display()))?;
     std::fs::create_dir_all(parent)?;
-    cleanup_socket(socket_path);
+    if socket_path.exists() {
+        if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
+            anyhow::bail!("OpenVoiceDesktop daemon is already running");
+        }
+        cleanup_socket(socket_path);
+    }
     Ok(())
 }
 

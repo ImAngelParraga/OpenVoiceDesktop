@@ -137,6 +137,7 @@ if [[ ! -x target/release/openvoice-desktop ]]; then
 fi
 
 mkdir -p "${BIN_DIR}" "${CONFIG_DIR}" "${SYSTEMD_USER_DIR}"
+systemctl --user stop openvoice-desktop.service >/dev/null 2>&1 || true
 install -m 0755 target/release/openvoice-desktop "${BIN_DIR}/openvoice-desktop"
 
 if [[ ! -f "${CONFIG_DIR}/config.toml" ]]; then

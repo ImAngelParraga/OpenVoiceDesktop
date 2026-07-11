@@ -25,3 +25,15 @@ fn installers_follow_persisted_autostart_setting() {
     assert!(shell.contains("systemctl --user enable openvoice-desktop.service"));
     assert!(shell.contains("systemctl --user disable openvoice-desktop.service"));
 }
+
+#[test]
+fn daemon_and_settings_have_single_instance_guards() {
+    let daemon = include_str!("../src/daemon.rs");
+    let lifecycle = include_str!("../src/core/lifecycle.rs");
+    let shell = include_str!("../src/settings_shell.rs");
+    assert!(daemon.contains("acquire_daemon_instance()?"));
+    assert!(daemon.contains("daemon is already running"));
+    assert!(lifecycle.contains("CreateMutexW"));
+    assert!(lifecycle.contains("ERROR_ALREADY_EXISTS"));
+    assert!(shell.contains("tauri_plugin_single_instance::init"));
+}

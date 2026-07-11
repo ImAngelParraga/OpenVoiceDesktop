@@ -97,3 +97,30 @@ pub fn apply_autostart(enabled: bool) -> Result<()> {
         Ok(())
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn acquire_daemon_instance() -> Result<()> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    static MUTEX: OnceLock<HANDLE> = OnceLock::new();
+    let name: Vec<u16> = OsStr::new("Local\\OpenVoiceDesktopDaemon")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+    anyhow::ensure!(handle != 0, "creating daemon instance mutex failed");
+    anyhow::ensure!(
+        unsafe { GetLastError() } != ERROR_ALREADY_EXISTS,
+        "OpenVoiceDesktop daemon is already running"
+    );
+    let _ = MUTEX.set(handle);
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn acquire_daemon_instance() -> Result<()> {
+    Ok(())
+}

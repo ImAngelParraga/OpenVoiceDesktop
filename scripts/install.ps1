@@ -21,6 +21,20 @@ function Test-Command {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Stop-RunningApp {
+    Get-Process -Name "openvoice-desktop" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Ensure-WebView2Runtime {
+    $WebView = Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F1E7E4A4-3E53-4EB6-A1E7-1787697C99F7}" -ErrorAction SilentlyContinue
+    if ($WebView) { return }
+    if (-not (Test-Command winget)) {
+        throw "Microsoft Edge WebView2 Runtime is required. Install it, then rerun."
+    }
+    winget install --id Microsoft.EdgeWebView2Runtime -e --source winget
+}
+
 function Get-GitHubHeaders {
     $Token = $env:GH_TOKEN
     if (-not $Token) {
@@ -196,6 +210,9 @@ function New-StartupShortcut {
     $Shortcut.Save()
     Write-Host "Created startup shortcut: $ShortcutPath"
 }
+
+Ensure-WebView2Runtime
+Stop-RunningApp
 
 if ($BuildFromSource) {
     Install-FromSource
