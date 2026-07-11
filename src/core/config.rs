@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -480,6 +480,11 @@ impl Default for IpcConfig {
 
 impl Config {
     pub fn default_path() -> Result<PathBuf> {
+        let standard_path = Self::standard_path()?;
+        resolve_portable_path(&standard_path)
+    }
+
+    pub fn standard_path() -> Result<PathBuf> {
         let dir =
             dirs::config_dir().ok_or_else(|| anyhow!("could not locate user config directory"))?;
         Ok(dir.join("openvoice-desktop").join("config.toml"))
@@ -674,6 +679,117 @@ pub fn resolve_bearer_token(config: &Config) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
         .or_else(platform_secret_token)
         .or_else(|| config.asr.bearer_token.clone())
+}
+
+/// Resolve active config path from the non-portable bootstrap config.
+///
+/// The bootstrap file is kept so changing portable mode cannot strand the
+/// user's settings. A portable config is copied only when its target does not
+/// exist; existing target data always wins.
+pub fn resolve_portable_path(standard_path: &Path) -> Result<PathBuf> {
+    let Some(mut marker) = read_portable_marker(standard_path)? else {
+        return Ok(standard_path.to_path_buf());
+    };
+    if !marker.enabled {
+        return Ok(standard_path.to_path_buf());
+    }
+
+    // Follow at most a few data-dir changes so changing portable.data_dir
+    // never strands the active config in its previous directory.
+    let mut source_path = standard_path.to_path_buf();
+    for _ in 0..4 {
+        let data_dir = portable_data_dir(standard_path, marker.data_dir.as_deref())?;
+        if data_dir == standard_path.parent().unwrap_or_else(|| Path::new("")) {
+            bail!(
+                "portable.data_dir must differ from standard config directory {}",
+                standard_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .display()
+            );
+        }
+        let portable_path = data_dir.join("config.toml");
+        if portable_path == standard_path {
+            bail!("portable config path must differ from standard config path");
+        }
+        if !portable_path.exists() {
+            migrate_config_file(&source_path, &portable_path)?;
+        }
+
+        let portable = load_config_without_portable_resolution(&portable_path)?;
+        if !portable.portable.enabled {
+            // Portable mode was disabled in its active config. Refresh
+            // bootstrap marker so next startup resolves standard config.
+            migrate_config_file(&portable_path, standard_path)?;
+            return Ok(standard_path.to_path_buf());
+        }
+        if portable.portable.data_dir == marker.data_dir {
+            return Ok(portable_path);
+        }
+        source_path = portable_path;
+        marker = portable.portable;
+    }
+    bail!("portable.data_dir changed too many times while resolving config")
+}
+
+fn read_portable_marker(path: &Path) -> Result<Option<PortableConfig>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(path)
+        .with_context(|| format!("reading portable config marker {}", path.display()))?;
+    let value: toml::Value = toml::from_str(&contents)
+        .with_context(|| format!("parsing portable config marker {}", path.display()))?;
+    let Some(portable) = value.get("portable") else {
+        return Ok(Some(PortableConfig::default()));
+    };
+    Ok(Some(
+        portable
+            .clone()
+            .try_into()
+            .context("deserializing portable settings")?,
+    ))
+}
+
+fn portable_data_dir(standard_path: &Path, configured: Option<&Path>) -> Result<PathBuf> {
+    let base = standard_path
+        .parent()
+        .ok_or_else(|| anyhow!("standard config path has no parent"))?;
+    let data_dir = configured
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| base.join("portable-data"));
+    let data_dir = if data_dir.is_absolute() {
+        data_dir
+    } else {
+        base.join(data_dir)
+    };
+    if data_dir.as_os_str().is_empty() {
+        bail!("portable.data_dir must not be empty");
+    }
+    Ok(data_dir)
+}
+
+fn load_config_without_portable_resolution(path: &Path) -> Result<Config> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let config =
+        migrate_config_toml(&contents).with_context(|| format!("parsing {}", path.display()))?;
+    if config.asr.bearer_token.is_some() {
+        require_private_file(path)?;
+    }
+    Ok(config)
+}
+
+fn migrate_config_file(source: &Path, target: &Path) -> Result<()> {
+    let config = load_config_without_portable_resolution(source)?;
+    config.save_to(target).with_context(|| {
+        format!(
+            "migrating config from {} to {}",
+            source.display(),
+            target.display()
+        )
+    })?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]

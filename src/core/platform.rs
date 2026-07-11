@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::core::audio::{
     audio_feedback_plan, enumerate_output_devices, AudioFeedbackPlan, OutputDeviceInfo,
 };
-use crate::core::config::{ClipboardHandling, OutputConfig, PasteMethod};
+use crate::core::config::{ClipboardHandling, OutputConfig, PasteMethod, TypingTool};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasteResult {
@@ -31,6 +31,15 @@ pub trait PlatformAdapter: Send + Sync {
     async fn type_text(&self, text: &str) -> Result<()> {
         self.set_clipboard_text(text).await?;
         self.trigger_paste().await
+    }
+    async fn type_text_with_tool(&self, text: &str, _tool: TypingTool) -> Result<()> {
+        self.type_text(text).await
+    }
+    async fn trigger_submit(&self) -> Result<()> {
+        self.trigger_submit_with_tool(TypingTool::Auto).await
+    }
+    async fn trigger_submit_with_tool(&self, _tool: TypingTool) -> Result<()> {
+        Err(anyhow!("auto-submit is unavailable on this platform"))
     }
     async fn notify(&self, title: &str, body: &str) -> Result<()>;
 
@@ -79,6 +88,28 @@ pub async fn paste_with_clipboard_restore<P>(
 where
     P: PlatformAdapter,
 {
+    paste_with_clipboard_restore_options(
+        platform,
+        transcript,
+        restore_clipboard,
+        restore_delay,
+        TypingTool::Auto,
+        false,
+    )
+    .await
+}
+
+async fn paste_with_clipboard_restore_options<P>(
+    platform: &P,
+    transcript: &str,
+    restore_clipboard: bool,
+    restore_delay: Duration,
+    typing_tool: TypingTool,
+    auto_submit: bool,
+) -> Result<PasteResult>
+where
+    P: PlatformAdapter,
+{
     let previous_clipboard = if restore_clipboard {
         platform.clipboard_text().await.ok().flatten()
     } else {
@@ -96,6 +127,19 @@ where
             .await
             .ok();
         return Err(anyhow!("{error}"));
+    }
+
+    if auto_submit {
+        if let Err(error) = platform.trigger_submit_with_tool(typing_tool).await {
+            platform
+                .notify(
+                    "OpenVoiceDesktop auto-submit failed",
+                    "Transcript was left in the clipboard. Submit it manually.",
+                )
+                .await
+                .ok();
+            return Err(anyhow!("{error}"));
+        }
     }
 
     if let Some(previous) = previous_clipboard {
@@ -118,11 +162,6 @@ where
         tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
     }
 
-    if matches!(output.paste_method, PasteMethod::DirectType) {
-        platform.type_text(transcript).await?;
-        return Ok(PasteResult::Pasted);
-    }
-
     if matches!(output.paste_method, PasteMethod::CopyOnly)
         || matches!(output.clipboard_handling, ClipboardHandling::CopyOnly)
     {
@@ -130,19 +169,44 @@ where
         return Ok(PasteResult::LeftInClipboard);
     }
 
-    if matches!(output.paste_method, PasteMethod::ExternalScript) {
-        platform.set_clipboard_text(transcript).await?;
-        platform
-            .notify(
-                "OpenVoiceDesktop external paste",
-                "Transcript copied; run the configured external paste script from the app shell.",
-            )
-            .await
-            .ok();
-        return Ok(PasteResult::LeftInClipboard);
+    if matches!(output.paste_method, PasteMethod::ExternalScript)
+        || matches!(output.typing_tool, TypingTool::ExternalScript)
+    {
+        return run_external_script_output(platform, transcript, output).await;
     }
 
-    paste_with_clipboard_restore(
+    if matches!(output.paste_method, PasteMethod::DirectType) {
+        if let Err(error) = platform
+            .type_text_with_tool(transcript, output.typing_tool)
+            .await
+        {
+            platform.set_clipboard_text(transcript).await.ok();
+            platform
+                .notify(
+                    "OpenVoiceDesktop typing failed",
+                    "Transcript was left in the clipboard. Paste it manually.",
+                )
+                .await
+                .ok();
+            return Err(anyhow!("{error}"));
+        }
+        if output.auto_submit {
+            if let Err(error) = platform.trigger_submit_with_tool(output.typing_tool).await {
+                platform.set_clipboard_text(transcript).await.ok();
+                platform
+                    .notify(
+                        "OpenVoiceDesktop auto-submit failed",
+                        "Transcript was left in the clipboard. Submit it manually.",
+                    )
+                    .await
+                    .ok();
+                return Err(anyhow!("{error}"));
+            }
+        }
+        return Ok(PasteResult::Pasted);
+    }
+
+    paste_with_clipboard_restore_options(
         platform,
         transcript,
         matches!(
@@ -150,6 +214,112 @@ where
             ClipboardHandling::RestoreAfterPaste
         ),
         Duration::from_millis(output.restore_delay_ms),
+        output.typing_tool,
+        output.auto_submit,
     )
     .await
+}
+
+pub fn validate_external_script(path: &std::path::Path) -> Result<()> {
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        anyhow!(
+            "external script {} is not readable: {error}",
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(anyhow!(
+            "external script path {} is not a file",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return Err(anyhow!(
+                "external script {} is not executable",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub async fn run_external_script(path: &std::path::Path, transcript: &str) -> Result<()> {
+    validate_external_script(path)?;
+    let mut child = tokio::process::Command::new(path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| anyhow!("starting external script {}: {error}", path.display()))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin
+            .write_all(transcript.as_bytes())
+            .await
+            .map_err(|error| anyhow!("writing transcript to external script: {error}"))?;
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| anyhow!("waiting for external script {}: {error}", path.display()))?;
+    if !status.success() {
+        return Err(anyhow!(
+            "external script {} exited with {status}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+async fn run_external_script_output<P>(
+    platform: &P,
+    transcript: &str,
+    output: &OutputConfig,
+) -> Result<PasteResult>
+where
+    P: PlatformAdapter,
+{
+    let path = output
+        .external_script_path
+        .as_deref()
+        .ok_or_else(|| anyhow!("output.external_script_path is required"))?;
+    let previous_clipboard = if matches!(
+        output.clipboard_handling,
+        ClipboardHandling::RestoreAfterPaste
+    ) {
+        platform.clipboard_text().await.ok().flatten()
+    } else {
+        None
+    };
+    platform.set_clipboard_text(transcript).await?;
+    if let Err(error) = run_external_script(path, transcript).await {
+        platform
+            .notify(
+                "OpenVoiceDesktop external script failed",
+                "Transcript was left in the clipboard. Paste it manually.",
+            )
+            .await
+            .ok();
+        return Err(error);
+    }
+    if output.auto_submit {
+        if let Err(error) = platform.trigger_submit_with_tool(output.typing_tool).await {
+            platform
+                .notify(
+                    "OpenVoiceDesktop auto-submit failed",
+                    "Transcript was left in the clipboard. Submit it manually.",
+                )
+                .await
+                .ok();
+            return Err(error);
+        }
+    }
+    if let Some(previous) = previous_clipboard {
+        tokio::time::sleep(Duration::from_millis(output.restore_delay_ms)).await;
+        platform.set_clipboard_text(&previous).await?;
+    }
+    Ok(PasteResult::Pasted)
 }

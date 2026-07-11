@@ -11,10 +11,11 @@ use crate::core::audio::{
 };
 use crate::core::config::Config;
 use crate::core::settings_inventory::{ControlState, InventoryKind, SETTINGS_INVENTORY};
+use crate::core::settings_ui::{LocaleCatalog, ThemeSelection};
 use crate::core::shortcut::ShortcutBindings;
 
 /// Typed settings boundary adapted from `H:src-tauri/src/settings.rs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsDocument {
     pub config: Config,
     pub asr_token_configured: bool,
@@ -24,6 +25,9 @@ pub struct SettingsDocument {
     pub output_devices: Vec<OutputDeviceInfo>,
     pub output_device_fallback: Option<String>,
     pub audio_encoding: AudioEncodingSettings,
+    pub supported_typing_tools: Vec<crate::core::config::TypingTool>,
+    pub locale_catalog: LocaleCatalog,
+    pub theme_selection: ThemeSelection,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -99,6 +103,8 @@ impl SettingsService {
             };
         let asr_token_configured = loaded.asr.bearer_token.is_some();
         let post_processing_token_configured = loaded.post_processing.bearer_token.is_some();
+        let locale_catalog = LocaleCatalog::from_config(&loaded);
+        let theme_selection = ThemeSelection::from_config(&loaded);
         loaded.asr.bearer_token = None;
         loaded.post_processing.bearer_token = None;
         Ok(SettingsDocument {
@@ -110,6 +116,9 @@ impl SettingsService {
             output_devices,
             output_device_fallback,
             audio_encoding: effective_audio_encoding(),
+            supported_typing_tools: crate::core::settings_ui::supported_typing_tools(),
+            locale_catalog,
+            theme_selection,
             fields,
         })
     }
@@ -224,6 +233,52 @@ pub fn validate_config(config: &Config) -> Result<()> {
         300,
     )?;
     non_empty("ui.language", &config.ui.language)?;
+    if !crate::core::settings_ui::is_supported_locale(&config.ui.language) {
+        bail!(
+            "ui.language must be one of: {}",
+            crate::core::settings_ui::SUPPORTED_LOCALES
+                .iter()
+                .map(|locale| locale.code)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if let Some(data_dir) = &config.portable.data_dir {
+        if data_dir.as_os_str().is_empty() {
+            bail!("portable.data_dir must not be empty");
+        }
+    }
+    if !crate::core::settings_ui::supported_typing_tools().contains(&config.output.typing_tool) {
+        bail!(
+            "output.typing_tool {:?} is unavailable on this platform",
+            config.output.typing_tool
+        );
+    }
+    if matches!(
+        config.output.paste_method,
+        crate::core::config::PasteMethod::ExternalScript
+    ) || matches!(
+        config.output.typing_tool,
+        crate::core::config::TypingTool::ExternalScript
+    ) {
+        let path = config
+            .output
+            .external_script_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("output.external_script_path is required"))?;
+        crate::core::platform::validate_external_script(path)?;
+    }
+    if config.output.auto_submit
+        && (matches!(
+            config.output.paste_method,
+            crate::core::config::PasteMethod::CopyOnly
+        ) || matches!(
+            config.output.clipboard_handling,
+            crate::core::config::ClipboardHandling::CopyOnly
+        ))
+    {
+        bail!("output.auto_submit requires an output method that focuses a target");
+    }
     crate::core::lifecycle::validate_lifecycle(config)?;
     Ok(())
 }
@@ -260,6 +315,14 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
             continue;
         }
         let changed = old.get(entry.id) != new.get(entry.id);
+        if changed && matches!(entry.id, "portable.enabled" | "portable.data_dir") {
+            results.push(FieldApplyResult {
+                field: entry.id.to_string(),
+                status: ApplyStatus::RestartRequired,
+                reason: Some("portable mode changes apply after restart".to_string()),
+            });
+            continue;
+        }
         let (status, reason) = match entry.state {
             ControlState::Working { .. } => (ApplyStatus::Applied, None),
             ControlState::Unavailable { reason } if changed => (

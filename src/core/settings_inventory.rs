@@ -141,21 +141,27 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
         "app.experimental",
         "live streaming is unavailable for remote batch ASR"
     ),
-    u!("ui.language"),
-    u!("ui.theme"),
-    u!("updates.check_for_updates"),
-    u!("updates.show_whats_new"),
-    u!("portable.enabled"),
+    w!("ui.language"),
+    w!("ui.theme"),
+    u!(
+        "updates.check_for_updates",
+        "release service is not available in this build"
+    ),
+    u!(
+        "updates.show_whats_new",
+        "release service is not available in this build"
+    ),
+    w!("portable.enabled"),
     u!("behavior.restore_clipboard"),
     u!("behavior.clipboard_restore_delay_ms"),
     // I.settings.output
-    u!("output.paste_method", PARTIAL),
-    u!("output.typing_tool"),
+    w!("output.paste_method"),
+    w!("output.typing_tool"),
     w!("output.clipboard_handling"),
     w!("output.paste_delay_ms"),
     w!("output.restore_delay_ms"),
-    u!("output.auto_submit"),
-    u!("output.external_script_path"),
+    w!("output.auto_submit"),
+    w!("output.external_script_path"),
     // I.settings.text
     u!("text.custom_words"),
     u!("text.fuzzy_correction_threshold"),
@@ -200,8 +206,11 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("audio.custom_start_sound"),
     w!("audio.custom_stop_sound"),
     w!("audio.custom_error_sound"),
-    u!("updates.release_channel"),
-    u!("portable.data_dir"),
+    u!(
+        "updates.release_channel",
+        "release service is not available in this build"
+    ),
+    w!("portable.data_dir"),
     u!("onboarding.completed"),
     u!("onboarding.show_permission_repair"),
     // I.settings.about

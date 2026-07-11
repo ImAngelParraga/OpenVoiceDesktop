@@ -1,10 +1,11 @@
-use openvoice_desktop::core::config::{Config, OverlayPosition, OverlayStyle};
+use openvoice_desktop::core::config::{Config, OverlayPosition, OverlayStyle, Theme};
 use openvoice_desktop::core::events::{AppShellEvent, ProcessingStage};
 use openvoice_desktop::core::settings_ui::{
     apply_text_settings, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
     HistoryStatus, LiveOverlayCapability, LocalModelExclusion, OnboardingFlow, OnboardingStepId,
     OverlayMode, OverlayView, PermissionCheck, SettingsControlKind, SettingsSectionId,
     SettingsWindowLayout, ThemeSelection, TrayIconState, TrayMenuAction, TrayMenuModel, UserToast,
+    SUPPORTED_LOCALES,
 };
 use std::path::PathBuf;
 
@@ -481,4 +482,23 @@ fn asr_encoding_controls_are_read_only() {
             SettingsControlKind::ReadOnly
         );
     }
+}
+
+#[test]
+fn locale_catalog_and_theme_selection_cover_all_desktop_surfaces() {
+    let mut config = Config::default();
+    config.ui.language = "es".to_string();
+    config.ui.theme = Theme::Dark;
+
+    assert!(SUPPORTED_LOCALES.iter().any(|locale| locale.code == "es"));
+    let theme = ThemeSelection::from_config(&config);
+    assert_eq!(theme.css_class, "dark");
+    assert!(theme.applies_to_window);
+    assert!(theme.applies_to_overlay);
+    assert!(theme.applies_to_tray);
+    assert!(!theme.tray_asset.is_empty());
+
+    let overlay = OverlayView::from_event(&config, &AppShellEvent::Recording);
+    assert_eq!(overlay.theme, Theme::Dark);
+    assert_eq!(overlay.message, "Grabando");
 }

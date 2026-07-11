@@ -72,3 +72,12 @@ fn overlay_shell_is_native_and_cancelable_with_live_daemon_status() {
     assert!(SHELL_RS.contains("cancel_transcription"));
     assert!(OVERLAY_JS.contains("invoke(\"cancel_transcription\")"));
 }
+
+#[test]
+fn settings_surface_applies_locale_theme_and_hides_unavailable_updates() {
+    assert!(SETTINGS_JS.contains("function applyLocale()"));
+    assert!(SETTINGS_JS.contains("function applyTheme(theme)"));
+    assert!(SETTINGS_JS.contains("if (path.startsWith(\"updates.\")) continue"));
+    assert!(SETTINGS_JS.contains("document.documentElement.dataset.theme"));
+    assert!(OVERLAY_JS.contains("root.dataset.theme"));
+}

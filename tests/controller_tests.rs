@@ -314,6 +314,33 @@ async fn copy_only_output_leaves_transcript_without_triggering_paste() {
 }
 
 #[tokio::test]
+async fn direct_type_uses_selected_tool_and_auto_submits() {
+    use openvoice_desktop::core::config::{PasteMethod, TypingTool};
+
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "hello world".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(None);
+    let observations = platform.observations.clone();
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    config.output.paste_method = PasteMethod::DirectType;
+    config.output.typing_tool = TypingTool::Wtype;
+    config.output.auto_submit = true;
+    let mut controller = VoiceController::new(recorder, asr, platform, config);
+
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+
+    assert_eq!(
+        *observations.lock().unwrap(),
+        vec!["type:Wtype:hello world", "submit:Wtype"]
+    );
+}
+
+#[tokio::test]
 async fn app_shell_event_reports_empty_transcript() {
     let observations = Arc::new(Mutex::new(Vec::new()));
     let recorder = FakeRecorder::default();
@@ -472,6 +499,29 @@ impl PlatformAdapter for FakePlatform {
         if self.fail_paste {
             anyhow::bail!("paste failed");
         }
+        Ok(())
+    }
+
+    async fn type_text_with_tool(
+        &self,
+        text: &str,
+        tool: openvoice_desktop::core::config::TypingTool,
+    ) -> Result<()> {
+        self.observations
+            .lock()
+            .unwrap()
+            .push(format!("type:{tool:?}:{text}"));
+        Ok(())
+    }
+
+    async fn trigger_submit_with_tool(
+        &self,
+        tool: openvoice_desktop::core::config::TypingTool,
+    ) -> Result<()> {
+        self.observations
+            .lock()
+            .unwrap()
+            .push(format!("submit:{tool:?}"));
         Ok(())
     }
 

@@ -7,6 +7,7 @@ const cancel = document.querySelector("#cancel");
 
 function render(view) {
   root.hidden = !view.visible;
+  root.dataset.theme = view.theme ?? "system";
   root.classList.toggle("expanded", view.style === "expanded");
   root.classList.toggle("bottom", view.position === "bottom");
   message.textContent = view.message;

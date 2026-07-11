@@ -23,7 +23,7 @@ use windows_sys::Win32::System::Com::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_SPACE, VK_V,
+    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_RETURN, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -40,6 +40,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
+use crate::core::config::{Theme, TypingTool};
 use crate::core::platform::{AudioMuteState, PlatformAdapter};
 
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
@@ -68,6 +69,7 @@ static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static STATUS_POPUP_MODE: OnceLock<Mutex<StatusPopupMode>> = OnceLock::new();
 static STATUS_POPUP_FRAME: OnceLock<Mutex<u32>> = OnceLock::new();
+static TRAY_THEME: OnceLock<Mutex<Theme>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StatusPopupMode {
@@ -120,6 +122,20 @@ impl PlatformAdapter for WindowsPlatformAdapter {
 
     async fn trigger_paste(&self) -> Result<()> {
         send_ctrl_v()
+    }
+
+    async fn type_text_with_tool(&self, text: &str, tool: TypingTool) -> Result<()> {
+        match tool {
+            TypingTool::Auto | TypingTool::SendInput => self.type_text(text).await,
+            _ => Err(anyhow!("typing tool {tool:?} is unavailable on Windows")),
+        }
+    }
+
+    async fn trigger_submit_with_tool(&self, tool: TypingTool) -> Result<()> {
+        match tool {
+            TypingTool::Auto | TypingTool::SendInput => send_enter(),
+            _ => Err(anyhow!("typing tool {tool:?} is unavailable on Windows")),
+        }
     }
 
     async fn notify(&self, title: &str, body: &str) -> Result<()> {
@@ -289,14 +305,19 @@ fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
 }
 
 pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
-    run_tray_loop_with_config(tx, true, false)
+    run_tray_loop_with_config(tx, true, false, Theme::System)
 }
 
 pub fn run_tray_loop_with_config(
     tx: mpsc::UnboundedSender<TrayCommand>,
     show_tray_icon: bool,
     start_hidden: bool,
+    theme: Theme,
 ) -> Result<()> {
+    *TRAY_THEME
+        .get_or_init(|| Mutex::new(Theme::System))
+        .lock()
+        .unwrap() = theme;
     COMMAND_TX
         .set(tx)
         .map_err(|_| anyhow!("Windows tray command channel was already initialized"))?;
@@ -387,6 +408,24 @@ fn send_ctrl_v() -> Result<()> {
     };
     if sent != inputs.len() as u32 {
         return Err(anyhow!("SendInput failed while sending Ctrl+V"));
+    }
+    Ok(())
+}
+
+fn send_enter() -> Result<()> {
+    let inputs = [
+        keyboard_input(VK_RETURN as u16, 0),
+        keyboard_input(VK_RETURN as u16, KEYEVENTF_KEYUP),
+    ];
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent != inputs.len() as u32 {
+        return Err(anyhow!("SendInput failed while sending Enter"));
     }
     Ok(())
 }
@@ -645,8 +684,14 @@ unsafe fn paint_status_popup(hwnd: HWND) {
         right: STATUS_POPUP_WIDTH,
         bottom: STATUS_POPUP_HEIGHT,
     };
-    let brush = CreateSolidBrush(rgb(17, 20, 24));
-    let pen = CreatePen(PS_SOLID, 1, rgb(30, 34, 39));
+    let (background, border, foreground) = tray_palette(
+        *TRAY_THEME
+            .get_or_init(|| Mutex::new(Theme::System))
+            .lock()
+            .unwrap(),
+    );
+    let brush = CreateSolidBrush(background);
+    let pen = CreatePen(PS_SOLID, 1, border);
     let old_brush = SelectObject(hdc, brush);
     let old_pen = SelectObject(hdc, pen);
     RoundRect(
@@ -668,10 +713,10 @@ unsafe fn paint_status_popup(hwnd: HWND) {
         .lock()
         .unwrap();
     if mode == StatusPopupMode::RecordingBars {
-        draw_recording_bars(hdc);
+        draw_recording_bars(hdc, foreground);
     } else {
         SetBkMode(hdc, TRANSPARENT as i32);
-        SetTextColor(hdc, rgb(244, 247, 250));
+        SetTextColor(hdc, foreground);
         let text = STATUS_POPUP_TEXT
             .get_or_init(|| Mutex::new(String::new()))
             .lock()
@@ -694,7 +739,7 @@ unsafe fn paint_status_popup(hwnd: HWND) {
     EndPaint(hwnd, &ps);
 }
 
-unsafe fn draw_recording_bars(hdc: isize) {
+unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
     let frame = *STATUS_POPUP_FRAME
         .get_or_init(|| Mutex::new(0))
         .lock()
@@ -704,7 +749,7 @@ unsafe fn draw_recording_bars(hdc: isize) {
     let gap = 4;
     let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
     let mut x = (STATUS_POPUP_WIDTH - total_width) / 2;
-    let brush = CreateSolidBrush(rgb(244, 247, 250));
+    let brush = CreateSolidBrush(foreground);
     for index in 0..heights.len() {
         let height = heights[((index as u32 + frame) as usize) % heights.len()];
         let y = (STATUS_POPUP_HEIGHT - height) / 2;
@@ -718,6 +763,13 @@ unsafe fn draw_recording_bars(hdc: isize) {
         x += bar_width + gap;
     }
     DeleteObject(brush);
+}
+
+fn tray_palette(theme: Theme) -> (COLORREF, COLORREF, COLORREF) {
+    match theme {
+        Theme::Light => (rgb(247, 248, 250), rgb(203, 213, 225), rgb(32, 36, 42)),
+        Theme::Dark | Theme::System => (rgb(17, 20, 24), rgb(48, 56, 66), rgb(244, 247, 250)),
+    }
 }
 
 fn load_logo_icon() -> Option<isize> {

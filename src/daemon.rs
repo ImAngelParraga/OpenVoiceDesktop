@@ -270,7 +270,12 @@ pub async fn run(config: Config) -> Result<()> {
     });
 
     eprintln!("openvoice-desktop Windows tray app starting");
-    run_tray_loop_with_config(tray_tx, config.app.show_tray_icon, config.app.start_hidden)
+    run_tray_loop_with_config(
+        tray_tx,
+        config.app.show_tray_icon,
+        config.app.start_hidden,
+        config.ui.theme,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::core::asr::request_fields;
-use crate::core::config::{Config, OverlayPosition, Theme};
+use crate::core::config::{Config, OverlayPosition, Theme, TypingTool};
 use crate::core::events::{AppShellEvent, ProcessingStage};
 use crate::core::settings_inventory::{inventory_entry, ControlState};
 use crate::core::state::RecordingState;
@@ -108,6 +108,7 @@ pub struct OverlayView {
     pub mode: OverlayMode,
     pub position: OverlayPosition,
     pub style: crate::core::config::OverlayStyle,
+    pub theme: Theme,
     pub show_waveform: bool,
     pub show_timer: bool,
     pub show_cancel: bool,
@@ -234,6 +235,84 @@ pub struct ThemeSelection {
     pub applies_to_window: bool,
     pub applies_to_overlay: bool,
     pub applies_to_tray: bool,
+    pub css_class: &'static str,
+    pub tray_asset: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocaleOption {
+    pub code: &'static str,
+    pub label: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocaleCatalog {
+    pub selected: String,
+    pub supported: Vec<LocaleOption>,
+}
+
+pub const SUPPORTED_LOCALES: &[LocaleOption] = &[
+    LocaleOption {
+        code: "en",
+        label: "English",
+    },
+    LocaleOption {
+        code: "de",
+        label: "Deutsch",
+    },
+    LocaleOption {
+        code: "es",
+        label: "Español",
+    },
+    LocaleOption {
+        code: "fr",
+        label: "Français",
+    },
+    LocaleOption {
+        code: "ja",
+        label: "日本語",
+    },
+];
+
+pub fn is_supported_locale(language: &str) -> bool {
+    SUPPORTED_LOCALES
+        .iter()
+        .any(|locale| locale.code == language)
+}
+
+pub fn supported_typing_tools() -> Vec<TypingTool> {
+    #[cfg(target_os = "linux")]
+    {
+        vec![
+            TypingTool::Auto,
+            TypingTool::Wtype,
+            TypingTool::Dotool,
+            TypingTool::Ydotool,
+            TypingTool::Xdotool,
+            TypingTool::ExternalScript,
+        ]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![
+            TypingTool::Auto,
+            TypingTool::SendInput,
+            TypingTool::ExternalScript,
+        ]
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        vec![TypingTool::Auto, TypingTool::ExternalScript]
+    }
+}
+
+impl LocaleCatalog {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            selected: config.ui.language.clone(),
+            supported: SUPPORTED_LOCALES.to_vec(),
+        }
+    }
 }
 
 impl SettingsWindowLayout {
@@ -448,18 +527,6 @@ impl SettingsWindowLayout {
                             "Portable mode",
                             SettingsControlKind::Toggle,
                             "portable.enabled",
-                        ),
-                        SettingsControl::bound(
-                            "restore-clipboard",
-                            "Restore clipboard after paste",
-                            SettingsControlKind::Toggle,
-                            "behavior.restore_clipboard",
-                        ),
-                        SettingsControl::bound(
-                            "clipboard-restore-delay",
-                            "Clipboard restore delay",
-                            SettingsControlKind::Number,
-                            "behavior.clipboard_restore_delay_ms",
                         ),
                         SettingsControl::bound(
                             "paste-method",
@@ -845,22 +912,24 @@ impl OverlayView {
                 mode: OverlayMode::Recording,
                 position: config.app.overlay_position,
                 style: config.app.overlay_style,
+                theme: config.ui.theme,
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
                 level_bucket: None,
-                message: "Recording",
+                message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::MicLevel { bucket } => Self {
                 visible: true,
                 mode: OverlayMode::Recording,
                 position: config.app.overlay_position,
                 style: config.app.overlay_style,
+                theme: config.ui.theme,
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
                 level_bucket: Some((*bucket).min(10)),
-                message: "Recording",
+                message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::Processing { stage } => {
                 let (mode, message) = match stage {
@@ -873,11 +942,12 @@ impl OverlayView {
                     mode,
                     position: config.app.overlay_position,
                     style: config.app.overlay_style,
+                    theme: config.ui.theme,
                     show_waveform: false,
                     show_timer: false,
                     show_cancel: true,
                     level_bucket: None,
-                    message,
+                    message: localized_overlay_message(config, message),
                 }
             }
             AppShellEvent::Error { .. } => Self {
@@ -885,11 +955,12 @@ impl OverlayView {
                 mode: OverlayMode::Error,
                 position: config.app.overlay_position,
                 style: config.app.overlay_style,
+                theme: config.ui.theme,
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: false,
                 level_bucket: None,
-                message: "Error",
+                message: localized_overlay_message(config, "Error"),
             },
             AppShellEvent::Inserted
             | AppShellEvent::Empty
@@ -900,11 +971,12 @@ impl OverlayView {
                 mode: OverlayMode::Uploading,
                 position: config.app.overlay_position,
                 style: config.app.overlay_style,
+                theme: config.ui.theme,
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: true,
                 level_bucket: None,
-                message: "Busy",
+                message: localized_overlay_message(config, "Busy"),
             },
         }
     }
@@ -915,6 +987,7 @@ impl OverlayView {
             mode: OverlayMode::Hidden,
             position: config.app.overlay_position,
             style: config.app.overlay_style,
+            theme: config.ui.theme,
             show_waveform: false,
             show_timer: false,
             show_cancel: false,
@@ -1127,12 +1200,57 @@ impl LocalModelExclusion {
 
 impl ThemeSelection {
     pub fn from_config(config: &Config) -> Self {
+        let css_class = match config.ui.theme {
+            Theme::System => "system",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        };
         Self {
             selected: config.ui.theme,
             applies_to_window: true,
             applies_to_overlay: true,
             applies_to_tray: true,
+            css_class,
+            // Tray icon is intentionally monochrome; native status surfaces use
+            // this theme selection for their foreground/background palette.
+            tray_asset: "icons/icon.png",
         }
+    }
+}
+
+fn localized_overlay_message(config: &Config, message: &str) -> &'static str {
+    match (config.ui.language.as_str(), message) {
+        ("de", "Recording") => "Aufnahme",
+        ("de", "Writing audio") => "Audio wird geschrieben",
+        ("de", "Transcribing") => "Transkription",
+        ("de", "Inserting") => "Einfügen",
+        ("de", "Error") => "Fehler",
+        ("de", "Busy") => "Beschäftigt",
+        ("es", "Recording") => "Grabando",
+        ("es", "Writing audio") => "Escribiendo audio",
+        ("es", "Transcribing") => "Transcribiendo",
+        ("es", "Inserting") => "Insertando",
+        ("es", "Error") => "Error",
+        ("es", "Busy") => "Ocupado",
+        ("fr", "Recording") => "Enregistrement",
+        ("fr", "Writing audio") => "Écriture audio",
+        ("fr", "Transcribing") => "Transcription",
+        ("fr", "Inserting") => "Insertion",
+        ("fr", "Error") => "Erreur",
+        ("fr", "Busy") => "Occupé",
+        ("ja", "Recording") => "録音中",
+        ("ja", "Writing audio") => "音声を書き込み中",
+        ("ja", "Transcribing") => "文字起こし中",
+        ("ja", "Inserting") => "挿入中",
+        ("ja", "Error") => "エラー",
+        ("ja", "Busy") => "処理中",
+        (_, "Recording") => "Recording",
+        (_, "Writing audio") => "Writing audio",
+        (_, "Transcribing") => "Transcribing",
+        (_, "Inserting") => "Inserting",
+        (_, "Error") => "Error",
+        (_, "Busy") => "Busy",
+        (_, _) => "",
     }
 }
 

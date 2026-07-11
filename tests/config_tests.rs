@@ -1,6 +1,7 @@
 use openvoice_desktop::core::config::{
-    require_private_file, ClipboardHandling, Config, LogLevel, OverlayPosition, OverlayStyle,
-    PasteMethod, RecordingRetention, SoundTheme, Theme, TypingTool, CURRENT_SCHEMA_VERSION,
+    require_private_file, resolve_portable_path, ClipboardHandling, Config, LogLevel,
+    OverlayPosition, OverlayStyle, PasteMethod, RecordingRetention, SoundTheme, Theme, TypingTool,
+    CURRENT_SCHEMA_VERSION,
 };
 use std::fs;
 use std::io::Write;
@@ -419,4 +420,50 @@ fn save_to_preserves_plaintext_token_with_private_permissions() {
     assert_eq!(mode, 0o600);
     assert_eq!(loaded.config.asr.bearer_token.as_deref(), Some("dev-token"));
     assert_eq!(loaded.warnings.len(), 1);
+}
+
+#[test]
+fn portable_resolution_migrates_switches_and_preserves_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let standard = dir.path().join("config.toml");
+    let first_portable_dir = dir.path().join("portable-one");
+    let second_portable_dir = dir.path().join("portable-two");
+
+    let mut config = Config::default();
+    config.asr.model = "portable-model".to_string();
+    config.asr.bearer_token = Some("portable-secret".to_string());
+    config.portable.enabled = true;
+    config.portable.data_dir = Some(first_portable_dir.clone());
+    config.save_to(&standard).unwrap();
+
+    let active = resolve_portable_path(&standard).unwrap();
+    assert_eq!(active, first_portable_dir.join("config.toml"));
+    let loaded = Config::load_from(&active).unwrap();
+    assert_eq!(loaded.config.asr.model, "portable-model");
+    assert_eq!(
+        loaded.config.asr.bearer_token.as_deref(),
+        Some("portable-secret")
+    );
+
+    let mut moved = loaded.config;
+    moved.portable.data_dir = Some(second_portable_dir.clone());
+    moved.save_to(&active).unwrap();
+    let moved_path = resolve_portable_path(&standard).unwrap();
+    assert_eq!(moved_path, second_portable_dir.join("config.toml"));
+    assert_eq!(
+        Config::load_from(&moved_path).unwrap().config.asr.model,
+        "portable-model"
+    );
+
+    let mut disabled = Config::load_from(&moved_path).unwrap().config;
+    disabled.portable.enabled = false;
+    disabled.save_to(&moved_path).unwrap();
+    let standard_path = resolve_portable_path(&standard).unwrap();
+    assert_eq!(standard_path, standard);
+    let restored = Config::load_from(&standard).unwrap();
+    assert!(!restored.config.portable.enabled);
+    assert_eq!(
+        restored.config.asr.bearer_token.as_deref(),
+        Some("portable-secret")
+    );
 }

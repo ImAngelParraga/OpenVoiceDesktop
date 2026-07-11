@@ -1,21 +1,44 @@
 :root {
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
-  background: Canvas;
-  color: CanvasText;
+  --bg: Canvas;
+  --fg: CanvasText;
+  --muted: color-mix(in srgb, CanvasText 65%, transparent);
+  --border: color-mix(in srgb, CanvasText 25%, transparent);
+  --accent: AccentColor;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --fg: #20242a;
+  --muted: #5d6672;
+  --border: #d5dbe3;
+  --accent: #2563eb;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #171a1f;
+  --fg: #f4f7fa;
+  --muted: #aab4c0;
+  --border: #3b4552;
+  --accent: #8ed1ff;
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; }
 main { display: grid; grid-template-columns: 15rem 1fr; min-height: 100vh; }
-aside { border-right: 1px solid color-mix(in srgb, CanvasText 18%, transparent); padding: 1.5rem; }
+aside { border-right: 1px solid var(--border); padding: 1.5rem; }
 h1 { font-size: 1.05rem; margin: 0 0 1.5rem; }
 nav { display: grid; gap: .35rem; }
 nav button { border: 0; border-radius: .5rem; padding: .7rem .8rem; text-align: left; background: transparent; color: inherit; }
-nav button:hover, nav button.active { background: color-mix(in srgb, AccentColor 18%, transparent); }
+nav button:hover, nav button.active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 #content { padding: 2rem 2.5rem; outline: none; }
 #settings-form { display: grid; gap: .75rem; margin: 1.5rem 0; }
 #settings-form label { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(14rem, 1fr); align-items: center; gap: 1rem; }
-#settings-form input { border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .4rem; padding: .55rem .65rem; }
+#settings-form input, #settings-form select { border: 1px solid var(--border); border-radius: .4rem; padding: .55rem .65rem; background: var(--bg); color: var(--fg); }
 #settings-form input:disabled { opacity: .55; }
-#save { border: 0; border-radius: .5rem; padding: .7rem 1rem; background: AccentColor; color: AccentColorText; }
+#save { border: 0; border-radius: .5rem; padding: .7rem 1rem; background: var(--accent); color: AccentColorText; }

@@ -8,13 +8,37 @@ const sections = {
   debug: ["debug", "diagnostics", "ipc"],
   about: ["onboarding"],
 };
-const labels = {
-  general: "General",
-  asr: "ASR Endpoint",
-  advanced: "Advanced",
-  history: "History",
-  debug: "Debug",
-  about: "About",
+const translations = {
+  en: {
+    general: "General", asr: "ASR Endpoint", advanced: "Advanced", history: "History", debug: "Debug", about: "About",
+    save: "Save settings", loading: "Loading settings…", loaded: "Settings loaded.",
+  },
+  de: {
+    general: "Allgemein", asr: "ASR-Endpunkt", advanced: "Erweitert", history: "Verlauf", debug: "Debug", about: "Über",
+    save: "Einstellungen speichern", loading: "Einstellungen werden geladen…", loaded: "Einstellungen geladen.",
+  },
+  es: {
+    general: "General", asr: "Endpoint ASR", advanced: "Avanzado", history: "Historial", debug: "Depuración", about: "Acerca de",
+    save: "Guardar configuración", loading: "Cargando configuración…", loaded: "Configuración cargada.",
+  },
+  fr: {
+    general: "Général", asr: "Point de terminaison ASR", advanced: "Avancé", history: "Historique", debug: "Débogage", about: "À propos",
+    save: "Enregistrer les paramètres", loading: "Chargement des paramètres…", loaded: "Paramètres chargés.",
+  },
+  ja: {
+    general: "一般", asr: "ASR エンドポイント", advanced: "詳細", history: "履歴", debug: "デバッグ", about: "情報",
+    save: "設定を保存", loading: "設定を読み込み中…", loaded: "設定を読み込みました。",
+  },
+};
+
+const fieldLabels = {
+  "asr.base_url": "Base URL", "asr.model": "Model", "asr.language": "Language", "asr.prompt": "Prompt",
+  "asr.bearer_token": "Token status", "asr.timeout_seconds": "Timeout",
+  "ui.language": "Language", "ui.theme": "Theme", "portable.enabled": "Portable mode",
+  "updates.check_for_updates": "Update checks", "updates.show_whats_new": "Show what's new", "updates.release_channel": "Release channel",
+  "output.paste_method": "Paste method", "output.typing_tool": "Typing tool", "output.clipboard_handling": "Clipboard handling",
+  "output.auto_submit": "Auto-submit", "output.paste_delay_ms": "Paste delay", "output.restore_delay_ms": "Restore delay",
+  "output.external_script_path": "External script",
 };
 
 let documentModel;
@@ -22,6 +46,31 @@ let activeSection = "general";
 const content = document.querySelector("#content");
 const form = document.querySelector("#settings-form");
 const status = document.querySelector("#status");
+
+function locale() {
+  return translations[documentModel?.config?.ui?.language] ? documentModel.config.ui.language : "en";
+}
+
+function translate(key) {
+  return translations[locale()][key] ?? translations.en[key] ?? key;
+}
+
+function applyLocale() {
+  const selected = locale();
+  document.documentElement.lang = selected;
+  document.title = `OpenVoiceDesktop ${translate("about")}`;
+  for (const button of document.querySelectorAll("nav button")) {
+    button.textContent = translate(button.dataset.section);
+  }
+  content.querySelector("h2").textContent = translate(activeSection);
+  document.querySelector("#save").textContent = translate("save");
+}
+
+function applyTheme(theme) {
+  const selected = ["system", "light", "dark"].includes(theme) ? theme : "system";
+  document.documentElement.dataset.theme = selected;
+  document.documentElement.style.colorScheme = selected === "system" ? "light dark" : selected;
+}
 
 function flatten(value, prefix = "", output = new Map()) {
   for (const [key, child] of Object.entries(value)) {
@@ -58,6 +107,10 @@ function selectOptions(path) {
   if (path === "app.overlay_position") return ["top", "bottom"];
   if (path === "app.overlay_style") return ["compact", "expanded"];
   if (path === "ui.theme") return ["system", "light", "dark"];
+  if (path === "ui.language") return (documentModel.locale_catalog?.supported ?? []).map((locale) => locale.code);
+  if (path === "output.paste_method") return ["clipboard-paste", "direct-type", "copy-only", "external-script"];
+  if (path === "output.typing_tool") return (documentModel.supported_typing_tools ?? []).map((tool) => String(tool));
+  if (path === "output.clipboard_handling") return ["restore-after-paste", "leave-transcript", "copy-only"];
   if (path === "audio.selected_output_device") {
     return ["", ...(documentModel.output_devices ?? []).map((device) => device.name)];
   }
@@ -70,12 +123,14 @@ function render() {
   const availability = new Map(documentModel.fields.map((field) => [field.field, field]));
   for (const [path, value] of flatten(documentModel.config)) {
     if (path === "schema_version" || !allowed.some((prefix) => path.startsWith(`${prefix}.`))) continue;
+    if (path.startsWith("updates.")) continue;
+    if (path === "behavior.restore_clipboard" || path === "behavior.clipboard_restore_delay_ms") continue;
     const contract = availability.get(path);
     if (!contract) continue;
     const row = document.createElement("label");
     row.dataset.field = path;
     const name = document.createElement("span");
-    name.textContent = path;
+    name.textContent = fieldLabels[path] ?? path;
     const input = document.createElement("input");
     input.name = path;
     input.disabled = contract.status === "unavailable" ||
@@ -128,7 +183,9 @@ function render() {
       for (const optionValue of options) {
         const option = document.createElement("option");
         option.value = optionValue;
-        option.textContent = optionValue || "System default";
+        option.textContent = path === "ui.language"
+          ? (documentModel.locale_catalog?.supported ?? []).find((locale) => locale.code === optionValue)?.label ?? optionValue
+          : optionValue || "System default";
         option.selected = String(displayValue ?? "") === optionValue;
         select.append(option);
       }
@@ -160,6 +217,11 @@ function render() {
       else if (value === null && input.value === "") next = null;
       setPath(documentModel.config, path, next);
       if (path === "audio.audio_feedback") render();
+      if (path === "ui.language") {
+        applyLocale();
+        render();
+      }
+      if (path === "ui.theme") applyTheme(documentModel.config.ui.theme);
     });
     row.append(name, input);
     form.append(row);
@@ -171,7 +233,7 @@ for (const button of document.querySelectorAll("nav button")) {
     document.querySelector("nav button.active")?.classList.remove("active");
     button.classList.add("active");
     activeSection = button.dataset.section;
-    content.querySelector("h2").textContent = labels[activeSection];
+    content.querySelector("h2").textContent = translate(activeSection);
     render();
     content.focus();
   });
@@ -191,7 +253,9 @@ document.querySelector("#save").addEventListener("click", async () => {
 
 try {
   documentModel = await invoke("get_settings");
-  status.textContent = "Settings loaded.";
+  applyLocale();
+  applyTheme(documentModel.config.ui.theme);
+  status.textContent = translate("loaded");
   render();
 } catch (error) {
   status.textContent = `Unable to load settings: ${error}`;

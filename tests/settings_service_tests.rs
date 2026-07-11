@@ -166,3 +166,28 @@ fn save_reports_each_field_disposition() {
         .iter()
         .any(|field| field.status == ApplyStatus::Unavailable));
 }
+
+#[test]
+fn portable_changes_report_restart_required_without_being_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let original = Config::default();
+    original.save_to(&path).unwrap();
+    let mut candidate = original;
+    candidate.portable.enabled = true;
+    candidate.portable.data_dir = Some(dir.path().join("portable"));
+
+    let result = SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+
+    for field in ["portable.enabled", "portable.data_dir"] {
+        let result = result
+            .fields
+            .iter()
+            .find(|item| item.field == field)
+            .unwrap();
+        assert_eq!(result.status, ApplyStatus::RestartRequired);
+        assert!(result.reason.as_deref().unwrap().contains("restart"));
+    }
+}

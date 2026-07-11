@@ -2,7 +2,7 @@
 
 use openvoice_desktop::core::config::TypingTool;
 use openvoice_desktop::platform::linux::{
-    linux_paste_command_candidates, linux_type_command_candidates,
+    linux_paste_command_candidates, linux_submit_command_candidates, linux_type_command_candidates,
 };
 
 #[test]
@@ -20,4 +20,13 @@ fn linux_direct_type_uses_configured_tool_only() {
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].program, "ydotool");
     assert_eq!(commands[0].args, vec!["type", "hello"]);
+}
+
+#[test]
+fn linux_submit_uses_configured_typing_tool_only() {
+    let commands = linux_submit_command_candidates(TypingTool::Xdotool);
+
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].program, "xdotool");
+    assert_eq!(commands[0].args, vec!["key", "Return"]);
 }

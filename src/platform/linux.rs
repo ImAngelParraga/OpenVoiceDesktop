@@ -55,13 +55,28 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn type_text(&self, text: &str) -> Result<()> {
-        for command in linux_type_command_candidates(TypingTool::Auto, text) {
+        self.type_text_with_tool(text, TypingTool::Auto).await
+    }
+
+    async fn type_text_with_tool(&self, text: &str, tool: TypingTool) -> Result<()> {
+        for command in linux_type_command_candidates(tool, text) {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }
         }
         Err(anyhow!(
             "could not type text directly; install wtype/dotool/ydotool for Wayland or xdotool for X11"
+        ))
+    }
+
+    async fn trigger_submit_with_tool(&self, tool: TypingTool) -> Result<()> {
+        for command in linux_submit_command_candidates(tool) {
+            if command_succeeds(command.program, &command.args).await {
+                return Ok(());
+            }
+        }
+        Err(anyhow!(
+            "could not submit text; install a configured typing helper"
         ))
     }
 
@@ -213,6 +228,22 @@ pub fn linux_type_command_candidates(tool: TypingTool, text: &str) -> Vec<LinuxC
             "xdotool",
             &["type", "--clearmodifiers", text],
         )],
+        TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
+    }
+}
+
+pub fn linux_submit_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
+    match tool {
+        TypingTool::Auto => vec![
+            LinuxCommand::new("wtype", &["-k", "Return"]),
+            LinuxCommand::new("dotool", &["key", "enter"]),
+            LinuxCommand::new("ydotool", &["key", "28:1", "28:0"]),
+            LinuxCommand::new("xdotool", &["key", "Return"]),
+        ],
+        TypingTool::Wtype => vec![LinuxCommand::new("wtype", &["-k", "Return"])],
+        TypingTool::Dotool => vec![LinuxCommand::new("dotool", &["key", "enter"])],
+        TypingTool::Ydotool => vec![LinuxCommand::new("ydotool", &["key", "28:1", "28:0"])],
+        TypingTool::Xdotool => vec![LinuxCommand::new("xdotool", &["key", "Return"])],
         TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
     }
 }
