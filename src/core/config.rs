@@ -336,7 +336,7 @@ impl Default for BehaviorConfig {
         Self {
             restore_clipboard: true,
             clipboard_restore_delay_ms: 250,
-            shortcut: "Ctrl+Alt+Space".to_string(),
+            shortcut: "Ctrl+Space".to_string(),
             push_to_talk: false,
             cancel_shortcut: "Escape".to_string(),
         }

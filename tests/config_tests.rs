@@ -24,7 +24,7 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
     assert_eq!(loaded.config.audio.sound_theme, SoundTheme::Default);
     assert!(loaded.config.behavior.restore_clipboard);
-    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
+    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Space");
     assert!(!loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
     assert!(!loaded.config.app.start_hidden);
@@ -332,7 +332,7 @@ sample_rate_hz = 48000
     assert!(!loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
-    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Alt+Space");
+    assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Space");
     assert!(!loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
     assert!(loaded.config.behavior.restore_clipboard);

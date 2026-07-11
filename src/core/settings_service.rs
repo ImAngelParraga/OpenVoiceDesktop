@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::config::Config;
 use crate::core::settings_inventory::{ControlState, InventoryKind, SETTINGS_INVENTORY};
+use crate::core::shortcut::ShortcutBindings;
 
 /// Typed settings boundary adapted from `H:src-tauri/src/settings.rs`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,6 +129,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
     )?;
     non_empty("behavior.shortcut", &config.behavior.shortcut)?;
     non_empty("behavior.cancel_shortcut", &config.behavior.cancel_shortcut)?;
+    ShortcutBindings::from_config(config).context("invalid shortcut configuration")?;
     if !(8_000..=192_000).contains(&config.audio.sample_rate_hz) {
         bail!("audio.sample_rate_hz must be between 8000 and 192000");
     }

@@ -1,5 +1,11 @@
-use openvoice_desktop::core::shortcut::{CoordinatorAction, CoordinatorInput, ShortcutCoordinator};
+use anyhow::{bail, Result};
+use openvoice_desktop::core::config::Config;
+use openvoice_desktop::core::shortcut::{
+    CoordinatorAction, CoordinatorInput, ParsedShortcut, ShortcutAction, ShortcutCoordinator,
+    ShortcutEvent, ShortcutRegistrar, ShortcutRuntime,
+};
 use openvoice_desktop::core::state::RecordingState;
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[test]
@@ -52,4 +58,66 @@ fn coordinator_maps_push_to_talk_release_to_stop_only_while_recording() {
         CoordinatorAction::Toggle
     );
     assert_eq!(coordinator.release_grace(), Duration::from_millis(180));
+}
+
+#[test]
+fn shortcuts_default_to_ctrl_space_and_map_press_release_events() {
+    let config = Config::default();
+    let bindings =
+        openvoice_desktop::core::shortcut::ShortcutBindings::from_config(&config).unwrap();
+    let primary = ParsedShortcut::parse("control + space").unwrap();
+    assert_eq!(primary.as_str(), "Ctrl+Space");
+    assert_eq!(bindings.bindings()[0].action, ShortcutAction::Toggle);
+    assert_eq!(
+        bindings.input_for(&primary, ShortcutEvent::Pressed),
+        Some(CoordinatorInput::ToggleShortcut)
+    );
+
+    let mut push_to_talk = config;
+    push_to_talk.behavior.push_to_talk = true;
+    let bindings =
+        openvoice_desktop::core::shortcut::ShortcutBindings::from_config(&push_to_talk).unwrap();
+    assert_eq!(
+        bindings.input_for(&primary, ShortcutEvent::Pressed),
+        Some(CoordinatorInput::PushToTalkPressed)
+    );
+    assert_eq!(
+        bindings.input_for(&primary, ShortcutEvent::Released),
+        Some(CoordinatorInput::PushToTalkReleased)
+    );
+}
+
+#[test]
+fn shortcut_runtime_rolls_back_previous_registration_on_conflict() {
+    let mut runtime = ShortcutRuntime::new(FakeRegistrar::default());
+    let original = Config::default();
+    runtime.register_config(&original).unwrap();
+
+    let mut conflicting = original.clone();
+    conflicting.behavior.cancel_shortcut = conflicting.behavior.shortcut.clone();
+    assert!(runtime.register_config(&conflicting).is_err());
+    assert_eq!(
+        runtime.bindings().unwrap().bindings()[0].shortcut.as_str(),
+        "Ctrl+Space"
+    );
+    assert_eq!(runtime.into_registrar().registered.len(), 3);
+}
+
+#[derive(Default, Debug)]
+struct FakeRegistrar {
+    registered: HashSet<String>,
+}
+
+impl ShortcutRegistrar for FakeRegistrar {
+    fn register(&mut self, shortcut: &ParsedShortcut, _action: ShortcutAction) -> Result<()> {
+        if !self.registered.insert(shortcut.to_string()) {
+            bail!("conflict");
+        }
+        Ok(())
+    }
+
+    fn unregister(&mut self, shortcut: &ParsedShortcut) -> Result<()> {
+        self.registered.remove(shortcut.as_str());
+        Ok(())
+    }
 }

@@ -107,9 +107,9 @@ macro_rules! r {
 
 pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     // I.settings.general
-    u!("behavior.shortcut"),
-    u!("behavior.push_to_talk"),
-    u!("behavior.cancel_shortcut"),
+    w!("behavior.shortcut"),
+    w!("behavior.push_to_talk"),
+    w!("behavior.cancel_shortcut"),
     u!("audio.selected_microphone"),
     u!("audio.mute_while_recording"),
     u!("audio.audio_feedback"),
@@ -174,7 +174,7 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     a!("retry-transcript"),
     a!("save-transcript"),
     // I.settings.debug
-    u!("debug.debug_shortcut"),
+    w!("debug.debug_shortcut"),
     u!("debug.log_level"),
     u!("debug.live_log_viewer"),
     u!("debug.paste_delay_ms"),
