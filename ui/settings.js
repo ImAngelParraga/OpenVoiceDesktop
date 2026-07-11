@@ -124,6 +124,7 @@ function render() {
   const availability = new Map(documentModel.fields.map((field) => [field.field, field]));
   for (const [path, value] of flatten(documentModel.config)) {
     if (path === "schema_version" || !allowed.some((prefix) => path.startsWith(`${prefix}.`))) continue;
+    if (path === "asr.bearer_token") continue;
     if (path.startsWith("updates.")) continue;
     if (path === "behavior.restore_clipboard" || path === "behavior.clipboard_restore_delay_ms") continue;
     const contract = availability.get(path);
@@ -229,6 +230,7 @@ function render() {
   }
   if (activeSection === "history") renderHistoryActions();
   if (activeSection === "debug") renderDebugActions();
+  if (activeSection === "asr") renderAsrActions();
 }
 
 function actionButton(label, command, args = {}) {
@@ -284,6 +286,46 @@ function renderDebugActions() {
     viewer.textContent = (documentModel.live_log_lines ?? []).join("\n");
     form.append(viewer);
   }
+}
+
+function renderAsrActions() {
+  const statusLine = document.createElement("p");
+  statusLine.textContent = documentModel.asr_token_status?.display ?? "Token status unavailable";
+  const token = document.createElement("input");
+  token.type = "password";
+  token.placeholder = "New ASR token";
+  const fallback = document.createElement("input");
+  fallback.type = "checkbox";
+  const fallbackLabel = document.createElement("label");
+  fallbackLabel.append(fallback, " Allow plaintext fallback");
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = "Store token";
+  save.addEventListener("click", async () => {
+    try {
+      status.textContent = await invoke("set_asr_token", {
+        token: token.value,
+        plaintextFallback: fallback.checked,
+      });
+      token.value = "";
+      documentModel = await invoke("get_settings");
+      render();
+    } catch (error) {
+      status.textContent = `Token save failed: ${error}`;
+    }
+  });
+  const test = document.createElement("button");
+  test.type = "button";
+  test.textContent = "Test endpoint";
+  test.addEventListener("click", async () => {
+    try {
+      const result = await invoke("test_endpoint");
+      status.textContent = `HTTP ${result.http_status}; ${result.latency_ms} ms; ${result.sanitized_body}`;
+    } catch (error) {
+      status.textContent = `Endpoint test failed: ${error}`;
+    }
+  });
+  form.append(statusLine, token, fallbackLabel, save, test);
 }
 
 for (const button of document.querySelectorAll("nav button")) {

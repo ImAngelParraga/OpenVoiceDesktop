@@ -19,6 +19,7 @@ use crate::core::shortcut::ShortcutBindings;
 pub struct SettingsDocument {
     pub config: Config,
     pub asr_token_configured: bool,
+    pub asr_token_status: crate::core::settings_ui::AsrTokenStatus,
     pub input_devices: Vec<InputDeviceInfo>,
     pub input_device_fallback: Option<String>,
     pub output_devices: Vec<OutputDeviceInfo>,
@@ -102,7 +103,9 @@ impl SettingsService {
                 }),
                 _ => None,
             };
-        let asr_token_configured = loaded.asr.bearer_token.is_some();
+        let token_source = crate::core::config::bearer_token_source(&loaded);
+        let asr_token_configured = token_source.is_some();
+        let asr_token_status = crate::core::settings_ui::AsrTokenStatus::from_source(token_source);
         let locale_catalog = LocaleCatalog::from_config(&loaded);
         let theme_selection = ThemeSelection::from_config(&loaded);
         let history_entries =
@@ -120,6 +123,7 @@ impl SettingsService {
         Ok(SettingsDocument {
             config: loaded,
             asr_token_configured,
+            asr_token_status,
             input_devices,
             input_device_fallback,
             output_devices,

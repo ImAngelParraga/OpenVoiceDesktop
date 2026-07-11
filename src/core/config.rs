@@ -642,6 +642,49 @@ pub fn resolve_bearer_token(config: &Config) -> Option<String> {
         .or_else(|| config.asr.bearer_token.clone())
 }
 
+pub fn bearer_token_source(config: &Config) -> Option<crate::core::settings_ui::AsrTokenSource> {
+    token_source_from_availability(
+        std::env::var("OPENVOICE_DESKTOP_TOKEN")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
+        platform_secret_token().is_some(),
+        config.asr.bearer_token.is_some(),
+    )
+}
+
+pub fn token_source_from_availability(
+    environment: bool,
+    platform_store: bool,
+    plaintext: bool,
+) -> Option<crate::core::settings_ui::AsrTokenSource> {
+    use crate::core::settings_ui::AsrTokenSource;
+    if environment {
+        Some(AsrTokenSource::Environment)
+    } else if platform_store {
+        Some(AsrTokenSource::PlatformSecretStore)
+    } else if plaintext {
+        Some(AsrTokenSource::PlaintextConfig)
+    } else {
+        None
+    }
+}
+
+pub fn store_bearer_token(path: &Path, token: &str, plaintext_fallback: bool) -> Result<()> {
+    let token = token.trim();
+    anyhow::ensure!(!token.is_empty(), "ASR token must not be empty");
+    let mut config = Config::load_from(path)?.config;
+    match platform_store_token(token) {
+        Ok(()) => config.asr.bearer_token = None,
+        Err(_) if plaintext_fallback => config.asr.bearer_token = Some(token.to_string()),
+        Err(error) => {
+            return Err(error.context(
+                "platform secret store unavailable; explicit plaintext fallback was not selected",
+            ))
+        }
+    }
+    config.save_to(path)
+}
+
 /// Resolve active config path from the non-portable bootstrap config.
 ///
 /// The bootstrap file is kept so changing portable mode cannot strand the
@@ -776,14 +819,80 @@ fn platform_secret_token() -> Option<String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn platform_store_token(token: &str) -> Result<()> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new("secret-tool")
+        .args([
+            "store",
+            "--label=OpenVoiceDesktop ASR token",
+            "service",
+            "openvoice-desktop",
+            "account",
+            "asr-token",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting secret-tool")?;
+    child
+        .stdin
+        .take()
+        .context("opening secret-tool stdin")?
+        .write_all(token.as_bytes())?;
+    let output = child.wait_with_output()?;
+    anyhow::ensure!(output.status.success(), "secret-tool store failed");
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn platform_secret_token() -> Option<String> {
     windows_credential_token("openvoice-desktop/asr-token")
 }
 
+#[cfg(target_os = "windows")]
+fn platform_store_token(token: &str) -> Result<()> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Credentials::{
+        CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+    };
+    let mut target: Vec<u16> = OsStr::new("openvoice-desktop/asr-token")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut username: Vec<u16> = OsStr::new("openvoice-desktop")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut blob = token
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    let mut credential: CREDENTIALW = unsafe { std::mem::zeroed() };
+    credential.Type = CRED_TYPE_GENERIC;
+    credential.TargetName = target.as_mut_ptr();
+    credential.UserName = username.as_mut_ptr();
+    credential.CredentialBlobSize = blob.len() as u32;
+    credential.CredentialBlob = blob.as_mut_ptr();
+    credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    anyhow::ensure!(
+        unsafe { CredWriteW(&credential, 0) } != 0,
+        "CredWriteW failed"
+    );
+    Ok(())
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn platform_secret_token() -> Option<String> {
     None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn platform_store_token(_token: &str) -> Result<()> {
+    anyhow::bail!("platform secret store is unsupported")
 }
 
 #[cfg(target_os = "windows")]

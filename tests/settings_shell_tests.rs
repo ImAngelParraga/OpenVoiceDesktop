@@ -107,3 +107,13 @@ fn logging_viewer_and_directory_actions_are_connected() {
     assert!(SETTINGS_JS.contains("documentModel.live_log_lines"));
     assert!(SETTINGS_JS.contains("live-log-viewer"));
 }
+
+#[test]
+fn token_storage_and_endpoint_test_are_connected() {
+    for command in ["set_asr_token", "test_endpoint"] {
+        assert!(SHELL_RS.contains(command), "{command}");
+        assert!(SETTINGS_JS.contains(command), "{command}");
+    }
+    assert!(SETTINGS_JS.contains("asr_token_status"));
+    assert!(SETTINGS_JS.contains("plaintextFallback"));
+}

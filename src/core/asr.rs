@@ -23,7 +23,7 @@ pub struct Transcription {
     pub elapsed: Duration,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AsrDiagnostic {
     pub http_status: u16,
     pub latency_ms: u128,
@@ -117,6 +117,58 @@ pub fn request_fields(config: &Config) -> AsrRequestFields {
         temperature: 0.0,
         timeout: Duration::from_secs(config.asr.timeout_seconds),
     }
+}
+
+pub async fn test_endpoint(config: &Config) -> Result<AsrDiagnostic> {
+    let fields = request_fields(config);
+    let token = resolve_bearer_token(config).ok_or_else(|| anyhow!("missing ASR bearer token"))?;
+    let part = Part::bytes(silent_wav())
+        .file_name("endpoint-test.wav")
+        .mime_str("audio/wav")?;
+    let mut form = Form::new()
+        .part("file", part)
+        .text("model", fields.model)
+        .text("temperature", format!("{:.1}", fields.temperature));
+    if let Some(language) = fields.language {
+        form = form.text("language", language);
+    }
+    if let Some(prompt) = fields.prompt {
+        form = form.text("prompt", prompt);
+    }
+    let started = Instant::now();
+    let response = reqwest::Client::new()
+        .post(fields.url)
+        .timeout(fields.timeout)
+        .bearer_auth(&token)
+        .multipart(form)
+        .send()
+        .await?;
+    let status = response.status().as_u16();
+    let body = response.text().await?;
+    Ok(asr_diagnostic(
+        status,
+        started.elapsed(),
+        &body,
+        Some(&token),
+    ))
+}
+
+fn silent_wav() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(44 + 320);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36_u32 + 320).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&32_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&320_u32.to_le_bytes());
+    bytes.resize(44 + 320, 0);
+    bytes
 }
 
 pub fn parse_transcription_text(body: &str) -> Result<String> {

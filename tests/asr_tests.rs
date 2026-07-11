@@ -1,5 +1,5 @@
 use openvoice_desktop::core::asr::{
-    asr_diagnostic, parse_transcription_text, request_fields, sanitize_error_body,
+    asr_diagnostic, parse_transcription_text, request_fields, sanitize_error_body, test_endpoint,
 };
 use openvoice_desktop::core::config::Config;
 use std::time::Duration;
@@ -22,6 +22,42 @@ fn builds_openai_compatible_request_fields() {
     assert_eq!(fields.prompt.as_deref(), Some("project vocabulary"));
     assert_eq!(fields.temperature, 0.0);
     assert_eq!(fields.timeout.as_secs(), 30);
+}
+
+#[tokio::test]
+async fn endpoint_test_uses_configured_request_and_sanitizes_response() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = vec![0; 16_384];
+        let count = stream.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..count]).to_string();
+        stream
+            .write_all(
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 47\r\nConnection: close\r\n\r\n{\"authorization\":\"secret-token\",\"error\":\"down\"}",
+            )
+            .await
+            .unwrap();
+        request
+    });
+    let mut config = Config::default();
+    config.asr.base_url = format!("http://{address}");
+    config.asr.model = "configured-model".to_string();
+    config.asr.bearer_token = Some("secret-token".to_string());
+    config.asr.timeout_seconds = 2;
+
+    let diagnostic = test_endpoint(&config).await.unwrap();
+    let request = server.await.unwrap();
+    assert!(request.starts_with("POST /v1/audio/transcriptions"));
+    assert!(request
+        .to_ascii_lowercase()
+        .contains("authorization: bearer secret-token"));
+    assert!(request.contains("configured-model"));
+    assert_eq!(diagnostic.http_status, 503);
+    assert!(!diagnostic.sanitized_body.contains("secret-token"));
+    assert!(diagnostic.sanitized_body.contains("down"));
 }
 
 #[test]

@@ -65,7 +65,9 @@ pub fn run() -> Result<()> {
             save_transcript,
             copy_last_transcript,
             open_log_directory,
-            open_app_data_directory
+            open_app_data_directory,
+            set_asr_token,
+            test_endpoint
         ])
         .run(tauri::generate_context!())
         .map_err(Into::into)
@@ -159,6 +161,34 @@ fn open_app_data_directory() -> std::result::Result<String, String> {
     std::fs::create_dir_all(directory).map_err(safe_error)?;
     open_directory(directory).map_err(safe_error)?;
     Ok("Opened app data directory".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn set_asr_token(token: String, plaintext_fallback: bool) -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    crate::core::config::store_bearer_token(&path, &token, plaintext_fallback)
+        .map_err(safe_error)?;
+    Ok("ASR token stored".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn test_endpoint() -> std::result::Result<crate::core::asr::AsrDiagnostic, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let mut config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    let diagnostic = crate::core::asr::test_endpoint(&config)
+        .await
+        .map_err(safe_error)?;
+    if config.diagnostics.store_last_latency_metrics {
+        config.diagnostics.last_upload_latency_ms = Some(diagnostic.latency_ms as u64);
+        config.diagnostics.last_http_status = Some(diagnostic.http_status);
+        config.diagnostics.last_sanitized_body = Some(diagnostic.sanitized_body.clone());
+        config.save_to(&path).map_err(safe_error)?;
+    }
+    Ok(diagnostic)
 }
 
 #[cfg(feature = "desktop-shell")]

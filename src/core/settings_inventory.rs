@@ -128,8 +128,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("asr.language"),
     w!("asr.prompt"),
     w!("asr.timeout_seconds"),
-    u!("asr.bearer_token", PARTIAL),
-    a!("test-endpoint"),
+    w!("asr.bearer_token"),
+    wa!("test-endpoint"),
     // I.settings.app
     w!("app.start_hidden"),
     w!("app.autostart"),

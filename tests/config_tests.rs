@@ -1,8 +1,9 @@
 use openvoice_desktop::core::config::{
-    require_private_file, resolve_portable_path, ClipboardHandling, Config, LogLevel,
-    OverlayPosition, OverlayStyle, PasteMethod, RecordingRetention, SoundTheme, Theme, TypingTool,
-    CURRENT_SCHEMA_VERSION,
+    require_private_file, resolve_portable_path, token_source_from_availability, ClipboardHandling,
+    Config, LogLevel, OverlayPosition, OverlayStyle, PasteMethod, RecordingRetention, SoundTheme,
+    Theme, TypingTool, CURRENT_SCHEMA_VERSION,
 };
+use openvoice_desktop::core::settings_ui::AsrTokenSource;
 use std::fs;
 use std::io::Write;
 
@@ -60,6 +61,23 @@ fn missing_config_uses_defaults() {
     assert!(!loaded.config.updates.check_for_updates);
     assert!(!loaded.config.portable.enabled);
     assert!(!loaded.config.onboarding.completed);
+}
+
+#[test]
+fn token_source_reports_actual_precedence() {
+    assert_eq!(
+        token_source_from_availability(true, true, true),
+        Some(AsrTokenSource::Environment)
+    );
+    assert_eq!(
+        token_source_from_availability(false, true, true),
+        Some(AsrTokenSource::PlatformSecretStore)
+    );
+    assert_eq!(
+        token_source_from_availability(false, false, true),
+        Some(AsrTokenSource::PlaintextConfig)
+    );
+    assert_eq!(token_source_from_availability(false, false, false), None);
 }
 
 #[test]
