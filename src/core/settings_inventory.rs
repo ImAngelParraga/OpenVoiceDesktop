@@ -163,12 +163,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("output.auto_submit"),
     w!("output.external_script_path"),
     // I.settings.text
-    u!("text.custom_words"),
-    u!("text.fuzzy_correction_threshold"),
-    u!("text.translate_language_hint"),
     u!("text.vad_enabled"),
     u!("text.silence_trim_enabled"),
-    w!("text.filter_filler_words"),
     w!("text.append_trailing_space"),
     // I.settings.postprocess
     u!("post_processing.enabled"),

@@ -197,11 +197,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     {
         bail!("audio.audio_feedback_volume must be between 0 and 1");
     }
-    if !config.text.fuzzy_correction_threshold.is_finite()
-        || !(0.0..=1.0).contains(&config.text.fuzzy_correction_threshold)
-    {
-        bail!("text.fuzzy_correction_threshold must be between 0 and 1");
-    }
     if !(1..=10_000).contains(&config.history.limit) {
         bail!("history.limit must be between 1 and 10000");
     }

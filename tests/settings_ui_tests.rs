@@ -1,7 +1,7 @@
 use openvoice_desktop::core::config::{Config, OverlayPosition, OverlayStyle, Theme};
 use openvoice_desktop::core::events::{AppShellEvent, ProcessingStage};
 use openvoice_desktop::core::settings_ui::{
-    apply_text_settings, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
+    apply_text_presentation, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
     HistoryStatus, LiveOverlayCapability, LocalModelExclusion, OnboardingFlow, OnboardingStepId,
     OverlayMode, OverlayView, PermissionCheck, SettingsControlKind, SettingsSectionId,
     SettingsWindowLayout, ThemeSelection, TrayIconState, TrayMenuAction, TrayMenuModel, UserToast,
@@ -122,7 +122,7 @@ fn advanced_settings_exposes_t6_app_controls() {
 }
 
 #[test]
-fn output_and_text_settings_expose_t7_t8_controls() {
+fn output_and_text_settings_expose_client_owned_controls() {
     let layout = SettingsWindowLayout::default_layout();
     let advanced = layout
         .sections
@@ -142,11 +142,7 @@ fn output_and_text_settings_expose_t7_t8_controls() {
         "output.auto_submit",
         "output.paste_delay_ms",
         "output.external_script_path",
-        "text.custom_words",
-        "text.fuzzy_correction_threshold",
-        "text.filter_filler_words",
         "text.append_trailing_space",
-        "text.translate_language_hint",
     ] {
         assert!(keys.contains(&key), "{key}");
     }
@@ -316,14 +312,25 @@ fn tray_model_maps_states_and_menu_actions_without_models() {
 }
 
 #[test]
-fn text_settings_apply_after_asr_result() {
+fn text_presentation_preserves_service_response() {
+    let config = Config::default();
+    let response = "um  hello,\nuh OpenVoice".to_string();
+
+    assert_eq!(apply_text_presentation(response.clone(), &config), response);
+}
+
+#[test]
+fn text_presentation_appends_one_space_when_enabled() {
     let mut config = Config::default();
-    config.text.filter_filler_words = true;
     config.text.append_trailing_space = true;
 
     assert_eq!(
-        apply_text_settings("um hello uh OpenVoice".to_string(), &config),
-        "hello OpenVoice "
+        apply_text_presentation("um hello uh OpenVoice".to_string(), &config),
+        "um hello uh OpenVoice "
+    );
+    assert_eq!(
+        apply_text_presentation("already spaced ".to_string(), &config),
+        "already spaced "
     );
 }
 

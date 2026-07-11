@@ -49,13 +49,9 @@ restore_delay_ms = 250
 # external_script_path = "/path/paste.sh"
 
 [text]
-custom_words = []
-fuzzy_correction_threshold = 0.85
-filter_filler_words = false
 append_trailing_space = false
 vad_enabled = false
 silence_trim_enabled = false
-# translate_language_hint = "es"
 
 [history]
 enabled = true

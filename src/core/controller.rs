@@ -12,7 +12,7 @@ use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
 use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
 use crate::core::recorder::Recorder;
-use crate::core::settings_ui::apply_text_settings;
+use crate::core::settings_ui::apply_text_presentation;
 use crate::core::state::{RecordingState, ToggleOutcome};
 
 pub struct VoiceController<R, A, P, E = NoopEventSink> {
@@ -196,7 +196,7 @@ where
         if self.is_cancel_requested() {
             return Ok(self.finish_canceled().await);
         }
-        transcription.text = apply_text_settings(transcription.text, &self.config);
+        transcription.text = apply_text_presentation(transcription.text, &self.config);
         eprintln!(
             "openvoice-desktop asr: upload_response_ms={}",
             ms(transcription.elapsed)

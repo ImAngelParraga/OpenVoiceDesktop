@@ -571,34 +571,10 @@ impl SettingsWindowLayout {
                             "output.external_script_path",
                         ),
                         SettingsControl::bound(
-                            "custom-words",
-                            "Custom words",
-                            SettingsControlKind::TextArea,
-                            "text.custom_words",
-                        ),
-                        SettingsControl::bound(
-                            "fuzzy-correction-threshold",
-                            "Correction threshold",
-                            SettingsControlKind::Slider,
-                            "text.fuzzy_correction_threshold",
-                        ),
-                        SettingsControl::bound(
-                            "filter-filler-words",
-                            "Filter filler words",
-                            SettingsControlKind::Toggle,
-                            "text.filter_filler_words",
-                        ),
-                        SettingsControl::bound(
                             "append-trailing-space",
                             "Append trailing space",
                             SettingsControlKind::Toggle,
                             "text.append_trailing_space",
-                        ),
-                        SettingsControl::bound(
-                            "translate-language-hint",
-                            "Translate language hint",
-                            SettingsControlKind::Text,
-                            "text.translate_language_hint",
                         ),
                         SettingsControl::bound(
                             "vad-enabled",
@@ -1083,21 +1059,7 @@ impl HistoryEntry {
     }
 }
 
-pub fn apply_text_settings(mut text: String, config: &Config) -> String {
-    if config.text.filter_filler_words {
-        let fillers = ["um", "uh", "erm"];
-        text = text
-            .split_whitespace()
-            .filter(|word| {
-                let normalized = word
-                    .trim_matches(|ch: char| !ch.is_alphanumeric())
-                    .to_ascii_lowercase();
-                !fillers.contains(&normalized.as_str())
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-    }
-
+pub fn apply_text_presentation(mut text: String, config: &Config) -> String {
     if config.text.append_trailing_space && !text.ends_with(' ') {
         text.push(' ');
     }

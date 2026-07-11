@@ -45,9 +45,6 @@ fn missing_config_uses_defaults() {
     );
     assert_eq!(loaded.config.output.paste_delay_ms, 25);
     assert_eq!(loaded.config.output.restore_delay_ms, 250);
-    assert!(loaded.config.text.custom_words.is_empty());
-    assert_eq!(loaded.config.text.fuzzy_correction_threshold, 0.85);
-    assert!(!loaded.config.text.filter_filler_words);
     assert!(!loaded.config.text.append_trailing_space);
     assert!(!loaded.config.text.vad_enabled);
     assert!(!loaded.config.text.silence_trim_enabled);
@@ -107,10 +104,7 @@ restore_delay_ms = 20
 external_script_path = "/tmp/paste.sh"
 
 [text]
-custom_words = ["OpenVoice", "Wayland"]
-filter_filler_words = true
 append_trailing_space = true
-translate_language_hint = "es"
 vad_enabled = true
 silence_trim_enabled = true
 
@@ -190,13 +184,7 @@ completed = true
         loaded.config.output.external_script_path.unwrap(),
         std::path::PathBuf::from("/tmp/paste.sh")
     );
-    assert_eq!(loaded.config.text.custom_words, ["OpenVoice", "Wayland"]);
-    assert!(loaded.config.text.filter_filler_words);
     assert!(loaded.config.text.append_trailing_space);
-    assert_eq!(
-        loaded.config.text.translate_language_hint.as_deref(),
-        Some("es")
-    );
     assert!(loaded.config.text.vad_enabled);
     assert!(loaded.config.text.silence_trim_enabled);
     assert!(!loaded.config.history.enabled);
@@ -221,6 +209,40 @@ completed = true
     assert!(loaded.config.updates.show_whats_new);
     assert!(loaded.config.portable.enabled);
     assert!(loaded.config.onboarding.completed);
+}
+
+#[test]
+fn legacy_text_semantic_fields_are_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy_path = dir.path().join("legacy.toml");
+    fs::write(
+        &legacy_path,
+        r#"
+[text]
+custom_words = ["OpenVoice"]
+fuzzy_correction_threshold = 0.5
+filter_filler_words = true
+translate_language_hint = "es"
+append_trailing_space = true
+"#,
+    )
+    .unwrap();
+
+    let loaded = Config::load_from(&legacy_path).unwrap();
+    assert!(loaded.config.text.append_trailing_space);
+
+    let migrated_path = dir.path().join("migrated.toml");
+    loaded.config.save_to(&migrated_path).unwrap();
+    let migrated = fs::read_to_string(migrated_path).unwrap();
+    for removed in [
+        "custom_words",
+        "fuzzy_correction_threshold",
+        "filter_filler_words",
+        "translate_language_hint",
+    ] {
+        assert!(!migrated.contains(removed), "{removed}");
+    }
+    assert!(migrated.contains("append_trailing_space = true"));
 }
 
 #[test]

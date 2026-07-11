@@ -149,11 +149,7 @@ pub enum ClipboardHandling {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct TextConfig {
-    pub custom_words: Vec<String>,
-    pub fuzzy_correction_threshold: f32,
-    pub filter_filler_words: bool,
     pub append_trailing_space: bool,
-    pub translate_language_hint: Option<String>,
     pub vad_enabled: bool,
     pub silence_trim_enabled: bool,
 }
@@ -374,11 +370,7 @@ impl Default for OutputConfig {
 impl Default for TextConfig {
     fn default() -> Self {
         Self {
-            custom_words: Vec::new(),
-            fuzzy_correction_threshold: 0.85,
-            filter_filler_words: false,
             append_trailing_space: false,
-            translate_language_hint: None,
             vad_enabled: false,
             silence_trim_enabled: false,
         }
