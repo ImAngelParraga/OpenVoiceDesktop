@@ -163,3 +163,4 @@ B3|2026-07-10|Tauri generated context required missing default `icons/icon.png`,
 B4|2026-07-10|V23 asset test checked Linux icon only; Tauri Windows resource build required missing `icons/icon.ico`|V23
 B5|2026-07-11|Shortcut rollback test fake registrar removed a parsed key from a string-keyed set|—
 B6|2026-07-11|Legacy-default test retained pre-T44 shortcut expectation after default changed to `Ctrl+Space`|—
+B7|2026-07-11|Desktop-shell verification host lacks `dbus-1.pc`, so `libdbus-sys` cannot compile|—
