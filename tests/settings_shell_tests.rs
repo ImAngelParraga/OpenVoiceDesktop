@@ -117,3 +117,19 @@ fn token_storage_and_endpoint_test_are_connected() {
     assert!(SETTINGS_JS.contains("asr_token_status"));
     assert!(SETTINGS_JS.contains("plaintextFallback"));
 }
+
+#[test]
+fn about_readonly_values_render_from_typed_document() {
+    assert!(SETTINGS_JS.contains("function renderAbout()"));
+    for field in [
+        "about.version",
+        "about.license",
+        "about.repository_url",
+        "about.config_path",
+        "about.app_data_path",
+        "about.logs_path",
+        "about.acknowledgements",
+    ] {
+        assert!(SETTINGS_JS.contains(field), "{field}");
+    }
+}

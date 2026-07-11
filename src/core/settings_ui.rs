@@ -808,7 +808,7 @@ impl AboutSettings {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             license: env!("CARGO_PKG_LICENSE"),
-            repository_url: "https://github.com/rankis/OpenVoiceDesktop",
+            repository_url: "https://github.com/ImAngelParraga/OpenVoiceDesktop",
             config_path,
             app_data_path,
             logs_path,

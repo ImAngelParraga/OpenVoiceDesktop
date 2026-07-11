@@ -85,6 +85,51 @@ fn recording_buffer_is_bounded_to_handy_control_range() {
 }
 
 #[test]
+fn about_document_exposes_real_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    Config::default().save_to(&path).unwrap();
+    let document = SettingsService::new(&path).get().unwrap();
+    assert_eq!(document.about.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(document.about.license, env!("CARGO_PKG_LICENSE"));
+    assert_eq!(document.about.config_path, path);
+    assert_eq!(document.about.app_data_path, dir.path());
+    assert!(document.about.repository_url.contains("OpenVoiceDesktop"));
+    assert!(document
+        .about
+        .acknowledgements
+        .iter()
+        .any(|value| value.contains("Handy")));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn socket_path_is_absolute_and_restart_required() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let original = Config::default();
+    original.save_to(&path).unwrap();
+    let mut invalid = original.clone();
+    invalid.ipc.socket_path = Some("relative.sock".into());
+    assert!(validate_config(&invalid)
+        .unwrap_err()
+        .to_string()
+        .contains("must be absolute"));
+
+    let mut candidate = original;
+    candidate.ipc.socket_path = Some(dir.path().join("daemon.sock"));
+    let result = SettingsService::new(path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+    let field = result
+        .fields
+        .iter()
+        .find(|field| field.field == "ipc.socket_path")
+        .unwrap();
+    assert_eq!(field.status, ApplyStatus::RestartRequired);
+}
+
+#[test]
 fn daemon_rejection_rolls_back_file_and_runtime() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

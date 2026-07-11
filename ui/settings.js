@@ -231,6 +231,7 @@ function render() {
   if (activeSection === "history") renderHistoryActions();
   if (activeSection === "debug") renderDebugActions();
   if (activeSection === "asr") renderAsrActions();
+  if (activeSection === "about") renderAbout();
 }
 
 function actionButton(label, command, args = {}) {
@@ -326,6 +327,24 @@ function renderAsrActions() {
     }
   });
   form.append(statusLine, token, fallbackLabel, save, test);
+}
+
+function renderAbout() {
+  const values = [
+    ["Version", documentModel.about.version],
+    ["License", documentModel.about.license],
+    ["Repository", documentModel.about.repository_url],
+    ["Config path", documentModel.about.config_path],
+    ["App data path", documentModel.about.app_data_path],
+    ["Logs path", documentModel.about.logs_path],
+    ["Acknowledgement", (documentModel.about.acknowledgements ?? []).join(", ")],
+  ];
+  for (const [label, value] of values) {
+    const row = document.createElement("p");
+    row.className = "about-value";
+    row.textContent = `${label}: ${value}`;
+    form.append(row);
+  }
 }
 
 for (const button of document.querySelectorAll("nav button")) {

@@ -73,8 +73,6 @@ impl InventoryEntry {
 
 const NOT_RUNTIME: &str = "not consumed by current runtime";
 const NOT_IMPLEMENTED: &str = "operation not implemented";
-const NOT_RENDERED: &str = "not rendered by current settings surface";
-const PARTIAL: &str = "partial implementation lacks complete render-persist-runtime proof";
 
 macro_rules! w {
     ($id:literal) => {
@@ -99,9 +97,9 @@ macro_rules! a {
         InventoryEntry::unavailable($id, InventoryKind::Action, NOT_IMPLEMENTED)
     };
 }
-macro_rules! r {
+macro_rules! wr {
     ($id:literal) => {
-        InventoryEntry::unavailable($id, InventoryKind::ReadOnly, NOT_RENDERED)
+        InventoryEntry::working($id, InventoryKind::ReadOnly)
     };
 }
 
@@ -186,7 +184,10 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("diagnostics.last_upload_latency_ms"),
     w!("diagnostics.last_http_status"),
     w!("diagnostics.last_sanitized_body"),
-    u!("ipc.socket_path", PARTIAL),
+    #[cfg(target_os = "linux")]
+    w!("ipc.socket_path"),
+    #[cfg(not(target_os = "linux"))]
+    u!("ipc.socket_path", "Windows uses a fixed named pipe"),
     wa!("open-log-directory"),
     wa!("open-app-data-directory"),
     // I.settings.hidden
@@ -201,13 +202,13 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     u!("onboarding.completed"),
     u!("onboarding.show_permission_repair"),
     // I.settings.about
-    r!("version"),
-    r!("config-path"),
-    r!("app-data-path"),
-    r!("logs-path"),
-    r!("license"),
-    r!("repository"),
-    r!("handy-acknowledgement"),
+    wr!("version"),
+    wr!("config-path"),
+    wr!("app-data-path"),
+    wr!("logs-path"),
+    wr!("license"),
+    wr!("repository"),
+    wr!("handy-acknowledgement"),
     // I.tray.audit
     wa!("tray.settings"),
     wa!("tray.cancel"),

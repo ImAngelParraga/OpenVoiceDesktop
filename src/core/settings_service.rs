@@ -30,6 +30,7 @@ pub struct SettingsDocument {
     pub theme_selection: ThemeSelection,
     pub history_entries: Vec<crate::core::settings_ui::HistoryEntry>,
     pub live_log_lines: Vec<String>,
+    pub about: crate::core::settings_ui::AboutSettings,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -119,6 +120,19 @@ impl SettingsService {
         } else {
             Vec::new()
         };
+        let app_data_path = self
+            .path
+            .parent()
+            .context("config path has no parent")?
+            .to_path_buf();
+        let logs_path = crate::core::logging::FileLogger::for_config_path(&self.path, &loaded)?
+            .directory()
+            .to_path_buf();
+        let about = crate::core::settings_ui::AboutSettings::new(
+            self.path.clone(),
+            app_data_path,
+            logs_path,
+        );
         loaded.asr.bearer_token = None;
         Ok(SettingsDocument {
             config: loaded,
@@ -134,6 +148,7 @@ impl SettingsService {
             theme_selection,
             history_entries,
             live_log_lines,
+            about,
             fields,
         })
     }
@@ -242,6 +257,15 @@ pub fn validate_config(config: &Config) -> Result<()> {
             config.output.typing_tool
         );
     }
+    if let Some(socket_path) = &config.ipc.socket_path {
+        #[cfg(target_os = "linux")]
+        anyhow::ensure!(
+            socket_path.is_absolute(),
+            "ipc.socket_path must be absolute on Linux"
+        );
+        #[cfg(not(target_os = "linux"))]
+        anyhow::bail!("ipc.socket_path is unavailable on this platform");
+    }
     if matches!(
         config.output.paste_method,
         crate::core::config::PasteMethod::ExternalScript
@@ -303,11 +327,16 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
             continue;
         }
         let changed = old.get(entry.id) != new.get(entry.id);
-        if changed && matches!(entry.id, "portable.enabled" | "portable.data_dir") {
+        if changed
+            && matches!(
+                entry.id,
+                "portable.enabled" | "portable.data_dir" | "ipc.socket_path"
+            )
+        {
             results.push(FieldApplyResult {
                 field: entry.id.to_string(),
                 status: ApplyStatus::RestartRequired,
-                reason: Some("portable mode changes apply after restart".to_string()),
+                reason: Some(format!("{} changes apply after restart", entry.id)),
             });
             continue;
         }
