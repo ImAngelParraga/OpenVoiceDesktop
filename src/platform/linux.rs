@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
 use crate::core::config::TypingTool;
@@ -77,6 +78,17 @@ impl PlatformAdapter for LinuxPlatformAdapter {
         }
         Err(anyhow!(
             "could not submit text; install a configured typing helper"
+        ))
+    }
+
+    async fn select_inserted_text(&self, text: &str, tool: TypingTool) -> Result<()> {
+        for command in linux_select_command_candidates(tool, text.graphemes(true).count()) {
+            if command_succeeds(command.program, &command.args).await {
+                return Ok(());
+            }
+        }
+        Err(anyhow!(
+            "could not select pasted text with configured typing helper"
         ))
     }
 
@@ -244,6 +256,55 @@ pub fn linux_submit_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
         TypingTool::Dotool => vec![LinuxCommand::new("dotool", &["key", "enter"])],
         TypingTool::Ydotool => vec![LinuxCommand::new("ydotool", &["key", "28:1", "28:0"])],
         TypingTool::Xdotool => vec![LinuxCommand::new("xdotool", &["key", "Return"])],
+        TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
+    }
+}
+
+pub fn linux_select_command_candidates(
+    tool: TypingTool,
+    character_count: usize,
+) -> Vec<LinuxCommand> {
+    if character_count == 0 {
+        return Vec::new();
+    }
+    let count = character_count.to_string();
+    let wtype = || {
+        let mut args = vec!["-M".to_string(), "shift".to_string()];
+        for _ in 0..character_count {
+            args.extend(["-k".to_string(), "Left".to_string()]);
+        }
+        args.extend(["-m".to_string(), "shift".to_string()]);
+        LinuxCommand {
+            program: "wtype",
+            args,
+        }
+    };
+    let dotool = || {
+        let mut args = vec!["key".to_string()];
+        args.extend(std::iter::repeat("shift+left".to_string()).take(character_count));
+        LinuxCommand {
+            program: "dotool",
+            args,
+        }
+    };
+    let ydotool = || {
+        let mut args = vec!["key".to_string(), "42:1".to_string()];
+        for _ in 0..character_count {
+            args.extend(["105:1".to_string(), "105:0".to_string()]);
+        }
+        args.push("42:0".to_string());
+        LinuxCommand {
+            program: "ydotool",
+            args,
+        }
+    };
+    let xdotool = || LinuxCommand::new("xdotool", &["key", "--repeat", &count, "shift+Left"]);
+    match tool {
+        TypingTool::Auto => vec![wtype(), dotool(), ydotool(), xdotool()],
+        TypingTool::Wtype => vec![wtype()],
+        TypingTool::Dotool => vec![dotool()],
+        TypingTool::Ydotool => vec![ydotool()],
+        TypingTool::Xdotool => vec![xdotool()],
         TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
     }
 }

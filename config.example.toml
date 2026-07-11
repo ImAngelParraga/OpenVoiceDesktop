@@ -44,6 +44,7 @@ paste_method = "clipboard-paste"
 typing_tool = "auto"
 clipboard_handling = "restore-after-paste"
 auto_submit = false
+select_pasted_text = false
 paste_delay_ms = 25
 restore_delay_ms = 250
 # external_script_path = "/path/paste.sh"

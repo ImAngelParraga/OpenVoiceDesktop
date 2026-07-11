@@ -140,6 +140,7 @@ fn output_and_text_settings_expose_client_owned_controls() {
         "output.typing_tool",
         "output.clipboard_handling",
         "output.auto_submit",
+        "output.select_pasted_text",
         "output.paste_delay_ms",
         "output.external_script_path",
         "text.append_trailing_space",

@@ -59,6 +59,7 @@ const EXPECTED_CONFIG_FIELDS: &[&str] = &[
     "output.paste_delay_ms",
     "output.paste_method",
     "output.restore_delay_ms",
+    "output.select_pasted_text",
     "output.typing_tool",
     "portable.data_dir",
     "portable.enabled",

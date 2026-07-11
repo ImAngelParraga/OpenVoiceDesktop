@@ -553,6 +553,12 @@ impl SettingsWindowLayout {
                             "output.auto_submit",
                         ),
                         SettingsControl::bound(
+                            "select-pasted-text",
+                            "Select pasted text",
+                            SettingsControlKind::Toggle,
+                            "output.select_pasted_text",
+                        ),
+                        SettingsControl::bound(
                             "paste-delay",
                             "Paste delay",
                             SettingsControlKind::Number,

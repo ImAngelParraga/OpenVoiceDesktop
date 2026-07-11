@@ -297,6 +297,24 @@ pub fn validate_config(config: &Config) -> Result<()> {
     {
         bail!("output.auto_submit requires an output method that focuses a target");
     }
+    if config.output.select_pasted_text && config.output.auto_submit {
+        bail!("output.select_pasted_text cannot be combined with output.auto_submit");
+    }
+    if config.output.select_pasted_text
+        && (matches!(
+            config.output.paste_method,
+            crate::core::config::PasteMethod::CopyOnly
+                | crate::core::config::PasteMethod::ExternalScript
+        ) || matches!(
+            config.output.clipboard_handling,
+            crate::core::config::ClipboardHandling::CopyOnly
+        ) || matches!(
+            config.output.typing_tool,
+            crate::core::config::TypingTool::ExternalScript
+        ))
+    {
+        bail!("output.select_pasted_text requires clipboard-paste or direct-type output");
+    }
     crate::core::lifecycle::validate_lifecycle(config)?;
     Ok(())
 }

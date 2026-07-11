@@ -159,6 +159,7 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("output.paste_delay_ms"),
     w!("output.restore_delay_ms"),
     w!("output.auto_submit"),
+    w!("output.select_pasted_text"),
     w!("output.external_script_path"),
     // I.settings.text
     w!("text.vad_enabled"),

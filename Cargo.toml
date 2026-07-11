@@ -29,6 +29,7 @@ tauri = { version = "2.11.5", optional = true }
 tauri-plugin-single-instance = { version = "2.4.2", optional = true }
 tokio = { version = "1.38", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.8"
+unicode-segmentation = "1.12"
 
 [build-dependencies]
 tauri-build = "2.6.3"

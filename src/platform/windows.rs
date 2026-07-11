@@ -9,6 +9,7 @@ use std::sync::{
     Mutex, OnceLock,
 };
 use tokio::sync::mpsc;
+use unicode_segmentation::UnicodeSegmentation;
 use windows_sys::core::{GUID, HRESULT};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -23,7 +24,7 @@ use windows_sys::Win32::System::Com::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_RETURN, VK_SPACE, VK_V,
+    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_LEFT, VK_RETURN, VK_SHIFT, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -155,6 +156,17 @@ impl PlatformAdapter for WindowsPlatformAdapter {
         match tool {
             TypingTool::Auto | TypingTool::SendInput => send_enter(),
             _ => Err(anyhow!("typing tool {tool:?} is unavailable on Windows")),
+        }
+    }
+
+    async fn select_inserted_text(&self, text: &str, tool: TypingTool) -> Result<()> {
+        match tool {
+            TypingTool::Auto | TypingTool::SendInput => {
+                send_shift_left(text.graphemes(true).count())
+            }
+            _ => Err(anyhow!(
+                "typing tool {tool:?} cannot select text on Windows"
+            )),
         }
     }
 
@@ -446,6 +458,30 @@ fn send_enter() -> Result<()> {
     };
     if sent != inputs.len() as u32 {
         return Err(anyhow!("SendInput failed while sending Enter"));
+    }
+    Ok(())
+}
+
+fn send_shift_left(character_count: usize) -> Result<()> {
+    if character_count == 0 {
+        return Ok(());
+    }
+    let mut inputs = Vec::with_capacity(character_count * 2 + 2);
+    inputs.push(keyboard_input(VK_SHIFT as u16, 0));
+    for _ in 0..character_count {
+        inputs.push(keyboard_input(VK_LEFT as u16, 0));
+        inputs.push(keyboard_input(VK_LEFT as u16, KEYEVENTF_KEYUP));
+    }
+    inputs.push(keyboard_input(VK_SHIFT as u16, KEYEVENTF_KEYUP));
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent != inputs.len() as u32 {
+        return Err(anyhow!("SendInput failed while selecting pasted text"));
     }
     Ok(())
 }

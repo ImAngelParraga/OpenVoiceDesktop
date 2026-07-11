@@ -2,7 +2,8 @@
 
 use openvoice_desktop::core::config::TypingTool;
 use openvoice_desktop::platform::linux::{
-    linux_paste_command_candidates, linux_submit_command_candidates, linux_type_command_candidates,
+    linux_paste_command_candidates, linux_select_command_candidates,
+    linux_submit_command_candidates, linux_type_command_candidates,
 };
 
 #[test]
@@ -11,6 +12,15 @@ fn linux_auto_paste_prefers_wayland_then_x11_fallbacks() {
     let programs: Vec<&str> = commands.iter().map(|command| command.program).collect();
 
     assert_eq!(programs, vec!["wtype", "dotool", "ydotool", "xdotool"]);
+}
+
+#[test]
+fn linux_selection_repeats_shift_left_for_unicode_scalar_count() {
+    let commands = linux_select_command_candidates(TypingTool::Xdotool, "a🦀\n".chars().count());
+
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].program, "xdotool");
+    assert_eq!(commands[0].args, vec!["key", "--repeat", "3", "shift+Left"]);
 }
 
 #[test]

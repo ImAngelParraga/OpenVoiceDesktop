@@ -440,6 +440,83 @@ async fn direct_type_uses_selected_tool_and_auto_submits() {
 }
 
 #[tokio::test]
+async fn select_pasted_text_runs_after_insert_before_clipboard_restore() {
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "a🦀\n".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(Some("original".to_string()));
+    let observations = platform.observations.clone();
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
+    config.output.select_pasted_text = true;
+    let mut controller = VoiceController::new(recorder, asr, platform, config);
+
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+
+    assert_eq!(
+        *observations.lock().unwrap(),
+        vec![
+            "get_clipboard",
+            "set_clipboard:a🦀\n",
+            "trigger_paste",
+            "select:Auto:a🦀\n",
+            "set_clipboard:original",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn select_pasted_text_disabled_is_noop() {
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "hello".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(None);
+    let observations = platform.observations.clone();
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    let mut controller = VoiceController::new(recorder, asr, platform, config);
+
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+
+    assert!(!observations
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|entry| entry.starts_with("select:")));
+}
+
+#[tokio::test]
+async fn selection_failure_preserves_transcript_in_clipboard() {
+    let recorder = FakeRecorder::default();
+    let asr = FakeAsr {
+        text: "keep me".to_string(),
+        observations: Arc::new(Mutex::new(Vec::new())),
+    };
+    let platform = FakePlatform::new(Some("original".to_string())).with_selection_failure();
+    let clipboard = platform.clipboard.clone();
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
+    config.output.select_pasted_text = true;
+    let mut controller = VoiceController::new(recorder, asr, platform, config);
+
+    controller.toggle().await.unwrap();
+    let error = controller.toggle().await.unwrap_err();
+
+    assert!(error
+        .to_string()
+        .contains("selecting pasted transcript failed"));
+    assert_eq!(*clipboard.lock().unwrap(), Some("keep me".to_string()));
+}
+
+#[tokio::test]
 async fn app_shell_event_reports_empty_transcript() {
     let observations = Arc::new(Mutex::new(Vec::new()));
     let recorder = FakeRecorder::default();
@@ -548,6 +625,7 @@ struct FakePlatform {
     observations: Arc<Mutex<Vec<String>>>,
     restores: Arc<Mutex<Vec<AudioMuteState>>>,
     fail_paste: bool,
+    fail_selection: bool,
 }
 
 impl FakePlatform {
@@ -557,11 +635,17 @@ impl FakePlatform {
             observations: Arc::new(Mutex::new(Vec::new())),
             restores: Arc::new(Mutex::new(Vec::new())),
             fail_paste: false,
+            fail_selection: false,
         }
     }
 
     fn with_paste_failure(mut self) -> Self {
         self.fail_paste = true;
+        self
+    }
+
+    fn with_selection_failure(mut self) -> Self {
+        self.fail_selection = true;
         self
     }
 
@@ -621,6 +705,21 @@ impl PlatformAdapter for FakePlatform {
             .lock()
             .unwrap()
             .push(format!("submit:{tool:?}"));
+        Ok(())
+    }
+
+    async fn select_inserted_text(
+        &self,
+        text: &str,
+        tool: openvoice_desktop::core::config::TypingTool,
+    ) -> Result<()> {
+        self.observations
+            .lock()
+            .unwrap()
+            .push(format!("select:{tool:?}:{text}"));
+        if self.fail_selection {
+            anyhow::bail!("selection failed");
+        }
         Ok(())
     }
 

@@ -46,6 +46,7 @@ fn missing_config_uses_defaults() {
     );
     assert_eq!(loaded.config.output.paste_delay_ms, 25);
     assert_eq!(loaded.config.output.restore_delay_ms, 250);
+    assert!(!loaded.config.output.select_pasted_text);
     assert!(!loaded.config.text.append_trailing_space);
     assert!(!loaded.config.text.vad_enabled);
     assert!(!loaded.config.text.silence_trim_enabled);

@@ -6,6 +6,7 @@ G2: Keep primary transcription path remote OpenAI-compatible ASR: record audio, 
 G3: Use Handy as UX/reference code, not fork base. Handy ref: `https://github.com/cjpais/Handy`, commit `1c4f21acd2bab81f75a0cd7556cd3bb7399ffd9a`, release `v0.9.1`.
 G4: Settings is production control surface, not schema preview: every visible value/action must describe and control real runtime behavior.
 G5: Treat text returned by remote ASR as final semantic transcript; desktop may apply presentation-only output behavior, never linguistic correction, filler removal, post-processing, or translation.
+G6: Offer optional post-paste selection so user can immediately replace or delete unwanted dictated text.
 
 §C
 C1: No local offline model manager in v1. Do not add `transcribe-cpp`, `transcribe-rs`, ONNX, Vulkan, Metal, model downloads, or model unload controls unless later product decision changes.
@@ -20,6 +21,7 @@ C9: Prefer desktop webview window over platform-native widget toolkit. True WinU
 C10: No visible enabled control/action may be a placeholder. Unsupported optional features stay hidden or visibly disabled with exact availability reason.
 C11: Settings save must either apply atomically to running daemon or explicitly mark field restart-required before save; silent stale runtime forbidden.
 C12: ASR service owns vocabulary biasing, transcript cleanup, filler handling, correction, and translation. Desktop sends standard request context (`language`, `prompt`) and does not load or call a separate language model.
+C13: Post-paste selection defaults off, never changes transcript text or clipboard contents, and must not claim success when target app/tool cannot select exact inserted span.
 
 §I
 I.cli: Existing CLI: `openvoice-desktop daemon|toggle|config-path`. Add Handy-like remote-control flags only if compatible: `--toggle-transcription`, `--cancel`, `--start-hidden`, `--debug`.
@@ -49,7 +51,7 @@ I.settings.status: `W` = runtime-effective after daemon restart, `P` = partial/m
 I.settings.general: `D behavior.shortcut`, `D behavior.push_to_talk`, `D behavior.cancel_shortcut`, `D audio.selected_microphone`, `D audio.mute_while_recording`, `D audio.audio_feedback`, `D audio.selected_output_device`, `D audio.always_on_microphone`, `D audio.audio_feedback_volume`, `D audio.sound_theme`, `D audio.sample_rate_hz`, `D audio.channels`. Windows hotkey is hardcoded `Ctrl+Space`; recorder always uses default input and fixed 16 kHz mono output; sound/mute/always-on paths are not invoked.
 I.settings.asr: `W asr.base_url`, `W asr.model`, `W asr.language`, `W asr.prompt`, `W asr.timeout_seconds` after restart; `W asr.bearer_token` with environment/secret-store/plaintext-fallback source status; `W test-endpoint` authenticated silent-WAV diagnostic action.
 I.settings.app: `D app.start_hidden`, `D app.autostart`, `D app.show_tray_icon`, `D app.show_overlay`, `D app.overlay_position`, `D app.overlay_style`, `D app.experimental`, `D ui.language`, `D ui.theme`, `D updates.check_for_updates`, `D updates.show_whats_new`, `D portable.enabled`, `D behavior.restore_clipboard`, `D behavior.clipboard_restore_delay_ms`. Overlay/theme/tray models exist but active Windows shell does not consume them.
-I.settings.output: `P output.paste_method` because clipboard/direct/copy work but external-script does not execute; `D output.typing_tool`; `W output.clipboard_handling`, `W output.paste_delay_ms`, `W output.restore_delay_ms` after restart; `D output.auto_submit`, `D output.external_script_path`.
+I.settings.output: `P output.paste_method` because clipboard/direct/copy work but external-script does not execute; `D output.typing_tool`; `W output.clipboard_handling`, `W output.paste_delay_ms`, `W output.restore_delay_ms` after restart; `D output.auto_submit`, `D output.external_script_path`; add `output.select_pasted_text`, boolean default `false`, runtime-effective through platform selection adapter.
 I.settings.text: Removed service-owned `text.custom_words`, `text.fuzzy_correction_threshold`, `text.filter_filler_words`, and `text.translate_language_hint`. `W text.append_trailing_space`, `W text.vad_enabled`, `W text.silence_trim_enabled` after restart; controller detects empty clips and optionally trims edge silence before upload.
 I.settings.postprocess: Removed entire `post_processing.*` schema/UI/token surface. Remote ASR response is final semantic transcript; service owns optional LLM cleanup and its credentials/runtime.
 I.settings.history: `W history.enabled`, `W history.limit`, `W history.retention`, `W history.recordings_dir` after restart; `W open-recordings-folder`, `W delete-transcript`, `W retry-transcript`, `W save-transcript`; atomic JSON store persists transcript metadata and policy-controlled recordings.
@@ -69,7 +71,7 @@ V1: Remote ASR invariant: every transcription request goes to `{base_url.trim_en
 V2: Secrets invariant: bearer tokens/API keys redacted from logs, UI debug output, error messages, and history.
 V3: Feedback invariant: user receives visible state within 100 ms of accepted toggle/cancel command, before audio write or network call.
 V4: Busy invariant: second toggle during writing/transcribing/inserting does not start nested recording; returns busy or cancel-capable state.
-V5: Cancel invariant: cancel stops active recording or suppresses pending paste/network result; final state becomes idle and overlay hides.
+V5: Cancel invariant: pressing configured cancel shortcut (default `Escape`) during recording stops and discards capture without ASR upload or paste; during writing/transcribing/inserting it suppresses pending network/paste result; final state becomes idle and overlay hides. Cancel while idle is safe no-op.
 V6: Paste invariant: paste failure never loses transcript; text remains available through clipboard/history/error UI.
 V7: Clipboard invariant: when restore enabled, original clipboard is restored after paste delay; when disabled/copy-only, user-selected behavior respected.
 V8: Config invariant: settings schema migrations preserve existing TOML values and never overwrite user token/source silently.
@@ -82,20 +84,21 @@ V14: Visible settings invariant: Settings UI must be user-invokable from the app
 V15: Honest-control invariant: every visible enabled settings control/action has automated proof of current-value render, validated persistence/action, and runtime consumption; otherwise hidden or disabled with reason.
 V16: Native-window invariant: tray Settings focuses one desktop application window; no external browser, localhost listener, duplicate settings process, or duplicate daemon.
 V17: Live-config invariant: successful Save reports per-field applied/restart-required status; runtime-effective fields update daemon before success response; invalid update preserves prior config/runtime.
-V18: Shortcut invariant: displayed toggle/push-to-talk/cancel shortcuts equal registered shortcuts; default toggle is `Ctrl+Space`; conflicts return visible error without losing prior registration.
+V18: Shortcut invariant: displayed toggle/push-to-talk/cancel shortcuts equal registered global shortcuts; defaults are toggle `Ctrl+Space` and cancel `Escape`; cancel fires on key press only; conflicts return visible error without losing prior registration.
 V19: Device invariant: microphone/output selectors enumerate current devices, identify system default, persist stable selection, use selected device, and fall back visibly when device disappears.
 V20: Audio-settings invariant: ASR encoding displays effective defaults (`16000` Hz, mono) and validates supported values; feedback device/volume/theme and mute/always-on controls affect real audio lifecycle or remain unavailable.
 V21: Action invariant: every tray/settings action performs named operation and reports success/sanitized failure; no placeholder redirects such as `Action available in settings UI`.
 V22: Completeness invariant: CI maintains explicit inventory of every config field and settings action; adding visible field/action without render, validation, persistence, runtime/action, and test fails.
 V23: Desktop-shell invariant: `cargo test --features desktop-shell` passes on Linux and Windows; every Tauri configured/generated bundle asset exists.
 V24: Text-ownership invariant: desktop sends audio plus configured `language`/`prompt`, then preserves returned transcript text except explicit presentation operations such as one trailing space; no fuzzy replacement, filler removal, translation, or second-LLM call.
+V25: Post-paste selection invariant: when `output.select_pasted_text=true`, successful clipboard-paste or direct-type output leaves exact inserted transcript span selected in target app, including whitespace, punctuation, Unicode, and multiline text. Selection runs after insertion and before clipboard restore. Disabled setting changes nothing. Copy-only, failed insertion, external-script output, unsupported tool/app, and `auto_submit` incompatibility produce validated unavailability or sanitized visible failure; never select unrelated pre-existing text or report inserted success falsely.
 
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller
 T2|x|Settings schema v1|Add schema version, migration, defaults, persistence. Map existing TOML into UI settings without token loss.|H:src-tauri/src/settings.rs|V2,V8,V11,I.config
 T3|x|Settings window layout|Build Handy-like sidebar sections adapted to our app: General, ASR Endpoint, Advanced, History, Debug, About. No Models section except remote ASR model field.|H:src/components/Sidebar.tsx|V11,V13,I.handy.sidebar
-T4|x|General settings|Shortcut, push-to-talk, cancel shortcut, microphone selector, mute while recording, audio feedback, output device, volume.|H:src/components/settings/general/GeneralSettings.tsx|V3,V5,V11
+T4|x|General settings|Shortcut, push-to-talk, configurable global cancel shortcut defaulting to `Escape`, microphone selector, mute while recording, audio feedback, output device, volume. Route cancel key press through same cancel command as CLI, tray, and overlay; discard active capture and suppress pending ASR/paste result.|H:src/components/settings/general/GeneralSettings.tsx|V3,V5,V11,V18
 T5|x|ASR endpoint settings|UI for `base_url`, `model`, `language`, `prompt`, token source/status, test endpoint, timeout. Replace Handy local model card with endpoint card.|H:src/components/settings/general/ModelSettingsCard.tsx; H:src/components/model-selector/*|V1,V2,V11,I.asr
 T6|x|Advanced app settings|Start hidden, autostart, tray icon visibility, overlay style/position, experimental toggle.|H:src/components/settings/advanced/AdvancedSettings.tsx; H:src/components/settings/StartHidden.tsx; H:src/components/settings/AutostartToggle.tsx; H:src/components/settings/ShowTrayIcon.tsx; H:src/components/settings/ShowOverlay.tsx|V3,V11
 T7|x|Output settings|Paste method, typing tool, clipboard handling, auto-submit, paste delays, external script path.|H:src/components/settings/PasteMethod.tsx; H:src/components/settings/TypingTool.tsx; H:src/components/settings/ClipboardHandling.tsx; H:src/components/settings/AutoSubmit.tsx; H:src-tauri/src/clipboard.rs|V6,V7,V9,V11
@@ -157,6 +160,7 @@ T61|x|Tray action/state completion|Connect dynamic menu model; implement Copy La
 T62|x|Installer and process lifecycle|Package Tauri/WebView prerequisites, stop/upgrade running binary safely, enforce one daemon/settings instance, preserve config, create correct autostart entry, and test install-upgrade-start path.|H:BUILD.md; H:src-tauri/tauri.conf.json|V8,V16,V17
 T63|x|Settings end-to-end matrix|Windows UI automation: open from tray, inspect defaults/options, modify each working control, assert file and runtime, exercise every action/error. Linux adapter tests plus documented manual GNOME pass.|H:src/App.tsx|V12,V15,V16,V17,V18,V19,V20,V21,V22
 T64|x|Onboarding state|Implement first-run permission/endpoint/microphone/shortcut flow backed by `onboarding.completed` and `onboarding.show_permission_repair`, or remove both fields until onboarding ships.|H:src/App.tsx; H:src/components/onboarding/*|V8,V15,V22
+T65|x|Optional post-paste selection|Add persisted `output.select_pasted_text=false`, settings toggle/help/availability state, live runtime apply, and platform adapter operation selecting exact newly inserted span. Support Windows `SendInput` and Linux active typing tools; define validation for `auto_submit`, copy-only, external scripts, and unsupported tools. Preserve clipboard-restore ordering and surface sanitized failure without losing transcript. Add config migration/default, settings inventory/UI/service, controller/platform ordering, Unicode/multiline boundary, no-op-disabled, failure, Windows adapter, Linux command, and end-to-end tests.|—|G6,C13,I.settings.output,V6,V7,V9,V12,V15,V17,V22,V25
 
 §B
 id|date|cause|fix

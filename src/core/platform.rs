@@ -41,6 +41,11 @@ pub trait PlatformAdapter: Send + Sync {
     async fn trigger_submit_with_tool(&self, _tool: TypingTool) -> Result<()> {
         Err(anyhow!("auto-submit is unavailable on this platform"))
     }
+    async fn select_inserted_text(&self, _text: &str, _tool: TypingTool) -> Result<()> {
+        Err(anyhow!(
+            "post-paste selection is unavailable on this platform"
+        ))
+    }
     async fn notify(&self, title: &str, body: &str) -> Result<()>;
 
     /// Capture current output mute state and mute output for recording.
@@ -95,6 +100,7 @@ where
         restore_delay,
         TypingTool::Auto,
         false,
+        false,
     )
     .await
 }
@@ -106,6 +112,7 @@ async fn paste_with_clipboard_restore_options<P>(
     restore_delay: Duration,
     typing_tool: TypingTool,
     auto_submit: bool,
+    select_pasted_text: bool,
 ) -> Result<PasteResult>
 where
     P: PlatformAdapter,
@@ -139,6 +146,19 @@ where
                 .await
                 .ok();
             return Err(anyhow!("{error}"));
+        }
+    }
+
+    if select_pasted_text {
+        if let Err(error) = platform.select_inserted_text(transcript, typing_tool).await {
+            platform
+                .notify(
+                    "OpenVoiceDesktop selection failed",
+                    "Transcript was pasted but could not be selected.",
+                )
+                .await
+                .ok();
+            return Err(anyhow!("selecting pasted transcript failed: {error}"));
         }
     }
 
@@ -203,6 +223,21 @@ where
                 return Err(anyhow!("{error}"));
             }
         }
+        if output.select_pasted_text {
+            if let Err(error) = platform
+                .select_inserted_text(transcript, output.typing_tool)
+                .await
+            {
+                platform
+                    .notify(
+                        "OpenVoiceDesktop selection failed",
+                        "Transcript was typed but could not be selected.",
+                    )
+                    .await
+                    .ok();
+                return Err(anyhow!("selecting typed transcript failed: {error}"));
+            }
+        }
         return Ok(PasteResult::Pasted);
     }
 
@@ -216,6 +251,7 @@ where
         Duration::from_millis(output.restore_delay_ms),
         output.typing_tool,
         output.auto_submit,
+        output.select_pasted_text,
     )
     .await
 }
