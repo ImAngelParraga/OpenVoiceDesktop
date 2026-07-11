@@ -159,7 +159,7 @@ fn save_reports_each_field_disposition() {
             .find(|field| field.field == "app.show_overlay")
             .unwrap()
             .status,
-        ApplyStatus::RestartRequired
+        ApplyStatus::Applied
     );
     assert!(result
         .fields

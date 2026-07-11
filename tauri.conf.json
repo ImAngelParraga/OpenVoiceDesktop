@@ -18,6 +18,19 @@
         "minHeight": 520,
         "resizable": true,
         "visible": true
+      },
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "title": "OpenVoiceDesktop Overlay",
+        "width": 420,
+        "height": 88,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
       }
     ],
     "security": {

@@ -1,4 +1,4 @@
-use openvoice_desktop::core::config::Config;
+use openvoice_desktop::core::config::{Config, OverlayPosition, OverlayStyle};
 use openvoice_desktop::core::events::{AppShellEvent, ProcessingStage};
 use openvoice_desktop::core::settings_ui::{
     apply_text_settings, AboutSettings, AsrEndpointSettings, AsrTokenSource, HistoryEntry,
@@ -258,6 +258,24 @@ fn overlay_accepts_normalized_mic_level_buckets() {
     assert!(overlay.visible);
     assert_eq!(overlay.mode, OverlayMode::Recording);
     assert_eq!(overlay.level_bucket, Some(10));
+}
+
+#[test]
+fn overlay_live_state_uses_persisted_position_style_and_mic_level() {
+    let mut config = Config::default();
+    config.app.overlay_position = OverlayPosition::Bottom;
+    config.app.overlay_style = OverlayStyle::Expanded;
+
+    let view = OverlayView::from_recording_state(
+        &config,
+        openvoice_desktop::core::state::RecordingState::Recording,
+        Some(7),
+    );
+    assert!(view.visible);
+    assert_eq!(view.position, OverlayPosition::Bottom);
+    assert_eq!(view.style, OverlayStyle::Expanded);
+    assert_eq!(view.level_bucket, Some(7));
+    assert!(view.show_cancel);
 }
 
 #[test]

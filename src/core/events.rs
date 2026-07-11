@@ -1,6 +1,7 @@
 use crate::core::state::RecordingState;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AppShellEvent {
     Recording,
     MicLevel { bucket: u8 },
@@ -13,7 +14,7 @@ pub enum AppShellEvent {
     Idle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProcessingStage {
     WritingAudio,
     Uploading,

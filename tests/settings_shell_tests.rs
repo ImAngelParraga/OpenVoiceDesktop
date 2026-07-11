@@ -6,6 +6,7 @@ const TAURI_CONFIG: &str = include_str!("../tauri.conf.json");
 const SETTINGS_JS: &str = include_str!("../ui/settings.js");
 const DAEMON_RS: &str = include_str!("../src/daemon.rs");
 const IPC_RS: &str = include_str!("../src/ipc.rs");
+const OVERLAY_JS: &str = include_str!("../ui/overlay.js");
 
 #[test]
 fn settings_cli_owns_one_native_window_without_browser_or_localhost() {
@@ -60,4 +61,14 @@ fn typed_commands_and_daemon_reload_channel_are_connected() {
     assert!(DAEMON_RS.contains("validate_config(&loaded.config)"));
     assert!(DAEMON_RS.contains("ControllerCommand::Reload(updated)"));
     assert!(DAEMON_RS.contains("controller busy"));
+}
+
+#[test]
+fn overlay_shell_is_native_and_cancelable_with_live_daemon_status() {
+    assert!(TAURI_CONFIG.contains("\"label\": \"overlay\""));
+    assert!(TAURI_CONFIG.contains("\"url\": \"overlay.html\""));
+    assert!(SHELL_RS.contains("send_status"));
+    assert!(SHELL_RS.contains("overlay-state"));
+    assert!(SHELL_RS.contains("cancel_transcription"));
+    assert!(OVERLAY_JS.contains("invoke(\"cancel_transcription\")"));
 }

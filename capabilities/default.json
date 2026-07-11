@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings-window",
   "description": "Core access for the native settings window",
-  "windows": ["settings"],
+  "windows": ["settings", "overlay"],
   "permissions": ["core:default"]
 }

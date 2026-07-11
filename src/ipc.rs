@@ -1,6 +1,15 @@
+use serde::{Deserialize, Serialize};
+
 pub const TOGGLE_COMMAND: &str = "toggle\n";
 pub const CANCEL_COMMAND: &str = "cancel\n";
 pub const RELOAD_CONFIG_COMMAND: &str = "reload-config\n";
+pub const STATUS_COMMAND: &str = "status\n";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DaemonStatus {
+    pub state: crate::core::state::RecordingState,
+    pub mic_level_bucket: u8,
+}
 
 #[cfg(target_os = "linux")]
 pub const LINUX_SOCKET_NAME: &str = "daemon.sock";
@@ -21,6 +30,12 @@ pub async fn send_cancel(socket_path: &std::path::Path) -> anyhow::Result<String
 #[cfg(target_os = "linux")]
 pub async fn send_reload_config(socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(socket_path, RELOAD_CONFIG_COMMAND).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn send_status(socket_path: &std::path::Path) -> anyhow::Result<DaemonStatus> {
+    let response = send_command(socket_path, STATUS_COMMAND).await?;
+    Ok(serde_json::from_str(response.trim())?)
 }
 
 #[cfg(target_os = "linux")]
@@ -52,6 +67,12 @@ pub async fn send_cancel(_socket_path: &std::path::Path) -> anyhow::Result<Strin
 #[cfg(target_os = "windows")]
 pub async fn send_reload_config(_socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(RELOAD_CONFIG_COMMAND).await
+}
+
+#[cfg(target_os = "windows")]
+pub async fn send_status(_socket_path: &std::path::Path) -> anyhow::Result<DaemonStatus> {
+    let response = send_command(STATUS_COMMAND).await?;
+    Ok(serde_json::from_str(response.trim())?)
 }
 
 #[cfg(target_os = "windows")]

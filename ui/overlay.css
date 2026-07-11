@@ -1,0 +1,10 @@
+:root { font-family: system-ui, sans-serif; color: #f4f7fa; }
+body { margin: 0; background: transparent; }
+#overlay { display: flex; align-items: center; gap: .8rem; min-height: 3.2rem; padding: .8rem 1rem; border: 1px solid #303842; border-radius: 1rem; background: rgba(17, 20, 24, .94); box-shadow: 0 .5rem 2rem rgba(0, 0, 0, .3); }
+#overlay[hidden] { display: none; }
+#message { min-width: 7rem; font-weight: 600; }
+#waveform { display: inline-flex; align-items: center; gap: .18rem; height: 1.8rem; }
+#waveform i { width: .22rem; border-radius: .2rem; background: #8ed1ff; }
+#cancel { margin-left: auto; border: 1px solid #596674; border-radius: .5rem; padding: .35rem .6rem; color: inherit; background: transparent; }
+#overlay.expanded { min-width: 24rem; }
+#overlay.bottom { border-color: #8ed1ff; }

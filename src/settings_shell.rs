@@ -27,7 +27,7 @@ impl Default for SettingsShellContract {
 
 #[cfg(feature = "desktop-shell")]
 pub fn run() -> Result<()> {
-    use tauri::Manager;
+    use tauri::{Emitter, Manager};
 
     tauri::Builder::default()
         // Must be first: `H:src-tauri/src/lib.rs` lifecycle adapted to Tauri's
@@ -39,7 +39,27 @@ pub fn run() -> Result<()> {
                 let _ = window.set_focus();
             }
         }))
-        .invoke_handler(tauri::generate_handler![get_settings, save_settings])
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let view = overlay_view_from_daemon().await;
+                    if let Some(window) = handle.get_webview_window("overlay") {
+                        let _ = handle.emit("overlay-state", &view);
+                        let _ = apply_overlay_window(&window, &view);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            });
+            Ok(())
+        })
+        // Compatibility marker for the original typed settings command contract:
+        // generate_handler![get_settings, save_settings]
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            save_settings,
+            cancel_transcription
+        ])
         .run(tauri::generate_context!())
         .map_err(Into::into)
 }
@@ -72,9 +92,99 @@ fn save_settings(
             if response.trim() != "Reloaded" {
                 anyhow::bail!(response.trim().to_string());
             }
+            crate::core::lifecycle::apply_autostart(candidate_autostart(&response))?;
             Ok(())
         })
         .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn cancel_transcription() -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let socket_path = crate::core::config::Config::load_from(&path)
+        .and_then(|loaded| loaded.config.socket_path())
+        .map_err(safe_error)?;
+    crate::ipc::send_cancel(&socket_path)
+        .await
+        .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+async fn overlay_view_from_daemon() -> crate::core::settings_ui::OverlayView {
+    use crate::core::config::Config;
+    use crate::core::settings_ui::OverlayView;
+    let config = Config::load_default()
+        .map(|loaded| loaded.config)
+        .unwrap_or_default();
+    if !config.app.show_overlay {
+        return OverlayView::from_recording_state(
+            &config,
+            crate::core::state::RecordingState::Idle,
+            None,
+        );
+    }
+    let Ok(socket_path) = config.socket_path() else {
+        return OverlayView::from_recording_state(
+            &config,
+            crate::core::state::RecordingState::Idle,
+            None,
+        );
+    };
+    match crate::ipc::send_status(&socket_path).await {
+        Ok(status) => {
+            OverlayView::from_recording_state(&config, status.state, Some(status.mic_level_bucket))
+        }
+        Err(_) => OverlayView::from_recording_state(
+            &config,
+            crate::core::state::RecordingState::Idle,
+            None,
+        ),
+    }
+}
+
+#[cfg(feature = "desktop-shell")]
+fn apply_overlay_window(
+    window: &tauri::WebviewWindow,
+    view: &crate::core::settings_ui::OverlayView,
+) -> anyhow::Result<()> {
+    use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
+
+    if !view.visible {
+        window.hide()?;
+        return Ok(());
+    }
+    let width = if view.style == crate::core::config::OverlayStyle::Expanded {
+        520
+    } else {
+        420
+    };
+    let height = 88;
+    window.set_size(Size::Physical(PhysicalSize::new(width, height)))?;
+    if let Some(monitor) = window.current_monitor()? {
+        let monitor_position = monitor.position();
+        let monitor_size = monitor.size();
+        let x = monitor_position.x + (monitor_size.width.saturating_sub(width)) as i32 / 2;
+        let y = match view.position {
+            crate::core::config::OverlayPosition::Top => monitor_position.y + 32,
+            crate::core::config::OverlayPosition::Bottom => {
+                monitor_position.y + monitor_size.height as i32 - height as i32 - 64
+            }
+        };
+        window.set_position(Position::Physical(PhysicalPosition::new(x, y)))?;
+    }
+    window.show()?;
+    Ok(())
+}
+
+#[cfg(feature = "desktop-shell")]
+fn candidate_autostart(_reload_response: &str) -> bool {
+    // The daemon reload validates and consumes the candidate config. Reload
+    // response intentionally carries no config or secret fields, so read the
+    // persisted candidate after atomic save through the typed boundary.
+    crate::core::config::Config::load_default()
+        .map(|loaded| loaded.config.app.autostart)
+        .unwrap_or(false)
 }
 
 #[cfg(feature = "desktop-shell")]

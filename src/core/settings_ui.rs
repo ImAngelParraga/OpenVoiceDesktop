@@ -107,6 +107,7 @@ pub struct OverlayView {
     pub visible: bool,
     pub mode: OverlayMode,
     pub position: OverlayPosition,
+    pub style: crate::core::config::OverlayStyle,
     pub show_waveform: bool,
     pub show_timer: bool,
     pub show_cancel: bool,
@@ -810,6 +811,29 @@ impl AboutSettings {
 }
 
 impl OverlayView {
+    pub fn from_recording_state(
+        config: &Config,
+        state: RecordingState,
+        level_bucket: Option<u8>,
+    ) -> Self {
+        let event = match state {
+            RecordingState::Idle => AppShellEvent::Idle,
+            RecordingState::Recording => AppShellEvent::MicLevel {
+                bucket: level_bucket.unwrap_or(0),
+            },
+            RecordingState::WritingAudio => AppShellEvent::Processing {
+                stage: ProcessingStage::WritingAudio,
+            },
+            RecordingState::Transcribing => AppShellEvent::Processing {
+                stage: ProcessingStage::Uploading,
+            },
+            RecordingState::InsertingText => AppShellEvent::Processing {
+                stage: ProcessingStage::InsertingText,
+            },
+        };
+        Self::from_event(config, &event)
+    }
+
     pub fn from_event(config: &Config, event: &AppShellEvent) -> Self {
         if !config.app.show_overlay {
             return Self::hidden(config);
@@ -820,6 +844,7 @@ impl OverlayView {
                 visible: true,
                 mode: OverlayMode::Recording,
                 position: config.app.overlay_position,
+                style: config.app.overlay_style,
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
@@ -830,6 +855,7 @@ impl OverlayView {
                 visible: true,
                 mode: OverlayMode::Recording,
                 position: config.app.overlay_position,
+                style: config.app.overlay_style,
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
@@ -846,6 +872,7 @@ impl OverlayView {
                     visible: true,
                     mode,
                     position: config.app.overlay_position,
+                    style: config.app.overlay_style,
                     show_waveform: false,
                     show_timer: false,
                     show_cancel: true,
@@ -857,6 +884,7 @@ impl OverlayView {
                 visible: true,
                 mode: OverlayMode::Error,
                 position: config.app.overlay_position,
+                style: config.app.overlay_style,
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: false,
@@ -871,6 +899,7 @@ impl OverlayView {
                 visible: true,
                 mode: OverlayMode::Uploading,
                 position: config.app.overlay_position,
+                style: config.app.overlay_style,
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: true,
@@ -885,6 +914,7 @@ impl OverlayView {
             visible: false,
             mode: OverlayMode::Hidden,
             position: config.app.overlay_position,
+            style: config.app.overlay_style,
             show_waveform: false,
             show_timer: false,
             show_cancel: false,
