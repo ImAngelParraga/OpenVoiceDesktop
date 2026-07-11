@@ -1,15 +1,24 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use std::ffi::c_void;
 use std::ffi::OsStr;
 use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex, OnceLock,
+};
 use tokio::sync::mpsc;
+use windows_sys::core::{GUID, HRESULT};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
     FillRect, InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
     DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+};
+use windows_sys::Win32::Media::Audio::{eMultimedia, eRender};
+use windows_sys::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -30,7 +39,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
-use crate::core::platform::PlatformAdapter;
+use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
+use crate::core::platform::{AudioMuteState, PlatformAdapter};
 
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
@@ -52,6 +62,7 @@ const MENU_QUIT: usize = 1007;
 
 static COMMAND_TX: OnceLock<mpsc::UnboundedSender<TrayCommand>> = OnceLock::new();
 static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
+static TRAY_ICON_VISIBLE: AtomicBool = AtomicBool::new(false);
 static STATUS_POPUP_HWND: OnceLock<HWND> = OnceLock::new();
 static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
@@ -73,6 +84,7 @@ pub enum TrayCommand {
     TestEndpoint,
     OpenLogs,
     OpenConfigFolder,
+    ReloadLifecycle { show_tray_icon: bool },
     Quit,
 }
 
@@ -113,9 +125,178 @@ impl PlatformAdapter for WindowsPlatformAdapter {
     async fn notify(&self, title: &str, body: &str) -> Result<()> {
         show_status_popup(&format!("{title}: {body}"), Some(4_000))
     }
+
+    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
+        let was_muted = tokio::task::spawn_blocking(|| windows_output_mute(None)).await??;
+        if was_muted {
+            Ok(AudioMuteState::WasMuted)
+        } else {
+            tokio::task::spawn_blocking(|| windows_output_mute(Some(true))).await??;
+            Ok(AudioMuteState::Muted)
+        }
+    }
+
+    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
+        if state == AudioMuteState::Muted {
+            tokio::task::spawn_blocking(|| windows_output_mute(Some(false))).await??;
+        }
+        Ok(())
+    }
+
+    async fn play_audio_feedback(&self, plan: &AudioFeedbackPlan) -> Result<()> {
+        tokio::task::spawn_blocking({
+            let plan = plan.clone();
+            move || play_audio_feedback(&plan)
+        })
+        .await??;
+        Ok(())
+    }
+}
+
+#[repr(C)]
+struct DeviceEnumeratorVtable {
+    query_interface: usize,
+    add_ref: usize,
+    release: usize,
+    enum_audio_endpoints: usize,
+    get_default_audio_endpoint:
+        unsafe extern "system" fn(*mut c_void, i32, i32, *mut *mut c_void) -> HRESULT,
+}
+
+#[repr(C)]
+struct DeviceVtable {
+    query_interface: usize,
+    add_ref: usize,
+    release: usize,
+    activate: unsafe extern "system" fn(
+        *mut c_void,
+        *const GUID,
+        u32,
+        *const c_void,
+        *mut *mut c_void,
+    ) -> HRESULT,
+}
+
+#[repr(C)]
+struct EndpointVolumeVtable {
+    query_interface: usize,
+    add_ref: usize,
+    release: usize,
+    methods_before_mute: [usize; 11],
+    set_mute: unsafe extern "system" fn(*mut c_void, i32, *const GUID) -> HRESULT,
+    get_mute: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
+}
+
+const CLSID_MM_DEVICE_ENUMERATOR: GUID = GUID {
+    data1: 0xbcde0395,
+    data2: 0xe52f,
+    data3: 0x467c,
+    data4: [0x8e, 0x3d, 0xc4, 0x57, 0x92, 0x91, 0x69, 0x2e],
+};
+const IID_MM_DEVICE_ENUMERATOR: GUID = GUID {
+    data1: 0xa95664d2,
+    data2: 0x9614,
+    data3: 0x4f35,
+    data4: [0xa7, 0x46, 0xde, 0x8d, 0xb6, 0x36, 0x17, 0xe6],
+};
+const IID_AUDIO_ENDPOINT_VOLUME: GUID = GUID {
+    data1: 0x5cdf2c82,
+    data2: 0x841e,
+    data3: 0x4546,
+    data4: [0x97, 0x22, 0x0c, 0xf7, 0x40, 0x78, 0x22, 0x9a],
+};
+
+fn windows_output_mute(set_muted: Option<bool>) -> Result<bool> {
+    let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED) };
+    if init < 0 {
+        return Err(anyhow!(
+            "initializing Windows audio COM session failed: HRESULT {init:#x}"
+        ));
+    }
+
+    let result = (|| unsafe {
+        let mut enumerator = std::ptr::null_mut();
+        check_hresult(
+            CoCreateInstance(
+                &CLSID_MM_DEVICE_ENUMERATOR,
+                std::ptr::null_mut(),
+                CLSCTX_ALL,
+                &IID_MM_DEVICE_ENUMERATOR,
+                &mut enumerator,
+            ),
+            "creating Windows audio device enumerator",
+        )?;
+        let enumerator_vtable = *(enumerator as *mut *mut DeviceEnumeratorVtable);
+        let mut device = std::ptr::null_mut();
+        check_hresult(
+            ((*enumerator_vtable).get_default_audio_endpoint)(
+                enumerator,
+                eRender,
+                eMultimedia,
+                &mut device,
+            ),
+            "getting Windows default output device",
+        )?;
+        let device_vtable = *(device as *mut *mut DeviceVtable);
+        let mut endpoint = std::ptr::null_mut();
+        check_hresult(
+            ((*device_vtable).activate)(
+                device,
+                &IID_AUDIO_ENDPOINT_VOLUME,
+                CLSCTX_ALL,
+                std::ptr::null(),
+                &mut endpoint,
+            ),
+            "activating Windows endpoint volume",
+        )?;
+        let endpoint_vtable = *(endpoint as *mut *mut EndpointVolumeVtable);
+        let mut muted = 0_i32;
+        check_hresult(
+            ((*endpoint_vtable).get_mute)(endpoint, &mut muted),
+            "reading Windows output mute state",
+        )?;
+        if let Some(set_muted) = set_muted {
+            check_hresult(
+                ((*endpoint_vtable).set_mute)(endpoint, i32::from(set_muted), std::ptr::null()),
+                "setting Windows output mute state",
+            )?;
+        }
+        release_com(endpoint);
+        release_com(device);
+        release_com(enumerator);
+        Ok(muted != 0)
+    })();
+    unsafe { CoUninitialize() };
+    result
+}
+
+unsafe fn release_com(value: *mut c_void) {
+    if value.is_null() {
+        return;
+    }
+    let vtable = *(value as *mut *mut usize);
+    let release: unsafe extern "system" fn(*mut c_void) -> u32 =
+        std::mem::transmute(vtable.add(2).read());
+    release(value);
+}
+
+fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
+    if value >= 0 {
+        Ok(())
+    } else {
+        Err(anyhow!("{operation} failed: HRESULT {value:#x}"))
+    }
 }
 
 pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
+    run_tray_loop_with_config(tx, true, false)
+}
+
+pub fn run_tray_loop_with_config(
+    tx: mpsc::UnboundedSender<TrayCommand>,
+    show_tray_icon: bool,
+    start_hidden: bool,
+) -> Result<()> {
     COMMAND_TX
         .set(tx)
         .map_err(|_| anyhow!("Windows tray command channel was already initialized"))?;
@@ -168,7 +349,13 @@ pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
             )?;
         }
 
-        add_tray_icon(hwnd)?;
+        if show_tray_icon {
+            add_tray_icon(hwnd)?;
+            TRAY_ICON_VISIBLE.store(true, Ordering::Relaxed);
+        }
+        if start_hidden {
+            ShowWindow(hwnd, SW_HIDE);
+        }
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, 0, 0, 0) > 0 {
@@ -176,7 +363,9 @@ pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
             DispatchMessageW(&msg);
         }
 
-        remove_tray_icon(hwnd);
+        if TRAY_ICON_VISIBLE.swap(false, Ordering::Relaxed) {
+            remove_tray_icon(hwnd);
+        }
         UnregisterHotKey(hwnd, HOTKEY_ID);
         Ok(())
     }
@@ -646,7 +835,30 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
             tokio::task::spawn_blocking(open_config_folder).await??;
             Ok(false)
         }
+        TrayCommand::ReloadLifecycle { show_tray_icon } => {
+            set_tray_visibility(show_tray_icon)?;
+            Ok(false)
+        }
         TrayCommand::Quit => Ok(false),
+    }
+}
+
+fn set_tray_visibility(visible: bool) -> Result<()> {
+    let hwnd = *TRAY_HWND
+        .get()
+        .ok_or_else(|| anyhow!("Windows tray window is not initialized"))?;
+    unsafe {
+        if visible {
+            if !TRAY_ICON_VISIBLE.swap(true, Ordering::Relaxed) {
+                add_tray_icon(hwnd)?;
+            }
+            Ok(())
+        } else {
+            if TRAY_ICON_VISIBLE.swap(false, Ordering::Relaxed) {
+                remove_tray_icon(hwnd);
+            }
+            Ok(())
+        }
     }
 }
 

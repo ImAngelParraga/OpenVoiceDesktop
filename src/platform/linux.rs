@@ -4,8 +4,9 @@ use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
 use crate::core::config::TypingTool;
-use crate::core::platform::PlatformAdapter;
+use crate::core::platform::{AudioMuteState, PlatformAdapter};
 
 #[derive(Debug, Clone, Default)]
 pub struct LinuxPlatformAdapter;
@@ -77,6 +78,84 @@ impl PlatformAdapter for LinuxPlatformAdapter {
                 Ok(())
             }
         }
+    }
+
+    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
+        let was_muted = linux_output_is_muted().await?;
+        if !was_muted {
+            set_linux_output_mute(true).await?;
+            Ok(AudioMuteState::Muted)
+        } else {
+            Ok(AudioMuteState::WasMuted)
+        }
+    }
+
+    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
+        match state {
+            AudioMuteState::NotMuted | AudioMuteState::WasMuted => Ok(()),
+            AudioMuteState::Muted => set_linux_output_mute(false).await,
+        }
+    }
+
+    async fn play_audio_feedback(&self, plan: &AudioFeedbackPlan) -> Result<()> {
+        tokio::task::spawn_blocking({
+            let plan = plan.clone();
+            move || play_audio_feedback(&plan)
+        })
+        .await??;
+        Ok(())
+    }
+}
+
+async fn linux_output_is_muted() -> Result<bool> {
+    if let Ok(output) = Command::new("wpctl")
+        .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
+        .output()
+        .await
+    {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).contains("[MUTED]"));
+        }
+    }
+    let output = Command::new("pactl")
+        .args(["get-sink-mute", "@DEFAULT_SINK@"])
+        .output()
+        .await
+        .context("querying Linux output mute state with wpctl or pactl")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "wpctl and pactl could not query the default output mute state"
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).contains("yes"))
+}
+
+async fn set_linux_output_mute(muted: bool) -> Result<()> {
+    let value = if muted { "1" } else { "0" };
+    if let Ok(status) = Command::new("wpctl")
+        .args(["set-mute", "@DEFAULT_AUDIO_SINK@", value])
+        .status()
+        .await
+    {
+        if status.success() {
+            return Ok(());
+        }
+    }
+    let status = Command::new("pactl")
+        .args([
+            "set-sink-mute",
+            "@DEFAULT_SINK@",
+            if muted { "1" } else { "0" },
+        ])
+        .status()
+        .await
+        .context("setting Linux output mute with wpctl or pactl")?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "wpctl and pactl could not set the default output mute state"
+        ))
     }
 }
 

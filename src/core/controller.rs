@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use crate::core::asr::AsrClient;
 use crate::core::audio::write_wav;
+use crate::core::audio::AudioFeedbackEvent;
 use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
-use crate::core::platform::{paste_with_output_config, PlatformAdapter};
+use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
 use crate::core::recorder::Recorder;
 use crate::core::settings_ui::apply_text_settings;
 use crate::core::state::{RecordingState, ToggleOutcome};
@@ -23,6 +24,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     state: RecordingState,
     recording_started_at: Option<Instant>,
     cancel_requested: Arc<AtomicBool>,
+    mute_state: Option<AudioMuteState>,
 }
 
 impl<R, A, P> VoiceController<R, A, P, NoopEventSink>
@@ -53,11 +55,16 @@ where
             state: RecordingState::Idle,
             recording_started_at: None,
             cancel_requested: Arc::new(AtomicBool::new(false)),
+            mute_state: None,
         }
     }
 
     pub fn state(&self) -> RecordingState {
         self.state
+    }
+
+    pub fn mic_level_bucket(&self) -> u8 {
+        self.recorder.level_bucket().min(10)
     }
 
     pub fn cancel_handle(&self) -> CancelHandle {
@@ -70,15 +77,20 @@ where
         self.cancel_requested.store(true, Ordering::SeqCst);
         match self.state {
             RecordingState::Idle => {
+                self.restore_audio_session().await?;
                 self.events.emit(AppShellEvent::Idle);
                 Ok(ToggleOutcome::Canceled)
             }
             RecordingState::Recording => {
                 self.recording_started_at = None;
-                let _ = self.recorder.stop().await;
+                let stop_result = self.recorder.stop().await;
+                let restore_result = self.restore_audio_session().await;
+                self.play_feedback(AudioFeedbackEvent::Stop).await;
                 self.state = RecordingState::Idle;
                 self.events.emit(AppShellEvent::Canceled);
                 self.events.emit(AppShellEvent::Idle);
+                stop_result?;
+                restore_result?;
                 Ok(ToggleOutcome::Canceled)
             }
             RecordingState::WritingAudio
@@ -90,19 +102,41 @@ where
         }
     }
 
+    /// Stop active capture and restore platform audio state before daemon
+    /// shutdown. This is the async half of the audio-session lifecycle; Drop
+    /// cannot safely await platform work.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        let stop_result = if self.state == RecordingState::Recording {
+            self.recorder.stop().await.map(|_| ())
+        } else {
+            Ok(())
+        };
+        let restore_result = self.restore_audio_session().await;
+        self.play_feedback(AudioFeedbackEvent::Stop).await;
+        self.recording_started_at = None;
+        self.state = RecordingState::Idle;
+        self.events.emit(AppShellEvent::Canceled);
+        self.events.emit(AppShellEvent::Idle);
+        stop_result?;
+        restore_result
+    }
+
     pub async fn toggle(&mut self) -> Result<ToggleOutcome> {
         let result = match self.state {
             RecordingState::Idle => {
                 self.cancel_requested.store(false, Ordering::SeqCst);
                 self.state = RecordingState::Recording;
                 self.events.emit(AppShellEvent::Recording);
+
+                if self.config.audio.mute_while_recording {
+                    match self.platform.mute_output_for_recording().await {
+                        Ok(state) => self.mute_state = Some(state),
+                        Err(error) => return Err(self.fail_operation(error).await),
+                    }
+                }
+                self.play_feedback(AudioFeedbackEvent::Start).await;
                 if let Err(error) = self.recorder.start().await {
-                    self.state = RecordingState::Idle;
-                    self.events.emit(AppShellEvent::Error {
-                        message: error.to_string(),
-                    });
-                    self.events.emit(AppShellEvent::Idle);
-                    return Err(error);
+                    return Err(self.fail_operation(error).await);
                 }
                 self.recording_started_at = Some(Instant::now());
                 eprintln!("openvoice-desktop recording started");
@@ -111,11 +145,8 @@ where
             RecordingState::Recording => {
                 let result = self.finish_recording().await;
                 if let Err(error) = &result {
-                    self.events.emit(AppShellEvent::Error {
-                        message: error.to_string(),
-                    });
-                    self.state = RecordingState::Idle;
-                    self.events.emit(AppShellEvent::Idle);
+                    let error = anyhow::anyhow!(error.to_string());
+                    return Err(self.fail_operation(error).await);
                 }
                 result
             }
@@ -143,12 +174,12 @@ where
         let audio = self.recorder.stop().await?;
         self.emit_mic_level(&audio.samples);
         if self.is_cancel_requested() {
-            return Ok(self.finish_canceled());
+            return Ok(self.finish_canceled().await);
         }
         let temp_file = tempfile::Builder::new().suffix(".wav").tempfile()?;
         let wav_stats = write_wav(temp_file.path(), &audio)?;
         if self.is_cancel_requested() {
-            return Ok(self.finish_canceled());
+            return Ok(self.finish_canceled().await);
         }
         eprintln!(
             "openvoice-desktop audio: record_ms={} wav_write_ms={} wav_bytes={}",
@@ -163,7 +194,7 @@ where
         });
         let mut transcription = self.asr.transcribe_file(temp_file.path()).await?;
         if self.is_cancel_requested() {
-            return Ok(self.finish_canceled());
+            return Ok(self.finish_canceled().await);
         }
         transcription.text = apply_text_settings(transcription.text, &self.config);
         eprintln!(
@@ -171,6 +202,8 @@ where
             ms(transcription.elapsed)
         );
         if transcription.text.is_empty() {
+            self.restore_audio_session().await?;
+            self.play_feedback(AudioFeedbackEvent::Stop).await;
             self.state = RecordingState::Idle;
             self.events.emit(AppShellEvent::Empty);
             self.events.emit(AppShellEvent::Idle);
@@ -187,6 +220,8 @@ where
             "openvoice-desktop paste: paste_ms={}",
             ms(paste_start.elapsed())
         );
+        self.restore_audio_session().await?;
+        self.play_feedback(AudioFeedbackEvent::Stop).await;
         self.state = RecordingState::Idle;
         self.events.emit(AppShellEvent::Inserted);
         self.events.emit(AppShellEvent::Idle);
@@ -199,12 +234,43 @@ where
         self.cancel_requested.load(Ordering::SeqCst)
     }
 
-    fn finish_canceled(&mut self) -> ToggleOutcome {
+    async fn finish_canceled(&mut self) -> ToggleOutcome {
         self.recording_started_at = None;
+        if let Err(error) = self.restore_audio_session().await {
+            eprintln!("openvoice-desktop audio restore after cancel failed: {error}");
+        }
+        self.play_feedback(AudioFeedbackEvent::Stop).await;
         self.state = RecordingState::Idle;
         self.events.emit(AppShellEvent::Canceled);
         self.events.emit(AppShellEvent::Idle);
         ToggleOutcome::Canceled
+    }
+
+    async fn fail_operation(&mut self, error: anyhow::Error) -> anyhow::Error {
+        let mut message = error.to_string();
+        if let Err(restore_error) = self.restore_audio_session().await {
+            message.push_str(&format!("; audio restore failed: {restore_error}"));
+        }
+        self.play_feedback(AudioFeedbackEvent::Error).await;
+        self.recording_started_at = None;
+        self.state = RecordingState::Idle;
+        self.events.emit(AppShellEvent::Error {
+            message: message.clone(),
+        });
+        self.events.emit(AppShellEvent::Idle);
+        anyhow::anyhow!(message)
+    }
+
+    async fn restore_audio_session(&mut self) -> Result<()> {
+        let Some(state) = self.mute_state.take() else {
+            return Ok(());
+        };
+        self.platform.restore_output_after_recording(state).await
+    }
+
+    async fn play_feedback(&self, event: AudioFeedbackEvent) {
+        crate::core::platform::play_configured_feedback(&self.platform, &self.config.audio, event)
+            .await;
     }
 
     fn emit_mic_level(&self, samples: &[i16]) {

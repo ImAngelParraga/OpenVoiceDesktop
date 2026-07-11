@@ -4,7 +4,7 @@ use openvoice_desktop::core::asr::{AsrClient, Transcription};
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::controller::VoiceController;
 use openvoice_desktop::core::events::{AppEventSink, AppShellEvent};
-use openvoice_desktop::core::platform::PlatformAdapter;
+use openvoice_desktop::core::platform::{AudioMuteState, PlatformAdapter};
 use openvoice_desktop::core::recorder::{RecordedAudio, Recorder};
 use openvoice_desktop::core::state::{RecordingState, ToggleOutcome};
 use std::path::Path;
@@ -79,6 +79,66 @@ async fn failed_paste_returns_to_idle() {
 
     assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
     assert!(controller.toggle().await.is_err());
+    assert_eq!(controller.state(), RecordingState::Idle);
+}
+
+#[tokio::test]
+async fn mute_session_restores_after_success_and_paste_failure() {
+    let mut config = Config::default();
+    config.audio.mute_while_recording = true;
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
+
+    let platform = FakePlatform::new(None);
+    let restores = platform.restores.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config.clone(),
+    );
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
+
+    let platform = FakePlatform::new(None).with_paste_failure();
+    let restores = platform.restores.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config,
+    );
+    controller.toggle().await.unwrap();
+    assert!(controller.toggle().await.is_err());
+    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
+    assert_eq!(controller.state(), RecordingState::Idle);
+}
+
+#[tokio::test]
+async fn shutdown_restores_active_mute_session() {
+    let mut config = Config::default();
+    config.audio.mute_while_recording = true;
+    let platform = FakePlatform::new(None);
+    let restores = platform.restores.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "unused".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config,
+    );
+    controller.toggle().await.unwrap();
+    controller.shutdown().await.unwrap();
+    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
     assert_eq!(controller.state(), RecordingState::Idle);
 }
 
@@ -360,6 +420,7 @@ impl AsrClient for CancelingAsr {
 struct FakePlatform {
     clipboard: Arc<Mutex<Option<String>>>,
     observations: Arc<Mutex<Vec<String>>>,
+    restores: Arc<Mutex<Vec<AudioMuteState>>>,
     fail_paste: bool,
 }
 
@@ -368,6 +429,7 @@ impl FakePlatform {
         Self {
             clipboard: Arc::new(Mutex::new(clipboard)),
             observations: Arc::new(Mutex::new(Vec::new())),
+            restores: Arc::new(Mutex::new(Vec::new())),
             fail_paste: false,
         }
     }
@@ -418,6 +480,15 @@ impl PlatformAdapter for FakePlatform {
             .lock()
             .unwrap()
             .push(format!("notify:{title}:{body}"));
+        Ok(())
+    }
+
+    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
+        Ok(AudioMuteState::Muted)
+    }
+
+    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
+        self.restores.lock().unwrap().push(state);
         Ok(())
     }
 }
