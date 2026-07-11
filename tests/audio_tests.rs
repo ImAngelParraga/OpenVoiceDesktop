@@ -1,7 +1,8 @@
 use openvoice_desktop::core::audio::{
     audio_feedback_plan, mute_restore_plan, recording_buffer_plan, resolve_input_device,
-    resolve_output_device, vad_decision, write_wav, AudioFeedbackEvent, DeviceSelection,
-    VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+    resolve_input_device_details, resolve_output_device, vad_decision, write_wav,
+    AudioFeedbackEvent, DeviceSelection, InputDeviceInfo, InputDeviceResolution, VadDecision,
+    DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
 use openvoice_desktop::core::config::{AudioConfig, TextConfig};
 use openvoice_desktop::core::recorder::RecordedAudio;
@@ -50,6 +51,30 @@ fn selected_audio_devices_fallback_when_missing() {
         resolve_output_device(&config, &devices),
         DeviceSelection::DefaultWithMissingSelected {
             missing: "Headphones".to_string()
+        }
+    );
+}
+
+#[test]
+fn input_device_inventory_marks_default_and_reports_missing_selection() {
+    let mut config = AudioConfig::default();
+    config.selected_microphone = Some("Studio Mic".to_string());
+    let devices = vec![
+        InputDeviceInfo {
+            name: "Laptop Mic".to_string(),
+            is_default: true,
+        },
+        InputDeviceInfo {
+            name: "USB Mic".to_string(),
+            is_default: false,
+        },
+    ];
+
+    assert_eq!(
+        resolve_input_device_details(&config, &devices),
+        InputDeviceResolution::DefaultWithMissingSelected {
+            missing: "Studio Mic".to_string(),
+            default_name: Some("Laptop Mic".to_string()),
         }
     );
 }

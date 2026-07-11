@@ -24,7 +24,7 @@ pub async fn run(config: Config) -> Result<()> {
     );
 
     let platform = LinuxPlatformAdapter;
-    let recorder = CpalRecorder::new();
+    let recorder = CpalRecorder::with_audio_config(&config.audio);
     let asr = ReqwestAsrClient::new(config.clone());
     let mut controller = VoiceController::new(recorder, asr, platform, config);
 
@@ -42,7 +42,7 @@ pub async fn run(config: Config) -> Result<()> {
                         Ok(loaded.config)
                     }) {
                         Ok(updated) => {
-                            let recorder = CpalRecorder::new();
+                            let recorder = CpalRecorder::with_audio_config(&updated.audio);
                             let asr = ReqwestAsrClient::new(updated.clone());
                             controller = VoiceController::new(recorder, asr, LinuxPlatformAdapter, updated);
                             "Reloaded\n".to_string()
@@ -111,7 +111,7 @@ pub async fn run(config: Config) -> Result<()> {
         };
 
         runtime.block_on(async move {
-            let recorder = CpalRecorder::new();
+            let recorder = CpalRecorder::with_audio_config(&controller_config.audio);
             let asr = ReqwestAsrClient::new(controller_config.clone());
             let platform = WindowsPlatformAdapter;
             let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
@@ -128,7 +128,7 @@ pub async fn run(config: Config) -> Result<()> {
                             ));
                             continue;
                         }
-                        let recorder = CpalRecorder::new();
+                        let recorder = CpalRecorder::with_audio_config(&updated.audio);
                         let asr = ReqwestAsrClient::new(updated.clone());
                         controller =
                             VoiceController::new(recorder, asr, WindowsPlatformAdapter, updated);

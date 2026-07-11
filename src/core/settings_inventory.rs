@@ -110,11 +110,14 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("behavior.shortcut"),
     w!("behavior.push_to_talk"),
     w!("behavior.cancel_shortcut"),
-    u!("audio.selected_microphone"),
+    w!("audio.selected_microphone"),
     u!("audio.mute_while_recording"),
     u!("audio.audio_feedback"),
     u!("audio.selected_output_device"),
-    u!("audio.always_on_microphone"),
+    u!(
+        "audio.always_on_microphone",
+        "always-on capture unavailable until latency-safe lifecycle is implemented"
+    ),
     u!("audio.audio_feedback_volume"),
     u!("audio.sound_theme"),
     u!("audio.sample_rate_hz"),

@@ -20,6 +20,10 @@ fn settings_get_covers_inventory_without_returning_tokens() {
     assert!(document.post_processing_token_configured);
     assert_eq!(document.config.asr.bearer_token, None);
     assert_eq!(document.config.post_processing.bearer_token, None);
+    assert!(document
+        .input_devices
+        .iter()
+        .all(|device| !device.name.is_empty()));
 
     let result = SettingsService::new(&path)
         .save_with(

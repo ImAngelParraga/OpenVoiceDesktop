@@ -30,6 +30,7 @@ pub trait Recorder {
 
 pub struct CpalRecorder {
     capture: Option<Capture>,
+    selected_microphone: Option<String>,
 }
 
 struct Capture {
@@ -41,7 +42,18 @@ struct Capture {
 
 impl CpalRecorder {
     pub fn new() -> Self {
-        Self { capture: None }
+        Self::with_selected_microphone(None)
+    }
+
+    pub fn with_audio_config(config: &crate::core::config::AudioConfig) -> Self {
+        Self::with_selected_microphone(config.selected_microphone.clone())
+    }
+
+    pub fn with_selected_microphone(selected_microphone: Option<String>) -> Self {
+        Self {
+            capture: None,
+            selected_microphone,
+        }
     }
 }
 
@@ -59,9 +71,7 @@ impl Recorder for CpalRecorder {
         }
 
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| anyhow!("no default input device"))?;
+        let device = select_input_device(&host, self.selected_microphone.as_deref())?;
         let supported = device
             .default_input_config()
             .context("reading default input config")?;
@@ -137,6 +147,24 @@ impl Recorder for CpalRecorder {
             capture.source_channels,
         ))
     }
+}
+
+fn select_input_device(host: &cpal::Host, selected: Option<&str>) -> Result<cpal::Device> {
+    if let Some(selected) = selected {
+        let selected_device = host
+            .input_devices()
+            .context("enumerating input devices")?
+            .find(|device| device.name().ok().as_deref() == Some(selected));
+        if let Some(device) = selected_device {
+            return Ok(device);
+        }
+        eprintln!(
+            "openvoice-desktop microphone {:?} unavailable; falling back to system default",
+            selected
+        );
+    }
+    host.default_input_device()
+        .ok_or_else(|| anyhow!("no default input device"))
 }
 
 fn push_f32<I>(samples: &Arc<Mutex<Vec<f32>>>, data: I)

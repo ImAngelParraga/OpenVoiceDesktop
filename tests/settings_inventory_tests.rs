@@ -174,3 +174,17 @@ fn working_controls_have_required_capabilities() {
         }
     }
 }
+
+#[test]
+fn microphone_selection_is_runtime_backed_and_always_on_is_disabled_with_reason() {
+    assert!(matches!(
+        inventory_entry("audio.selected_microphone").unwrap().state,
+        ControlState::Working { .. }
+    ));
+    match inventory_entry("audio.always_on_microphone").unwrap().state {
+        ControlState::Unavailable { reason } => {
+            assert!(reason.contains("latency-safe lifecycle"));
+        }
+        ControlState::Working { .. } => panic!("always-on microphone must not be enabled"),
+    }
+}

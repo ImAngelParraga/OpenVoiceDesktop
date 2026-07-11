@@ -57,6 +57,34 @@ function render() {
     const input = document.createElement("input");
     input.name = path;
     input.disabled = contract.status === "unavailable";
+    if (path === "audio.selected_microphone") {
+      const select = document.createElement("select");
+      select.name = path;
+      select.disabled = input.disabled;
+      const defaultOption = document.createElement("option");
+      defaultOption.value = "";
+      defaultOption.textContent = "System default";
+      defaultOption.selected = value == null;
+      select.append(defaultOption);
+      for (const device of documentModel.input_devices ?? []) {
+        const option = document.createElement("option");
+        option.value = device.name;
+        option.textContent = device.is_default ? `${device.name} (default)` : device.name;
+        option.selected = value === device.name;
+        select.append(option);
+      }
+      select.addEventListener("change", () => {
+        setPath(documentModel.config, path, select.value || null);
+      });
+      row.append(name, select);
+      if (documentModel.input_device_fallback) {
+        const note = document.createElement("small");
+        note.textContent = documentModel.input_device_fallback;
+        row.append(note);
+      }
+      form.append(row);
+      continue;
+    }
     if (typeof value === "boolean") {
       input.type = "checkbox";
       input.checked = value;

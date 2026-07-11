@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use cpal::traits::{DeviceTrait, HostTrait};
 use hound::{SampleFormat, WavSpec, WavWriter};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -93,6 +95,69 @@ pub enum DeviceSelection {
     Selected(String),
     DefaultWithMissingSelected { missing: String },
     Default,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputDeviceInfo {
+    pub name: String,
+    pub is_default: bool,
+}
+
+pub fn enumerate_input_devices() -> Result<Vec<InputDeviceInfo>> {
+    let host = cpal::default_host();
+    let default_name = host
+        .default_input_device()
+        .and_then(|device| device.name().ok());
+    let devices = host
+        .input_devices()
+        .context("enumerating input devices")?
+        .filter_map(|device| device.name().ok())
+        .map(|name| InputDeviceInfo {
+            is_default: default_name.as_deref() == Some(name.as_str()),
+            name,
+        })
+        .collect();
+    Ok(devices)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputDeviceResolution {
+    Selected {
+        name: String,
+    },
+    Default {
+        name: Option<String>,
+    },
+    DefaultWithMissingSelected {
+        missing: String,
+        default_name: Option<String>,
+    },
+}
+
+pub fn resolve_input_device_details(
+    config: &AudioConfig,
+    available_devices: &[InputDeviceInfo],
+) -> InputDeviceResolution {
+    let default_name = available_devices
+        .iter()
+        .find(|device| device.is_default)
+        .map(|device| device.name.clone());
+    match &config.selected_microphone {
+        Some(selected)
+            if available_devices
+                .iter()
+                .any(|device| &device.name == selected) =>
+        {
+            InputDeviceResolution::Selected {
+                name: selected.clone(),
+            }
+        }
+        Some(selected) => InputDeviceResolution::DefaultWithMissingSelected {
+            missing: selected.clone(),
+            default_name,
+        },
+        None => InputDeviceResolution::Default { name: default_name },
+    }
 }
 
 pub fn resolve_input_device(config: &AudioConfig, available_devices: &[String]) -> DeviceSelection {
