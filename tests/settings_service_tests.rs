@@ -7,19 +7,16 @@ use openvoice_desktop::core::settings_service::{
 };
 
 #[test]
-fn settings_get_covers_inventory_without_returning_tokens() {
+fn settings_document_exposes_only_asr_token_status() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let mut config = Config::default();
     config.asr.bearer_token = Some("asr-secret".into());
-    config.post_processing.bearer_token = Some("llm-secret".into());
     config.save_to(&path).unwrap();
 
     let document = SettingsService::new(&path).get().unwrap();
     assert!(document.asr_token_configured);
-    assert!(document.post_processing_token_configured);
     assert_eq!(document.config.asr.bearer_token, None);
-    assert_eq!(document.config.post_processing.bearer_token, None);
     assert!(document
         .input_devices
         .iter()

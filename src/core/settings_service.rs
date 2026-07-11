@@ -19,7 +19,6 @@ use crate::core::shortcut::ShortcutBindings;
 pub struct SettingsDocument {
     pub config: Config,
     pub asr_token_configured: bool,
-    pub post_processing_token_configured: bool,
     pub input_devices: Vec<InputDeviceInfo>,
     pub input_device_fallback: Option<String>,
     pub output_devices: Vec<OutputDeviceInfo>,
@@ -102,15 +101,12 @@ impl SettingsService {
                 _ => None,
             };
         let asr_token_configured = loaded.asr.bearer_token.is_some();
-        let post_processing_token_configured = loaded.post_processing.bearer_token.is_some();
         let locale_catalog = LocaleCatalog::from_config(&loaded);
         let theme_selection = ThemeSelection::from_config(&loaded);
         loaded.asr.bearer_token = None;
-        loaded.post_processing.bearer_token = None;
         Ok(SettingsDocument {
             config: loaded,
             asr_token_configured,
-            post_processing_token_configured,
             input_devices,
             input_device_fallback,
             output_devices,
@@ -136,7 +132,6 @@ impl SettingsService {
         // Token editing belongs to the secret-store workflow. A redacted get/save
         // cycle must never erase existing secrets (§V8).
         candidate.asr.bearer_token = previous.asr.bearer_token.clone();
-        candidate.post_processing.bearer_token = previous.post_processing.bearer_token.clone();
         validate_config(&candidate)?;
 
         candidate.save_to(&self.path)?;
@@ -209,16 +204,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     ] {
         range_u64(field, value, 0, 1_500)?;
     }
-    if config.post_processing.enabled {
-        validate_http_url("post_processing.base_url", &config.post_processing.base_url)?;
-        non_empty("post_processing.model", &config.post_processing.model)?;
-    }
-    range_u64(
-        "post_processing.timeout_seconds",
-        config.post_processing.timeout_seconds,
-        1,
-        300,
-    )?;
     non_empty("ui.language", &config.ui.language)?;
     if !crate::core::settings_ui::is_supported_locale(&config.ui.language) {
         bail!(

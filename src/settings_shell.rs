@@ -190,13 +190,10 @@ fn candidate_autostart(_reload_response: &str) -> bool {
 #[cfg(feature = "desktop-shell")]
 fn safe_error(error: impl std::fmt::Display) -> String {
     let message = error.to_string();
-    for secret in [
-        std::env::var("OPENVOICE_DESKTOP_TOKEN").ok(),
-        std::env::var("OPENVOICE_DESKTOP_POST_PROCESSING_TOKEN").ok(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|secret| !secret.is_empty())
+    for secret in [std::env::var("OPENVOICE_DESKTOP_TOKEN").ok()]
+        .into_iter()
+        .flatten()
+        .filter(|secret| !secret.is_empty())
     {
         if message.contains(&secret) {
             return "settings operation failed; secret redacted".to_string();

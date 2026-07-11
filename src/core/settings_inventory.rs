@@ -166,12 +166,6 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("text.vad_enabled"),
     w!("text.silence_trim_enabled"),
     w!("text.append_trailing_space"),
-    // I.settings.postprocess
-    u!("post_processing.enabled"),
-    u!("post_processing.base_url"),
-    u!("post_processing.model"),
-    u!("post_processing.bearer_token"),
-    u!("post_processing.timeout_seconds"),
     // I.settings.history
     u!("history.enabled"),
     u!("history.limit"),

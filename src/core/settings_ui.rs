@@ -588,24 +588,6 @@ impl SettingsWindowLayout {
                             SettingsControlKind::Toggle,
                             "text.silence_trim_enabled",
                         ),
-                        SettingsControl::bound(
-                            "post-processing-enabled",
-                            "Post-processing",
-                            SettingsControlKind::Toggle,
-                            "post_processing.enabled",
-                        ),
-                        SettingsControl::bound(
-                            "post-processing-url",
-                            "Post-processing URL",
-                            SettingsControlKind::Text,
-                            "post_processing.base_url",
-                        ),
-                        SettingsControl::bound(
-                            "post-processing-model",
-                            "Post-processing model",
-                            SettingsControlKind::Text,
-                            "post_processing.model",
-                        ),
                     ],
                 },
                 SettingsSection {

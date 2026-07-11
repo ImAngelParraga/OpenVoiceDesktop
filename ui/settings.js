@@ -3,7 +3,7 @@ const { invoke } = window.__TAURI__.core;
 const sections = {
   general: ["behavior", "audio"],
   asr: ["asr"],
-  advanced: ["app", "output", "text", "post_processing", "ui", "updates", "portable"],
+  advanced: ["app", "output", "text", "ui", "updates", "portable"],
   history: ["history"],
   debug: ["debug", "diagnostics", "ipc"],
   about: ["onboarding"],

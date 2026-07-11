@@ -55,8 +55,6 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.debug.recording_buffer_ms, 0);
     assert!(loaded.config.debug.structured_logs);
     assert!(loaded.config.diagnostics.store_last_latency_metrics);
-    assert!(!loaded.config.post_processing.enabled);
-    assert_eq!(loaded.config.post_processing.model, "gpt-4o-mini");
     assert_eq!(loaded.config.ui.language, "en");
     assert_eq!(loaded.config.ui.theme, Theme::System);
     assert!(!loaded.config.updates.check_for_updates);
@@ -127,12 +125,6 @@ last_upload_latency_ms = 321
 last_http_status = 503
 last_sanitized_body = "unavailable"
 
-[post_processing]
-enabled = true
-base_url = "https://llm.example.test"
-model = "gpt-test"
-timeout_seconds = 12
-
 [ui]
 language = "en"
 theme = "dark"
@@ -192,12 +184,6 @@ completed = true
     assert!(!loaded.config.debug.structured_logs);
     assert_eq!(loaded.config.diagnostics.last_upload_latency_ms, Some(321));
     assert_eq!(loaded.config.diagnostics.last_http_status, Some(503));
-    assert!(loaded.config.post_processing.enabled);
-    assert_eq!(
-        loaded.config.post_processing.base_url,
-        "https://llm.example.test"
-    );
-    assert_eq!(loaded.config.post_processing.model, "gpt-test");
     assert_eq!(loaded.config.ui.theme, Theme::Dark);
     assert!(loaded.config.updates.check_for_updates);
     assert!(loaded.config.updates.show_whats_new);
@@ -237,6 +223,32 @@ append_trailing_space = true
         assert!(!migrated.contains(removed), "{removed}");
     }
     assert!(migrated.contains("append_trailing_space = true"));
+}
+
+#[test]
+fn legacy_post_processing_fields_are_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy_path = dir.path().join("legacy.toml");
+    fs::write(
+        &legacy_path,
+        r#"
+[post_processing]
+enabled = true
+base_url = "https://llm.example.test"
+model = "legacy-model"
+bearer_token = "legacy-secret"
+timeout_seconds = 12
+"#,
+    )
+    .unwrap();
+
+    let loaded = Config::load_from(&legacy_path).unwrap();
+    let migrated_path = dir.path().join("migrated.toml");
+    loaded.config.save_to(&migrated_path).unwrap();
+    let migrated = fs::read_to_string(migrated_path).unwrap();
+    assert!(!migrated.contains("post_processing"));
+    assert!(!migrated.contains("legacy-secret"));
+    assert!(!migrated.contains("legacy-model"));
 }
 
 #[test]

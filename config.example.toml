@@ -71,13 +71,6 @@ structured_logs = true
 [diagnostics]
 store_last_latency_metrics = true
 
-[post_processing]
-enabled = false
-base_url = "http://127.0.0.1:9000"
-model = "gpt-4o-mini"
-timeout_seconds = 30
-# bearer_token = "replace-with-separate-llm-token-only"
-
 [ui]
 language = "en"
 theme = "system"

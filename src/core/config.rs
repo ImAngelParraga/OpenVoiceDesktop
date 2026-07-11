@@ -28,8 +28,6 @@ pub struct Config {
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
     #[serde(default)]
-    pub post_processing: PostProcessingConfig,
-    #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
     pub updates: UpdatesConfig,
@@ -194,16 +192,6 @@ pub struct DiagnosticsConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
-pub struct PostProcessingConfig {
-    pub enabled: bool,
-    pub base_url: String,
-    pub model: String,
-    pub bearer_token: Option<String>,
-    pub timeout_seconds: u64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
 pub struct UiConfig {
     pub language: String,
     pub theme: Theme,
@@ -283,7 +271,6 @@ impl Default for Config {
             history: HistoryConfig::default(),
             debug: DebugConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
-            post_processing: PostProcessingConfig::default(),
             ui: UiConfig::default(),
             updates: UpdatesConfig::default(),
             portable: PortableConfig::default(),
@@ -407,18 +394,6 @@ impl Default for DiagnosticsConfig {
             last_upload_latency_ms: None,
             last_http_status: None,
             last_sanitized_body: None,
-        }
-    }
-}
-
-impl Default for PostProcessingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            base_url: "http://127.0.0.1:9000".to_string(),
-            model: "gpt-4o-mini".to_string(),
-            bearer_token: None,
-            timeout_seconds: 30,
         }
     }
 }
