@@ -75,6 +75,19 @@ fn invalid_save_preserves_file_and_runtime() {
 }
 
 #[test]
+fn recording_buffer_is_bounded_to_handy_control_range() {
+    let mut config = Config::default();
+    config.debug.recording_buffer_ms = 1_501;
+    assert!(validate_config(&config)
+        .unwrap_err()
+        .to_string()
+        .contains("debug.recording_buffer_ms"));
+
+    config.debug.recording_buffer_ms = 1_500;
+    validate_config(&config).unwrap();
+}
+
+#[test]
 fn daemon_rejection_rolls_back_file_and_runtime() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

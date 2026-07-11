@@ -53,8 +53,6 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.history.retention, RecordingRetention::Never);
     assert_eq!(loaded.config.debug.log_level, LogLevel::Info);
     assert_eq!(loaded.config.debug.recording_buffer_ms, 0);
-    assert_eq!(loaded.config.debug.pre_recording_buffer_ms, 0);
-    assert_eq!(loaded.config.debug.post_recording_buffer_ms, 0);
     assert!(loaded.config.debug.structured_logs);
     assert!(loaded.config.diagnostics.store_last_latency_metrics);
     assert!(!loaded.config.post_processing.enabled);
@@ -120,8 +118,6 @@ log_level = "debug"
 live_log_viewer = true
 paste_delay_ms = 11
 recording_buffer_ms = 250
-pre_recording_buffer_ms = 100
-post_recording_buffer_ms = 200
 structured_logs = false
 log_directory = "/tmp/openvoice-logs"
 
@@ -193,8 +189,6 @@ completed = true
     assert_eq!(loaded.config.debug.log_level, LogLevel::Debug);
     assert!(loaded.config.debug.live_log_viewer);
     assert_eq!(loaded.config.debug.recording_buffer_ms, 250);
-    assert_eq!(loaded.config.debug.pre_recording_buffer_ms, 100);
-    assert_eq!(loaded.config.debug.post_recording_buffer_ms, 200);
     assert!(!loaded.config.debug.structured_logs);
     assert_eq!(loaded.config.diagnostics.last_upload_latency_ms, Some(321));
     assert_eq!(loaded.config.diagnostics.last_http_status, Some(503));
@@ -243,6 +237,32 @@ append_trailing_space = true
         assert!(!migrated.contains(removed), "{removed}");
     }
     assert!(migrated.contains("append_trailing_space = true"));
+}
+
+#[test]
+fn legacy_duplicate_buffer_fields_are_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy_path = dir.path().join("legacy.toml");
+    fs::write(
+        &legacy_path,
+        r#"
+[debug]
+recording_buffer_ms = 250
+pre_recording_buffer_ms = 100
+post_recording_buffer_ms = 200
+"#,
+    )
+    .unwrap();
+
+    let loaded = Config::load_from(&legacy_path).unwrap();
+    assert_eq!(loaded.config.debug.recording_buffer_ms, 250);
+
+    let migrated_path = dir.path().join("migrated.toml");
+    loaded.config.save_to(&migrated_path).unwrap();
+    let migrated = fs::read_to_string(migrated_path).unwrap();
+    assert!(!migrated.contains("pre_recording_buffer_ms"));
+    assert!(!migrated.contains("post_recording_buffer_ms"));
+    assert!(migrated.contains("recording_buffer_ms = 250"));
 }
 
 #[test]

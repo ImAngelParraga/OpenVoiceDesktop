@@ -707,18 +707,6 @@ impl SettingsWindowLayout {
                             "debug.recording_buffer_ms",
                         ),
                         SettingsControl::bound(
-                            "pre-recording-buffer",
-                            "Pre-recording buffer",
-                            SettingsControlKind::Number,
-                            "debug.pre_recording_buffer_ms",
-                        ),
-                        SettingsControl::bound(
-                            "post-recording-buffer",
-                            "Post-recording buffer",
-                            SettingsControlKind::Number,
-                            "debug.post_recording_buffer_ms",
-                        ),
-                        SettingsControl::bound(
                             "structured-logs",
                             "Structured logs",
                             SettingsControlKind::Toggle,

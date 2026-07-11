@@ -179,8 +179,6 @@ pub struct DebugConfig {
     pub live_log_viewer: bool,
     pub paste_delay_ms: u64,
     pub recording_buffer_ms: u64,
-    pub pre_recording_buffer_ms: u64,
-    pub post_recording_buffer_ms: u64,
     pub structured_logs: bool,
     pub log_directory: Option<PathBuf>,
 }
@@ -396,8 +394,6 @@ impl Default for DebugConfig {
             live_log_viewer: false,
             paste_delay_ms: 25,
             recording_buffer_ms: 0,
-            pre_recording_buffer_ms: 0,
-            post_recording_buffer_ms: 0,
             structured_logs: true,
             log_directory: None,
         }

@@ -543,27 +543,6 @@ pub fn mute_restore_plan(config: &AudioConfig) -> MuteRestorePlan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RecordingBufferPlan {
-    pub pre_ms: u64,
-    pub post_ms: u64,
-}
-
-pub fn recording_buffer_plan(
-    debug_recording_buffer_ms: u64,
-    pre_ms: u64,
-    post_ms: u64,
-) -> RecordingBufferPlan {
-    if pre_ms > 0 || post_ms > 0 {
-        RecordingBufferPlan { pre_ms, post_ms }
-    } else {
-        RecordingBufferPlan {
-            pre_ms: debug_recording_buffer_ms,
-            post_ms: debug_recording_buffer_ms,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VadDecision {
     RawRemoteAsr,
@@ -572,6 +551,27 @@ pub enum VadDecision {
         leading_samples: usize,
         trailing_samples: usize,
     },
+}
+
+pub fn apply_vad(
+    audio: crate::core::recorder::RecordedAudio,
+    config: &TextConfig,
+) -> Option<crate::core::recorder::RecordedAudio> {
+    match vad_decision(&audio.samples, config) {
+        VadDecision::RawRemoteAsr => Some(audio),
+        VadDecision::EmptyClip => None,
+        VadDecision::Trim {
+            leading_samples,
+            trailing_samples,
+        } => {
+            let end = audio.samples.len().saturating_sub(trailing_samples);
+            Some(crate::core::recorder::RecordedAudio::new(
+                audio.samples[leading_samples..end].to_vec(),
+                audio.sample_rate_hz,
+                audio.channels,
+            ))
+        }
+    }
 }
 
 pub fn vad_decision(samples: &[i16], config: &TextConfig) -> VadDecision {

@@ -6,8 +6,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use crate::core::asr::AsrClient;
-use crate::core::audio::write_wav;
-use crate::core::audio::AudioFeedbackEvent;
+use crate::core::audio::{apply_vad, write_wav, AudioFeedbackEvent};
 use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
 use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
@@ -163,19 +162,23 @@ where
     }
 
     async fn finish_recording(&mut self) -> Result<ToggleOutcome> {
-        let record_duration = self
-            .recording_started_at
-            .take()
-            .map(|start| start.elapsed());
         self.state = RecordingState::WritingAudio;
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::WritingAudio,
         });
+        self.wait_for_recording_buffer().await;
         let audio = self.recorder.stop().await?;
+        let record_duration = self
+            .recording_started_at
+            .take()
+            .map(|start| start.elapsed());
         self.emit_mic_level(&audio.samples);
         if self.is_cancel_requested() {
             return Ok(self.finish_canceled().await);
         }
+        let Some(audio) = apply_vad(audio, &self.config.text) else {
+            return self.finish_empty_clip().await;
+        };
         let temp_file = tempfile::Builder::new().suffix(".wav").tempfile()?;
         let wav_stats = write_wav(temp_file.path(), &audio)?;
         if self.is_cancel_requested() {
@@ -232,6 +235,25 @@ where
 
     fn is_cancel_requested(&self) -> bool {
         self.cancel_requested.load(Ordering::SeqCst)
+    }
+
+    async fn wait_for_recording_buffer(&self) {
+        let mut remaining = Duration::from_millis(self.config.debug.recording_buffer_ms);
+        let interval = Duration::from_millis(10);
+        while !remaining.is_zero() && !self.is_cancel_requested() {
+            let step = remaining.min(interval);
+            tokio::time::sleep(step).await;
+            remaining = remaining.saturating_sub(step);
+        }
+    }
+
+    async fn finish_empty_clip(&mut self) -> Result<ToggleOutcome> {
+        self.restore_audio_session().await?;
+        self.play_feedback(AudioFeedbackEvent::Stop).await;
+        self.state = RecordingState::Idle;
+        self.events.emit(AppShellEvent::Empty);
+        self.events.emit(AppShellEvent::Idle);
+        Ok(ToggleOutcome::EmptyTranscript)
     }
 
     async fn finish_canceled(&mut self) -> ToggleOutcome {

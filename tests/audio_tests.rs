@@ -1,10 +1,10 @@
 use openvoice_desktop::core::audio::{
-    audio_feedback_plan, effective_audio_encoding, feedback_sound, mute_restore_plan,
-    recording_buffer_plan, resolve_input_device, resolve_input_device_details,
-    resolve_output_device, resolve_output_device_details, vad_decision, write_wav,
-    AudioFeedbackEvent, DeviceSelection, FeedbackSound, InputDeviceInfo, InputDeviceResolution,
-    OutputDeviceInfo, OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS,
-    DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+    apply_vad, audio_feedback_plan, effective_audio_encoding, feedback_sound, mute_restore_plan,
+    resolve_input_device, resolve_input_device_details, resolve_output_device,
+    resolve_output_device_details, vad_decision, write_wav, AudioFeedbackEvent, DeviceSelection,
+    FeedbackSound, InputDeviceInfo, InputDeviceResolution, OutputDeviceInfo,
+    OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ,
+    PCM_BITS_PER_SAMPLE,
 };
 use openvoice_desktop::core::config::{AudioConfig, TextConfig};
 use openvoice_desktop::core::recorder::RecordedAudio;
@@ -162,19 +162,23 @@ fn vad_is_optional_and_never_blocks_raw_remote_asr_when_disabled() {
 }
 
 #[test]
-fn recording_buffer_uses_specific_pre_post_or_legacy_value() {
+fn vad_disabled_uploads_raw_audio() {
+    let audio = RecordedAudio::new(vec![0, 512, 0], 16_000, 1);
     assert_eq!(
-        recording_buffer_plan(250, 0, 0),
-        openvoice_desktop::core::audio::RecordingBufferPlan {
-            pre_ms: 250,
-            post_ms: 250
-        }
+        apply_vad(audio.clone(), &TextConfig::default()),
+        Some(audio)
     );
+}
+
+#[test]
+fn silence_trim_removes_only_edge_silence() {
+    let mut config = TextConfig::default();
+    config.vad_enabled = true;
+    config.silence_trim_enabled = true;
+    let audio = RecordedAudio::new(vec![0, 0, 512, 800, 0], 16_000, 1);
+
     assert_eq!(
-        recording_buffer_plan(250, 100, 200),
-        openvoice_desktop::core::audio::RecordingBufferPlan {
-            pre_ms: 100,
-            post_ms: 200
-        }
+        apply_vad(audio, &config),
+        Some(RecordedAudio::new(vec![512, 800], 16_000, 1))
     );
 }

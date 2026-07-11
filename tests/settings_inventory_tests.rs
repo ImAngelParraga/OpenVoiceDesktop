@@ -41,8 +41,6 @@ const EXPECTED_CONFIG_FIELDS: &[&str] = &[
     "debug.log_directory",
     "debug.log_level",
     "debug.paste_delay_ms",
-    "debug.post_recording_buffer_ms",
-    "debug.pre_recording_buffer_ms",
     "debug.recording_buffer_ms",
     "debug.structured_logs",
     "diagnostics.last_http_status",

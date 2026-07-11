@@ -163,8 +163,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("output.auto_submit"),
     w!("output.external_script_path"),
     // I.settings.text
-    u!("text.vad_enabled"),
-    u!("text.silence_trim_enabled"),
+    w!("text.vad_enabled"),
+    w!("text.silence_trim_enabled"),
     w!("text.append_trailing_space"),
     // I.settings.postprocess
     u!("post_processing.enabled"),
@@ -186,9 +186,7 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     u!("debug.log_level"),
     u!("debug.live_log_viewer"),
     u!("debug.paste_delay_ms"),
-    u!("debug.recording_buffer_ms"),
-    u!("debug.pre_recording_buffer_ms"),
-    u!("debug.post_recording_buffer_ms"),
+    w!("debug.recording_buffer_ms"),
     u!("debug.structured_logs"),
     u!("debug.log_directory"),
     u!("diagnostics.store_last_latency_metrics"),

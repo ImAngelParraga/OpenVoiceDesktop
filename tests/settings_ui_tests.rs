@@ -143,6 +143,8 @@ fn output_and_text_settings_expose_client_owned_controls() {
         "output.paste_delay_ms",
         "output.external_script_path",
         "text.append_trailing_space",
+        "text.vad_enabled",
+        "text.silence_trim_enabled",
     ] {
         assert!(keys.contains(&key), "{key}");
     }
@@ -169,6 +171,15 @@ fn history_debug_about_sections_expose_t9_t10_t11_controls() {
     assert!(section_keys(SettingsSectionId::Debug)
         .iter()
         .any(|(_, key, _)| *key == Some("debug.log_level")));
+    assert!(section_keys(SettingsSectionId::Debug)
+        .iter()
+        .any(|(_, key, _)| *key == Some("debug.recording_buffer_ms")));
+    assert!(!section_keys(SettingsSectionId::Debug)
+        .iter()
+        .any(|(_, key, _)| matches!(
+            *key,
+            Some("debug.pre_recording_buffer_ms" | "debug.post_recording_buffer_ms")
+        )));
     assert!(section_keys(SettingsSectionId::About)
         .iter()
         .any(|(id, _, _)| *id == "handy-acknowledgement"));

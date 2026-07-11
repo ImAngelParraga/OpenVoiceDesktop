@@ -65,8 +65,6 @@ log_level = "info"
 live_log_viewer = false
 paste_delay_ms = 25
 recording_buffer_ms = 0
-pre_recording_buffer_ms = 0
-post_recording_buffer_ms = 0
 structured_logs = true
 # log_directory = "/path/openvoice-logs"
 

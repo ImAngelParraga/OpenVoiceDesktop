@@ -206,16 +206,8 @@ pub fn validate_config(config: &Config) -> Result<()> {
             "debug.recording_buffer_ms",
             config.debug.recording_buffer_ms,
         ),
-        (
-            "debug.pre_recording_buffer_ms",
-            config.debug.pre_recording_buffer_ms,
-        ),
-        (
-            "debug.post_recording_buffer_ms",
-            config.debug.post_recording_buffer_ms,
-        ),
     ] {
-        range_u64(field, value, 0, 60_000)?;
+        range_u64(field, value, 0, 1_500)?;
     }
     if config.post_processing.enabled {
         validate_http_url("post_processing.base_url", &config.post_processing.base_url)?;

@@ -9,7 +9,7 @@ use openvoice_desktop::core::recorder::{RecordedAudio, Recorder};
 use openvoice_desktop::core::state::{RecordingState, ToggleOutcome};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn toggle_runs_record_transcribe_insert_and_restore_clipboard() {
@@ -65,6 +65,72 @@ async fn empty_transcript_does_not_paste() {
         ToggleOutcome::EmptyTranscript
     );
     assert!(observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn vad_empty_clip_skips_upload_and_paste() {
+    let asr_observations = Arc::new(Mutex::new(Vec::new()));
+    let asr = FakeAsr {
+        text: "must not be returned".to_string(),
+        observations: asr_observations.clone(),
+    };
+    let platform = FakePlatform::new(None);
+    let platform_observations = platform.observations.clone();
+    let event_observations = Arc::new(Mutex::new(Vec::new()));
+    let events = FakeEventSink {
+        observations: event_observations.clone(),
+    };
+    let mut config = Config::default();
+    config.text.vad_enabled = true;
+    let mut controller =
+        VoiceController::with_event_sink(FakeRecorder::default(), asr, platform, config, events);
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::EmptyTranscript
+    );
+    assert!(asr_observations.lock().unwrap().is_empty());
+    assert!(platform_observations.lock().unwrap().is_empty());
+    let events = event_observations.lock().unwrap();
+    assert!(events.contains(&"event:Empty".to_string()));
+    assert!(events.contains(&"event:Idle".to_string()));
+}
+
+#[tokio::test]
+async fn recording_buffer_delays_stop_and_cancel_interrupts_wait() {
+    let mut config = Config::default();
+    config.debug.recording_buffer_ms = 40;
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        FakePlatform::new(None),
+        config,
+    );
+    controller.toggle().await.unwrap();
+    let started = Instant::now();
+    controller.toggle().await.unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(30));
+
+    let mut config = Config::default();
+    config.debug.recording_buffer_ms = 1_500;
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "late".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        FakePlatform::new(None),
+        config,
+    );
+    controller.toggle().await.unwrap();
+    controller.cancel_handle().cancel();
+    let started = Instant::now();
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Canceled);
+    assert!(started.elapsed() < Duration::from_millis(200));
 }
 
 #[tokio::test]
