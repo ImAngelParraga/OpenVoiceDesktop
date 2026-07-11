@@ -26,7 +26,11 @@ pub async fn run(config: Config) -> Result<()> {
     let platform = LinuxPlatformAdapter;
     let recorder = CpalRecorder::with_audio_config(&config.audio);
     let asr = ReqwestAsrClient::new(config.clone());
+    let history = crate::core::history::HistoryStore::from_config(&config).ok();
     let mut controller = VoiceController::new(recorder, asr, platform, config);
+    if let Some(history) = history {
+        controller = controller.with_history_store(history);
+    }
 
     loop {
         tokio::select! {
@@ -49,7 +53,11 @@ pub async fn run(config: Config) -> Result<()> {
                         Ok(updated) => {
                             let recorder = CpalRecorder::with_audio_config(&updated.audio);
                             let asr = ReqwestAsrClient::new(updated.clone());
+                            let history = crate::core::history::HistoryStore::from_config(&updated).ok();
                             controller = VoiceController::new(recorder, asr, LinuxPlatformAdapter, updated);
+                            if let Some(history) = history {
+                                controller = controller.with_history_store(history);
+                            }
                             "Reloaded\n".to_string()
                         }
                         Err(error) => format!("error: rejected config: {error}\n"),
@@ -122,7 +130,11 @@ pub async fn run(config: Config) -> Result<()> {
             let recorder = CpalRecorder::with_audio_config(&controller_config.audio);
             let asr = ReqwestAsrClient::new(controller_config.clone());
             let platform = WindowsPlatformAdapter;
+            let history = crate::core::history::HistoryStore::from_config(&controller_config).ok();
             let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
+            if let Some(history) = history {
+                controller = controller.with_history_store(history);
+            }
 
             while let Ok(request) = controller_rx.recv() {
                 if matches!(&request.command, ControllerCommand::Status) {
@@ -147,8 +159,13 @@ pub async fn run(config: Config) -> Result<()> {
                         }
                         let recorder = CpalRecorder::with_audio_config(&updated.audio);
                         let asr = ReqwestAsrClient::new(updated.clone());
+                        let history =
+                            crate::core::history::HistoryStore::from_config(&updated).ok();
                         controller =
                             VoiceController::new(recorder, asr, WindowsPlatformAdapter, updated);
+                        if let Some(history) = history {
+                            controller = controller.with_history_store(history);
+                        }
                         let _ = request.reply_tx.send("Reloaded\n".to_string());
                         continue;
                     }

@@ -3,6 +3,7 @@ pub mod audio;
 pub mod config;
 pub mod controller;
 pub mod events;
+pub mod history;
 pub mod lifecycle;
 pub mod platform;
 pub mod recorder;

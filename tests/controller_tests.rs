@@ -149,6 +149,39 @@ async fn failed_paste_returns_to_idle() {
 }
 
 #[tokio::test]
+async fn paste_failure_preserves_transcript_in_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.history.enabled = true;
+    config.history.retention = openvoice_desktop::core::config::RecordingRetention::Never;
+    let history = openvoice_desktop::core::history::HistoryStore::new(
+        dir.path().join("history.json"),
+        dir.path().join("recordings"),
+        config.history.clone(),
+    );
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "recoverable transcript".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        FakePlatform::new(None).with_paste_failure(),
+        config,
+    )
+    .with_history_store(history.clone());
+
+    controller.toggle().await.unwrap();
+    assert!(controller.toggle().await.is_err());
+    let entries = history.list().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].text, "recoverable transcript");
+    assert_eq!(
+        entries[0].status,
+        openvoice_desktop::core::settings_ui::HistoryStatus::PasteFailed
+    );
+}
+
+#[tokio::test]
 async fn mute_session_restores_after_success_and_paste_failure() {
     let mut config = Config::default();
     config.audio.mute_while_recording = true;

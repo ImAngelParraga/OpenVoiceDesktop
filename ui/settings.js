@@ -111,6 +111,7 @@ function selectOptions(path) {
   if (path === "output.paste_method") return ["clipboard-paste", "direct-type", "copy-only", "external-script"];
   if (path === "output.typing_tool") return (documentModel.supported_typing_tools ?? []).map((tool) => String(tool));
   if (path === "output.clipboard_handling") return ["restore-after-paste", "leave-transcript", "copy-only"];
+  if (path === "history.retention") return ["never", "failed-only", "always"];
   if (path === "audio.selected_output_device") {
     return ["", ...(documentModel.output_devices ?? []).map((device) => device.name)];
   }
@@ -224,6 +225,46 @@ function render() {
       if (path === "ui.theme") applyTheme(documentModel.config.ui.theme);
     });
     row.append(name, input);
+    form.append(row);
+  }
+  if (activeSection === "history") renderHistoryActions();
+}
+
+function actionButton(label, command, args = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    try {
+      status.textContent = await invoke(command, args);
+      documentModel = await invoke("get_settings");
+      render();
+    } catch (error) {
+      status.textContent = `${label} failed: ${error}`;
+    }
+  });
+  return button;
+}
+
+function renderHistoryActions() {
+  const toolbar = document.createElement("div");
+  toolbar.className = "history-actions";
+  toolbar.append(
+    actionButton("Copy last transcript", "copy_last_transcript"),
+    actionButton("Open recordings folder", "open_recordings_folder"),
+  );
+  form.append(toolbar);
+  for (const entry of [...(documentModel.history_entries ?? [])].reverse()) {
+    const row = document.createElement("article");
+    row.className = "history-entry";
+    const text = document.createElement("p");
+    text.textContent = entry.text;
+    row.append(
+      text,
+      actionButton("Retry", "retry_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
+      actionButton("Save", "save_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
+      actionButton("Delete", "delete_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
+    );
     form.append(row);
   }
 }

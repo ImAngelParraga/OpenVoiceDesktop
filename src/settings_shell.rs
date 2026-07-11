@@ -58,7 +58,12 @@ pub fn run() -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
-            cancel_transcription
+            cancel_transcription,
+            open_recordings_folder,
+            delete_transcript,
+            retry_transcript,
+            save_transcript,
+            copy_last_transcript
         ])
         .run(tauri::generate_context!())
         .map_err(Into::into)
@@ -108,6 +113,118 @@ async fn cancel_transcription() -> std::result::Result<String, String> {
     crate::ipc::send_cancel(&socket_path)
         .await
         .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+fn history_store() -> std::result::Result<crate::core::history::HistoryStore, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    crate::core::history::HistoryStore::for_config_path(&path, &config).map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn open_recordings_folder() -> std::result::Result<String, String> {
+    let store = history_store()?;
+    std::fs::create_dir_all(store.recordings_dir()).map_err(safe_error)?;
+    open_directory(store.recordings_dir()).map_err(safe_error)?;
+    Ok("Opened recordings folder".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn delete_transcript(timestamp_unix_ms: u64) -> std::result::Result<String, String> {
+    if history_store()?
+        .delete(timestamp_unix_ms)
+        .map_err(safe_error)?
+    {
+        Ok("Transcript deleted".to_string())
+    } else {
+        Err("Transcript not found".to_string())
+    }
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn retry_transcript(timestamp_unix_ms: u64) -> std::result::Result<String, String> {
+    let text = history_store()?
+        .transcript(timestamp_unix_ms)
+        .map_err(safe_error)?
+        .ok_or_else(|| "Transcript not found".to_string())?;
+    copy_text(&text).await.map_err(safe_error)?;
+    Ok("Transcript copied for retry".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn save_transcript(timestamp_unix_ms: u64) -> std::result::Result<String, String> {
+    if history_store()?
+        .mark_saved(timestamp_unix_ms, true)
+        .map_err(safe_error)?
+    {
+        Ok("Transcript saved".to_string())
+    } else {
+        Err("Transcript not found".to_string())
+    }
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn copy_last_transcript() -> std::result::Result<String, String> {
+    let text = history_store()?
+        .last_transcript()
+        .map_err(safe_error)?
+        .ok_or_else(|| "No transcript available".to_string())?;
+    copy_text(&text).await.map_err(safe_error)?;
+    Ok("Last transcript copied".to_string())
+}
+
+#[cfg(all(feature = "desktop-shell", target_os = "linux"))]
+async fn copy_text(text: &str) -> anyhow::Result<()> {
+    use crate::core::platform::PlatformAdapter;
+    crate::platform::linux::LinuxPlatformAdapter
+        .set_clipboard_text(text)
+        .await
+}
+
+#[cfg(all(feature = "desktop-shell", target_os = "windows"))]
+async fn copy_text(text: &str) -> anyhow::Result<()> {
+    use crate::core::platform::PlatformAdapter;
+    crate::platform::windows::WindowsPlatformAdapter
+        .set_clipboard_text(text)
+        .await
+}
+
+#[cfg(all(
+    feature = "desktop-shell",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
+async fn copy_text(_text: &str) -> anyhow::Result<()> {
+    anyhow::bail!("clipboard is unsupported on this platform")
+}
+
+#[cfg(all(feature = "desktop-shell", target_os = "linux"))]
+fn open_directory(path: &std::path::Path) -> anyhow::Result<()> {
+    std::process::Command::new("xdg-open").arg(path).spawn()?;
+    Ok(())
+}
+
+#[cfg(all(feature = "desktop-shell", target_os = "windows"))]
+fn open_directory(path: &std::path::Path) -> anyhow::Result<()> {
+    std::process::Command::new("explorer.exe")
+        .arg(path)
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "desktop-shell",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
+fn open_directory(_path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("opening directories is unsupported on this platform")
 }
 
 #[cfg(feature = "desktop-shell")]

@@ -27,6 +27,7 @@ pub struct SettingsDocument {
     pub supported_typing_tools: Vec<crate::core::config::TypingTool>,
     pub locale_catalog: LocaleCatalog,
     pub theme_selection: ThemeSelection,
+    pub history_entries: Vec<crate::core::settings_ui::HistoryEntry>,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -103,6 +104,10 @@ impl SettingsService {
         let asr_token_configured = loaded.asr.bearer_token.is_some();
         let locale_catalog = LocaleCatalog::from_config(&loaded);
         let theme_selection = ThemeSelection::from_config(&loaded);
+        let history_entries =
+            crate::core::history::HistoryStore::for_config_path(&self.path, &loaded)
+                .and_then(|store| store.list())
+                .unwrap_or_default();
         loaded.asr.bearer_token = None;
         Ok(SettingsDocument {
             config: loaded,
@@ -115,6 +120,7 @@ impl SettingsService {
             supported_typing_tools: crate::core::settings_ui::supported_typing_tools(),
             locale_catalog,
             theme_selection,
+            history_entries,
             fields,
         })
     }

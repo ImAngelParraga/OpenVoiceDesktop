@@ -2,3 +2,4 @@
 /.env
 /config.toml
 /gen/
+/gen.root-owned-backup/

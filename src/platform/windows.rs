@@ -879,7 +879,17 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
             tokio::task::spawn_blocking(open_settings_panel).await??;
             Ok(false)
         }
-        TrayCommand::CopyLastTranscript | TrayCommand::TestEndpoint | TrayCommand::OpenLogs => {
+        TrayCommand::CopyLastTranscript => {
+            let loaded = crate::core::config::Config::load_default()?;
+            let store = crate::core::history::HistoryStore::from_config(&loaded.config)?;
+            let text = store
+                .last_transcript()?
+                .ok_or_else(|| anyhow!("no transcript available"))?;
+            WindowsPlatformAdapter.set_clipboard_text(&text).await?;
+            show_status_popup("Last transcript copied.", Some(2_500)).ok();
+            Ok(false)
+        }
+        TrayCommand::TestEndpoint | TrayCommand::OpenLogs => {
             show_status_popup("Action available in settings UI.", Some(2_500)).ok();
             Ok(false)
         }

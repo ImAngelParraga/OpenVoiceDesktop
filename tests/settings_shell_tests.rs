@@ -81,3 +81,19 @@ fn settings_surface_applies_locale_theme_and_hides_unavailable_updates() {
     assert!(SETTINGS_JS.contains("document.documentElement.dataset.theme"));
     assert!(OVERLAY_JS.contains("root.dataset.theme"));
 }
+
+#[test]
+fn history_controls_and_actions_are_connected() {
+    for command in [
+        "open_recordings_folder",
+        "delete_transcript",
+        "retry_transcript",
+        "save_transcript",
+        "copy_last_transcript",
+    ] {
+        assert!(SHELL_RS.contains(command), "{command}");
+        assert!(SETTINGS_JS.contains(command), "{command}");
+    }
+    assert!(SETTINGS_JS.contains("documentModel.history_entries"));
+    assert!(SETTINGS_JS.contains("[\"never\", \"failed-only\", \"always\"]"));
+}

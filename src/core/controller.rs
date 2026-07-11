@@ -9,9 +9,10 @@ use crate::core::asr::AsrClient;
 use crate::core::audio::{apply_vad, write_wav, AudioFeedbackEvent};
 use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
+use crate::core::history::HistoryStore;
 use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
 use crate::core::recorder::Recorder;
-use crate::core::settings_ui::apply_text_presentation;
+use crate::core::settings_ui::{apply_text_presentation, HistoryEntry, HistoryStatus};
 use crate::core::state::{RecordingState, ToggleOutcome};
 
 pub struct VoiceController<R, A, P, E = NoopEventSink> {
@@ -24,6 +25,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     recording_started_at: Option<Instant>,
     cancel_requested: Arc<AtomicBool>,
     mute_state: Option<AudioMuteState>,
+    history: Option<HistoryStore>,
 }
 
 impl<R, A, P> VoiceController<R, A, P, NoopEventSink>
@@ -55,7 +57,13 @@ where
             recording_started_at: None,
             cancel_requested: Arc::new(AtomicBool::new(false)),
             mute_state: None,
+            history: None,
         }
+    }
+
+    pub fn with_history_store(mut self, history: HistoryStore) -> Self {
+        self.history = Some(history);
+        self
     }
 
     pub fn state(&self) -> RecordingState {
@@ -218,7 +226,16 @@ where
             stage: ProcessingStage::InsertingText,
         });
         let paste_start = Instant::now();
-        paste_with_output_config(&self.platform, &transcription.text, &self.config.output).await?;
+        if let Err(error) =
+            paste_with_output_config(&self.platform, &transcription.text, &self.config.output).await
+        {
+            self.record_history(
+                &transcription.text,
+                HistoryStatus::PasteFailed,
+                Some(temp_file.path()),
+            );
+            return Err(error);
+        }
         eprintln!(
             "openvoice-desktop paste: paste_ms={}",
             ms(paste_start.elapsed())
@@ -228,6 +245,11 @@ where
         self.state = RecordingState::Idle;
         self.events.emit(AppShellEvent::Inserted);
         self.events.emit(AppShellEvent::Idle);
+        self.record_history(
+            &transcription.text,
+            HistoryStatus::Inserted,
+            Some(temp_file.path()),
+        );
         Ok(ToggleOutcome::Inserted {
             text: transcription.text,
         })
@@ -254,6 +276,27 @@ where
         self.events.emit(AppShellEvent::Empty);
         self.events.emit(AppShellEvent::Idle);
         Ok(ToggleOutcome::EmptyTranscript)
+    }
+
+    fn record_history(
+        &self,
+        text: &str,
+        status: HistoryStatus,
+        audio_path: Option<&std::path::Path>,
+    ) {
+        let Some(history) = &self.history else {
+            return;
+        };
+        let entry = HistoryEntry::completed(
+            HistoryStore::timestamp_now(),
+            text.to_string(),
+            status,
+            &self.config,
+            None,
+        );
+        if let Err(error) = history.record(entry, audio_path) {
+            eprintln!("openvoice-desktop history write failed: {error}");
+        }
     }
 
     async fn finish_canceled(&mut self) -> ToggleOutcome {
