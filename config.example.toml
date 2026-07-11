@@ -23,6 +23,15 @@ sound_theme = "default"
 # custom_stop_sound = "/path/stop.wav"
 # custom_error_sound = "/path/error.wav"
 
+[app]
+start_hidden = false
+autostart = false
+show_tray_icon = true
+show_overlay = true
+overlay_position = "top"
+overlay_style = "compact"
+experimental = false
+
 [behavior]
 restore_clipboard = true
 clipboard_restore_delay_ms = 250

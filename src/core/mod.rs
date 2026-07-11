@@ -3,6 +3,7 @@ pub mod audio;
 pub mod config;
 pub mod controller;
 pub mod events;
+pub mod lifecycle;
 pub mod platform;
 pub mod recorder;
 pub mod settings_inventory;

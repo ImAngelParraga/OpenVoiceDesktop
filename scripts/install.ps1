@@ -160,6 +160,12 @@ model = "whisper-1"
 sample_rate_hz = 16000
 channels = 1
 
+[app]
+start_hidden = false
+autostart = false
+show_tray_icon = true
+show_overlay = true
+
 [behavior]
 restore_clipboard = true
 clipboard_restore_delay_ms = 250
@@ -168,7 +174,15 @@ clipboard_restore_delay_ms = 250
 }
 
 function New-StartupShortcut {
-    if ($NoStartup) {
+    $Autostart = $false
+    if (Test-Path $ConfigPath) {
+        $Autostart = Select-String -Path $ConfigPath -Pattern '^\s*autostart\s*=\s*true\s*$' -Quiet
+    }
+    if ($NoStartup -or -not $Autostart) {
+        if (Test-Path $ShortcutPath) {
+            Remove-Item -Path $ShortcutPath -Force
+            Write-Host "Removed disabled OpenVoiceDesktop startup shortcut"
+        }
         return
     }
 

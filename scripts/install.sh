@@ -164,7 +164,12 @@ EOF
 systemctl --user daemon-reload
 
 if [[ "${START_SERVICE}" -eq 1 ]]; then
-  systemctl --user enable --now openvoice-desktop.service
+  systemctl --user start openvoice-desktop.service
+  if grep -Eq '^\s*autostart\s*=\s*true\s*$' "${CONFIG_DIR}/config.toml"; then
+    systemctl --user enable openvoice-desktop.service
+  else
+    systemctl --user disable openvoice-desktop.service >/dev/null 2>&1 || true
+  fi
 fi
 
 cat <<EOF
