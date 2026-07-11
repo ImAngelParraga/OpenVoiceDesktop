@@ -114,7 +114,6 @@ recordings_dir = "/tmp/openvoice-recordings"
 debug_shortcut = "Ctrl+Alt+L"
 log_level = "debug"
 live_log_viewer = true
-paste_delay_ms = 11
 recording_buffer_ms = 250
 structured_logs = false
 log_directory = "/tmp/openvoice-logs"

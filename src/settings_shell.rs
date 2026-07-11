@@ -63,7 +63,9 @@ pub fn run() -> Result<()> {
             delete_transcript,
             retry_transcript,
             save_transcript,
-            copy_last_transcript
+            copy_last_transcript,
+            open_log_directory,
+            open_app_data_directory
         ])
         .run(tauri::generate_context!())
         .map_err(Into::into)
@@ -131,6 +133,32 @@ fn open_recordings_folder() -> std::result::Result<String, String> {
     std::fs::create_dir_all(store.recordings_dir()).map_err(safe_error)?;
     open_directory(store.recordings_dir()).map_err(safe_error)?;
     Ok("Opened recordings folder".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn open_log_directory() -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    let logger =
+        crate::core::logging::FileLogger::for_config_path(&path, &config).map_err(safe_error)?;
+    std::fs::create_dir_all(logger.directory()).map_err(safe_error)?;
+    open_directory(logger.directory()).map_err(safe_error)?;
+    Ok("Opened log directory".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn open_app_data_directory() -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let directory = path
+        .parent()
+        .ok_or_else(|| "Config path has no parent".to_string())?;
+    std::fs::create_dir_all(directory).map_err(safe_error)?;
+    open_directory(directory).map_err(safe_error)?;
+    Ok("Opened app data directory".to_string())
 }
 
 #[cfg(feature = "desktop-shell")]

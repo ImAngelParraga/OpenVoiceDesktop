@@ -10,6 +10,7 @@ use crate::core::audio::{apply_vad, write_wav, AudioFeedbackEvent};
 use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
 use crate::core::history::HistoryStore;
+use crate::core::logging::FileLogger;
 use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
 use crate::core::recorder::Recorder;
 use crate::core::settings_ui::{apply_text_presentation, HistoryEntry, HistoryStatus};
@@ -26,6 +27,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     cancel_requested: Arc<AtomicBool>,
     mute_state: Option<AudioMuteState>,
     history: Option<HistoryStore>,
+    logger: Option<FileLogger>,
 }
 
 impl<R, A, P> VoiceController<R, A, P, NoopEventSink>
@@ -58,11 +60,17 @@ where
             cancel_requested: Arc::new(AtomicBool::new(false)),
             mute_state: None,
             history: None,
+            logger: None,
         }
     }
 
     pub fn with_history_store(mut self, history: HistoryStore) -> Self {
         self.history = Some(history);
+        self
+    }
+
+    pub fn with_logger(mut self, logger: FileLogger) -> Self {
+        self.logger = Some(logger);
         self
     }
 
@@ -146,6 +154,11 @@ where
                     return Err(self.fail_operation(error).await);
                 }
                 self.recording_started_at = Some(Instant::now());
+                self.log_event(
+                    crate::core::config::LogLevel::Info,
+                    "recording_started",
+                    serde_json::json!({}),
+                );
                 eprintln!("openvoice-desktop recording started");
                 Ok(ToggleOutcome::Started)
             }
@@ -203,7 +216,27 @@ where
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::Uploading,
         });
-        let mut transcription = self.asr.transcribe_file(temp_file.path()).await?;
+        let mut transcription = match self.asr.transcribe_file(temp_file.path()).await {
+            Ok(transcription) => transcription,
+            Err(error) => {
+                self.update_diagnostics(None, Some(&error.to_string()));
+                self.log_event(
+                    crate::core::config::LogLevel::Error,
+                    "asr_request_failed",
+                    serde_json::json!({ "error": error.to_string() }),
+                );
+                return Err(error);
+            }
+        };
+        self.update_diagnostics(Some((transcription.elapsed.as_millis() as u64, 200)), None);
+        self.log_event(
+            crate::core::config::LogLevel::Info,
+            "asr_request_completed",
+            serde_json::json!({
+                "latency_ms": transcription.elapsed.as_millis(),
+                "http_status": 200,
+            }),
+        );
         if self.is_cancel_requested() {
             return Ok(self.finish_canceled().await);
         }
@@ -299,6 +332,42 @@ where
         }
     }
 
+    fn update_diagnostics(&mut self, success: Option<(u64, u16)>, error: Option<&str>) {
+        if !self.config.diagnostics.store_last_latency_metrics {
+            return;
+        }
+        if let Some((latency_ms, status)) = success {
+            self.config.diagnostics.last_upload_latency_ms = Some(latency_ms);
+            self.config.diagnostics.last_http_status = Some(status);
+            self.config.diagnostics.last_sanitized_body = None;
+        } else if let Some(error) = error {
+            self.config.diagnostics.last_http_status = parse_http_status(error);
+            self.config.diagnostics.last_sanitized_body =
+                Some(crate::core::asr::sanitize_error_body(error, None));
+        }
+        if self.logger.is_some() {
+            let Ok(path) = Config::default_path() else {
+                return;
+            };
+            if let Err(error) = self.config.save_to(&path) {
+                eprintln!("openvoice-desktop diagnostic persistence failed: {error}");
+            }
+        }
+    }
+
+    fn log_event(
+        &self,
+        level: crate::core::config::LogLevel,
+        event: &str,
+        fields: serde_json::Value,
+    ) {
+        if let Some(logger) = &self.logger {
+            if let Err(error) = logger.event(level, event, fields) {
+                eprintln!("openvoice-desktop log write failed: {error}");
+            }
+        }
+    }
+
     async fn finish_canceled(&mut self) -> ToggleOutcome {
         self.recording_started_at = None;
         if let Err(error) = self.restore_audio_session().await {
@@ -355,6 +424,15 @@ where
 
 fn ms(duration: Duration) -> u128 {
     duration.as_millis()
+}
+
+fn parse_http_status(message: &str) -> Option<u16> {
+    let start = message.find("HTTP ")? + "HTTP ".len();
+    message[start..]
+        .split(|ch: char| !ch.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 #[derive(Debug, Clone)]

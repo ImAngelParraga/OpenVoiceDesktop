@@ -677,12 +677,6 @@ impl SettingsWindowLayout {
                             SettingsControlKind::Action,
                         ),
                         SettingsControl::bound(
-                            "debug-paste-delay",
-                            "Paste delay",
-                            SettingsControlKind::Number,
-                            "debug.paste_delay_ms",
-                        ),
-                        SettingsControl::bound(
                             "recording-buffer",
                             "Recording buffer",
                             SettingsControlKind::Number,

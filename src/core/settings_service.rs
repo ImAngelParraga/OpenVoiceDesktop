@@ -28,6 +28,7 @@ pub struct SettingsDocument {
     pub locale_catalog: LocaleCatalog,
     pub theme_selection: ThemeSelection,
     pub history_entries: Vec<crate::core::settings_ui::HistoryEntry>,
+    pub live_log_lines: Vec<String>,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -108,6 +109,13 @@ impl SettingsService {
             crate::core::history::HistoryStore::for_config_path(&self.path, &loaded)
                 .and_then(|store| store.list())
                 .unwrap_or_default();
+        let live_log_lines = if loaded.debug.live_log_viewer {
+            crate::core::logging::FileLogger::for_config_path(&self.path, &loaded)
+                .and_then(|logger| logger.read_tail(200))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         loaded.asr.bearer_token = None;
         Ok(SettingsDocument {
             config: loaded,
@@ -121,6 +129,7 @@ impl SettingsService {
             locale_catalog,
             theme_selection,
             history_entries,
+            live_log_lines,
             fields,
         })
     }
@@ -201,15 +210,12 @@ pub fn validate_config(config: &Config) -> Result<()> {
     if !(1..=10_000).contains(&config.history.limit) {
         bail!("history.limit must be between 1 and 10000");
     }
-    for (field, value) in [
-        ("debug.paste_delay_ms", config.debug.paste_delay_ms),
-        (
-            "debug.recording_buffer_ms",
-            config.debug.recording_buffer_ms,
-        ),
-    ] {
-        range_u64(field, value, 0, 1_500)?;
-    }
+    range_u64(
+        "debug.recording_buffer_ms",
+        config.debug.recording_buffer_ms,
+        0,
+        1_500,
+    )?;
     non_empty("ui.language", &config.ui.language)?;
     if !crate::core::settings_ui::is_supported_locale(&config.ui.language) {
         bail!(

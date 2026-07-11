@@ -1,6 +1,14 @@
 use crate::core::config::Config;
 use anyhow::Result;
 
+fn logger_from_config(config: &Config) -> Option<crate::core::logging::FileLogger> {
+    config
+        .debug
+        .structured_logs
+        .then(|| crate::core::logging::FileLogger::from_config(config).ok())
+        .flatten()
+}
+
 #[cfg(target_os = "linux")]
 pub async fn run(config: Config) -> Result<()> {
     use anyhow::Context;
@@ -27,9 +35,13 @@ pub async fn run(config: Config) -> Result<()> {
     let recorder = CpalRecorder::with_audio_config(&config.audio);
     let asr = ReqwestAsrClient::new(config.clone());
     let history = crate::core::history::HistoryStore::from_config(&config).ok();
+    let logger = logger_from_config(&config);
     let mut controller = VoiceController::new(recorder, asr, platform, config);
     if let Some(history) = history {
         controller = controller.with_history_store(history);
+    }
+    if let Some(logger) = logger {
+        controller = controller.with_logger(logger);
     }
 
     loop {
@@ -54,9 +66,13 @@ pub async fn run(config: Config) -> Result<()> {
                             let recorder = CpalRecorder::with_audio_config(&updated.audio);
                             let asr = ReqwestAsrClient::new(updated.clone());
                             let history = crate::core::history::HistoryStore::from_config(&updated).ok();
+                            let logger = logger_from_config(&updated);
                             controller = VoiceController::new(recorder, asr, LinuxPlatformAdapter, updated);
                             if let Some(history) = history {
                                 controller = controller.with_history_store(history);
+                            }
+                            if let Some(logger) = logger {
+                                controller = controller.with_logger(logger);
                             }
                             "Reloaded\n".to_string()
                         }
@@ -131,9 +147,13 @@ pub async fn run(config: Config) -> Result<()> {
             let asr = ReqwestAsrClient::new(controller_config.clone());
             let platform = WindowsPlatformAdapter;
             let history = crate::core::history::HistoryStore::from_config(&controller_config).ok();
+            let logger = logger_from_config(&controller_config);
             let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
             if let Some(history) = history {
                 controller = controller.with_history_store(history);
+            }
+            if let Some(logger) = logger {
+                controller = controller.with_logger(logger);
             }
 
             while let Ok(request) = controller_rx.recv() {
@@ -161,10 +181,14 @@ pub async fn run(config: Config) -> Result<()> {
                         let asr = ReqwestAsrClient::new(updated.clone());
                         let history =
                             crate::core::history::HistoryStore::from_config(&updated).ok();
+                        let logger = logger_from_config(&updated);
                         controller =
                             VoiceController::new(recorder, asr, WindowsPlatformAdapter, updated);
                         if let Some(history) = history {
                             controller = controller.with_history_store(history);
+                        }
+                        if let Some(logger) = logger {
+                            controller = controller.with_logger(logger);
                         }
                         let _ = request.reply_tx.send("Reloaded\n".to_string());
                         continue;

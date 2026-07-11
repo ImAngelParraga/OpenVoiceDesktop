@@ -97,3 +97,13 @@ fn history_controls_and_actions_are_connected() {
     assert!(SETTINGS_JS.contains("documentModel.history_entries"));
     assert!(SETTINGS_JS.contains("[\"never\", \"failed-only\", \"always\"]"));
 }
+
+#[test]
+fn logging_viewer_and_directory_actions_are_connected() {
+    for command in ["open_log_directory", "open_app_data_directory"] {
+        assert!(SHELL_RS.contains(command), "{command}");
+        assert!(SETTINGS_JS.contains(command), "{command}");
+    }
+    assert!(SETTINGS_JS.contains("documentModel.live_log_lines"));
+    assert!(SETTINGS_JS.contains("live-log-viewer"));
+}

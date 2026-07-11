@@ -228,6 +228,7 @@ function render() {
     form.append(row);
   }
   if (activeSection === "history") renderHistoryActions();
+  if (activeSection === "debug") renderDebugActions();
 }
 
 function actionButton(label, command, args = {}) {
@@ -266,6 +267,22 @@ function renderHistoryActions() {
       actionButton("Delete", "delete_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
     );
     form.append(row);
+  }
+}
+
+function renderDebugActions() {
+  const toolbar = document.createElement("div");
+  toolbar.className = "debug-actions";
+  toolbar.append(
+    actionButton("Open log directory", "open_log_directory"),
+    actionButton("Open app data directory", "open_app_data_directory"),
+  );
+  form.append(toolbar);
+  if (documentModel.config.debug.live_log_viewer) {
+    const viewer = document.createElement("pre");
+    viewer.className = "live-log-viewer";
+    viewer.textContent = (documentModel.live_log_lines ?? []).join("\n");
+    form.append(viewer);
   }
 }
 
