@@ -255,7 +255,7 @@ const IID_AUDIO_ENDPOINT_VOLUME: GUID = GUID {
 };
 
 fn windows_output_mute(set_muted: Option<bool>) -> Result<bool> {
-    let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED) };
+    let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
     if init < 0 {
         return Err(anyhow!(
             "initializing Windows audio COM session failed: HRESULT {init:#x}"

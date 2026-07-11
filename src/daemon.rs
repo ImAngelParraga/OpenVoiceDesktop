@@ -117,7 +117,7 @@ pub async fn run(config: Config) -> Result<()> {
     use std::sync::mpsc as std_mpsc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::mpsc;
 
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
@@ -202,6 +202,15 @@ pub async fn run(config: Config) -> Result<()> {
                             .unwrap_or_else(|error| format!("error: {error}\n"));
                         let _ = request.reply_tx.send(response);
                         break;
+                    }
+                    ControllerCommand::Status => {
+                        let response = serde_json::to_string(&crate::ipc::DaemonStatus {
+                            state: controller.state(),
+                            mic_level_bucket: controller.mic_level_bucket(),
+                        })
+                        .unwrap_or_else(|error| format!("error: {error}"));
+                        let _ = request.reply_tx.send(format!("{response}\n"));
+                        continue;
                     }
                 };
                 let response = match result {

@@ -178,3 +178,4 @@ B11|2026-07-11|Overlay localization caller used lowercase key while catalog matc
 B12|2026-07-11|External-script failure test exited before consuming stdin, racing transcript writer|—
 B13|2026-07-11|Windows GNU cross-check could not start because x86_64-w64-mingw32-gcc is absent|—
 B14|2026-07-11|Root-owned generated `gen/schemas/*` blocked Tauri schema regeneration with `Permission denied` before Rust compilation|—
+B15|2026-07-11|Windows controller command match used guard before match, so `ControllerCommand::Status` remained non-exhaustive; COM API expects `COINIT_MULTITHREADED` as `u32`|V23
