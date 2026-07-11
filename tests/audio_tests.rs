@@ -1,8 +1,10 @@
 use openvoice_desktop::core::audio::{
-    audio_feedback_plan, effective_audio_encoding, mute_restore_plan, recording_buffer_plan,
-    resolve_input_device, resolve_input_device_details, resolve_output_device, vad_decision,
-    write_wav, AudioFeedbackEvent, DeviceSelection, InputDeviceInfo, InputDeviceResolution,
-    VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+    audio_feedback_plan, effective_audio_encoding, feedback_sound, mute_restore_plan,
+    recording_buffer_plan, resolve_input_device, resolve_input_device_details,
+    resolve_output_device, resolve_output_device_details, vad_decision, write_wav,
+    AudioFeedbackEvent, DeviceSelection, FeedbackSound, InputDeviceInfo, InputDeviceResolution,
+    OutputDeviceInfo, OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS,
+    DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
 use openvoice_desktop::core::config::{AudioConfig, TextConfig};
 use openvoice_desktop::core::recorder::RecordedAudio;
@@ -101,6 +103,43 @@ fn audio_feedback_and_mute_plans_restore_after_finish() {
     let mute = mute_restore_plan(&config);
     assert!(mute.mute_before_recording);
     assert!(mute.restore_after_finish);
+}
+
+#[test]
+fn output_device_selection_marks_missing_device_and_feedback_theme_is_deterministic() {
+    let mut config = AudioConfig::default();
+    config.selected_output_device = Some("Headphones".to_string());
+    config.audio_feedback = true;
+    config.sound_theme = openvoice_desktop::core::config::SoundTheme::Minimal;
+    let devices = vec![OutputDeviceInfo {
+        name: "Speakers".to_string(),
+        is_default: true,
+    }];
+
+    assert_eq!(
+        resolve_output_device_details(&config, &devices),
+        OutputDeviceResolution::DefaultWithMissingSelected {
+            missing: "Headphones".to_string(),
+            default_name: Some("Speakers".to_string()),
+        }
+    );
+    let plan = audio_feedback_plan(&config, AudioFeedbackEvent::Start).unwrap();
+    assert_eq!(
+        feedback_sound(&plan).unwrap(),
+        FeedbackSound::BuiltIn {
+            frequency_hz: 880,
+            duration_ms: 45,
+        }
+    );
+}
+
+#[test]
+fn custom_feedback_theme_requires_event_sound_path() {
+    let mut config = AudioConfig::default();
+    config.audio_feedback = true;
+    config.sound_theme = openvoice_desktop::core::config::SoundTheme::Custom;
+    let plan = audio_feedback_plan(&config, AudioFeedbackEvent::Error).unwrap();
+    assert!(feedback_sound(&plan).is_err());
 }
 
 #[test]

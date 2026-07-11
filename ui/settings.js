@@ -42,6 +42,28 @@ function setPath(root, path, value) {
   owner[leaf] = value;
 }
 
+function feedbackDependent(path) {
+  return [
+    "audio.selected_output_device",
+    "audio.audio_feedback_volume",
+    "audio.sound_theme",
+    "audio.custom_start_sound",
+    "audio.custom_stop_sound",
+    "audio.custom_error_sound",
+  ].includes(path);
+}
+
+function selectOptions(path) {
+  if (path === "audio.sound_theme") return ["default", "minimal", "custom"];
+  if (path === "app.overlay_position") return ["top", "bottom"];
+  if (path === "app.overlay_style") return ["compact", "expanded"];
+  if (path === "ui.theme") return ["system", "light", "dark"];
+  if (path === "audio.selected_output_device") {
+    return ["", ...(documentModel.output_devices ?? []).map((device) => device.name)];
+  }
+  return null;
+}
+
 function render() {
   form.replaceChildren();
   const allowed = sections[activeSection];
@@ -56,17 +78,20 @@ function render() {
     name.textContent = path;
     const input = document.createElement("input");
     input.name = path;
-    input.disabled = contract.status === "unavailable";
-    if (path === "audio.selected_microphone") {
+    input.disabled = contract.status === "unavailable" ||
+      (feedbackDependent(path) && !documentModel.config.audio.audio_feedback);
+    if (path === "audio.selected_microphone" || path === "audio.selected_output_device") {
       const select = document.createElement("select");
       select.name = path;
       select.disabled = input.disabled;
       const defaultOption = document.createElement("option");
       defaultOption.value = "";
-      defaultOption.textContent = "System default";
+      defaultOption.textContent = path === "audio.selected_microphone" ? "System default" : "System default output";
       defaultOption.selected = value == null;
       select.append(defaultOption);
-      for (const device of documentModel.input_devices ?? []) {
+      for (const device of (path === "audio.selected_microphone"
+        ? documentModel.input_devices ?? []
+        : documentModel.output_devices ?? [])) {
         const option = document.createElement("option");
         option.value = device.name;
         option.textContent = device.is_default ? `${device.name} (default)` : device.name;
@@ -82,6 +107,11 @@ function render() {
         note.textContent = documentModel.input_device_fallback;
         row.append(note);
       }
+      if (documentModel.output_device_fallback && path === "audio.selected_output_device") {
+        const note = document.createElement("small");
+        note.textContent = documentModel.output_device_fallback;
+        row.append(note);
+      }
       form.append(row);
       continue;
     }
@@ -90,6 +120,23 @@ function render() {
       : path === "audio.channels"
         ? documentModel.audio_encoding.channels
         : value;
+    const options = selectOptions(path);
+    if (options) {
+      const select = document.createElement("select");
+      select.name = path;
+      select.disabled = input.disabled;
+      for (const optionValue of options) {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionValue || "System default";
+        option.selected = String(displayValue ?? "") === optionValue;
+        select.append(option);
+      }
+      select.addEventListener("change", () => setPath(documentModel.config, path, select.value));
+      row.append(name, select);
+      form.append(row);
+      continue;
+    }
     if (typeof displayValue === "boolean") {
       input.type = "checkbox";
       input.checked = displayValue;
@@ -112,6 +159,7 @@ function render() {
       else if (Array.isArray(value)) next = input.value.split(",").map((part) => part.trim()).filter(Boolean);
       else if (value === null && input.value === "") next = null;
       setPath(documentModel.config, path, next);
+      if (path === "audio.audio_feedback") render();
     });
     row.append(name, input);
     form.append(row);
