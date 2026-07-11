@@ -67,3 +67,13 @@ fn test_v11_settings_menu_launches_settings_panel() {
         "Settings tray item should reuse openvoice-desktop settings command"
     );
 }
+
+#[test]
+fn tray_menu_uses_dynamic_model_and_real_actions() {
+    assert!(WINDOWS_RS.contains("TrayMenuModel::for_state"));
+    assert!(WINDOWS_RS.contains("current_tray_state()"));
+    assert!(WINDOWS_RS.contains("if item.enabled"));
+    assert!(WINDOWS_RS.contains("crate::core::asr::test_endpoint"));
+    assert!(WINDOWS_RS.contains("open_logs_folder"));
+    assert!(!WINDOWS_RS.contains("Action available in settings UI."));
+}

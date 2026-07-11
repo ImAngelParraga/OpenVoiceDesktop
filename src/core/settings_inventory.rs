@@ -215,8 +215,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     wa!("tray.open-config-folder"),
     wa!("tray.quit"),
     wa!("tray.copy-last-transcript"),
-    a!("tray.test-endpoint"),
-    a!("tray.open-logs"),
+    wa!("tray.test-endpoint"),
+    wa!("tray.open-logs"),
 ];
 
 pub fn inventory_entry(id: &str) -> Option<&'static InventoryEntry> {

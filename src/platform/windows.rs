@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     Mutex, OnceLock,
 };
 use tokio::sync::mpsc;
@@ -64,6 +64,7 @@ const MENU_QUIT: usize = 1007;
 static COMMAND_TX: OnceLock<mpsc::UnboundedSender<TrayCommand>> = OnceLock::new();
 static TRAY_HWND: OnceLock<HWND> = OnceLock::new();
 static TRAY_ICON_VISIBLE: AtomicBool = AtomicBool::new(false);
+static TRAY_STATE: AtomicU8 = AtomicU8::new(0);
 static STATUS_POPUP_HWND: OnceLock<HWND> = OnceLock::new();
 static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
@@ -88,6 +89,25 @@ pub enum TrayCommand {
     OpenConfigFolder,
     ReloadLifecycle { show_tray_icon: bool },
     Quit,
+}
+
+pub fn set_tray_state(state: crate::core::settings_ui::TrayIconState) {
+    let code = match state {
+        crate::core::settings_ui::TrayIconState::Idle => 0,
+        crate::core::settings_ui::TrayIconState::Recording => 1,
+        crate::core::settings_ui::TrayIconState::Processing => 2,
+        crate::core::settings_ui::TrayIconState::Error => 3,
+    };
+    TRAY_STATE.store(code, Ordering::Relaxed);
+}
+
+fn current_tray_state() -> crate::core::settings_ui::TrayIconState {
+    match TRAY_STATE.load(Ordering::Relaxed) {
+        1 => crate::core::settings_ui::TrayIconState::Recording,
+        2 => crate::core::settings_ui::TrayIconState::Processing,
+        3 => crate::core::settings_ui::TrayIconState::Error,
+        _ => crate::core::settings_ui::TrayIconState::Idle,
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -821,23 +841,31 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     if menu == 0 {
         return;
     }
-    AppendMenuW(menu, 0, MENU_SETTINGS, wide("Settings").as_ptr());
-    AppendMenuW(
-        menu,
-        0,
-        MENU_COPY_LAST_TRANSCRIPT,
-        wide("Copy Last Transcript").as_ptr(),
-    );
-    AppendMenuW(menu, 0, MENU_CANCEL, wide("Cancel").as_ptr());
-    AppendMenuW(menu, 0, MENU_TEST_ENDPOINT, wide("Test Endpoint").as_ptr());
-    AppendMenuW(menu, 0, MENU_OPEN_LOGS, wide("Open Logs").as_ptr());
-    AppendMenuW(
-        menu,
-        0,
-        MENU_OPEN_CONFIG,
-        wide("Open Config Folder").as_ptr(),
-    );
-    AppendMenuW(menu, 0, MENU_QUIT, wide("Quit").as_ptr());
+    let has_last = crate::core::config::Config::load_default()
+        .ok()
+        .and_then(|loaded| crate::core::history::HistoryStore::from_config(&loaded.config).ok())
+        .and_then(|store| store.last_transcript().ok().flatten())
+        .is_some();
+    let model = crate::core::settings_ui::TrayMenuModel::for_state(current_tray_state(), has_last);
+    for item in model.items {
+        let id = match item.action {
+            crate::core::settings_ui::TrayMenuAction::Settings => MENU_SETTINGS,
+            crate::core::settings_ui::TrayMenuAction::CopyLastTranscript => {
+                MENU_COPY_LAST_TRANSCRIPT
+            }
+            crate::core::settings_ui::TrayMenuAction::Cancel => MENU_CANCEL,
+            crate::core::settings_ui::TrayMenuAction::TestEndpoint => MENU_TEST_ENDPOINT,
+            crate::core::settings_ui::TrayMenuAction::OpenLogs => MENU_OPEN_LOGS,
+            crate::core::settings_ui::TrayMenuAction::OpenConfig => MENU_OPEN_CONFIG,
+            crate::core::settings_ui::TrayMenuAction::Quit => MENU_QUIT,
+        };
+        AppendMenuW(
+            menu,
+            if item.enabled { 0 } else { 0x0000_0001 },
+            id,
+            wide(&item.label).as_ptr(),
+        );
+    }
 
     let mut point = std::mem::zeroed();
     GetCursorPos(&mut point);
@@ -861,6 +889,18 @@ fn open_config_folder() -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     std::process::Command::new("explorer.exe")
         .arg(dir)
+        .spawn()?;
+    Ok(())
+}
+
+fn open_logs_folder() -> Result<()> {
+    let loaded = crate::core::config::Config::load_default()?;
+    let path = crate::core::logging::FileLogger::from_config(&loaded.config)?
+        .directory()
+        .to_path_buf();
+    std::fs::create_dir_all(&path)?;
+    std::process::Command::new("explorer.exe")
+        .arg(path)
         .spawn()?;
     Ok(())
 }
@@ -889,8 +929,21 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
             show_status_popup("Last transcript copied.", Some(2_500)).ok();
             Ok(false)
         }
-        TrayCommand::TestEndpoint | TrayCommand::OpenLogs => {
-            show_status_popup("Action available in settings UI.", Some(2_500)).ok();
+        TrayCommand::TestEndpoint => {
+            let config = crate::core::config::Config::load_default()?.config;
+            let diagnostic = crate::core::asr::test_endpoint(&config).await?;
+            show_status_popup(
+                &format!(
+                    "HTTP {} - {} ms",
+                    diagnostic.http_status, diagnostic.latency_ms
+                ),
+                Some(3_500),
+            )
+            .ok();
+            Ok(false)
+        }
+        TrayCommand::OpenLogs => {
+            tokio::task::spawn_blocking(open_logs_folder).await??;
             Ok(false)
         }
         TrayCommand::OpenConfigFolder => {

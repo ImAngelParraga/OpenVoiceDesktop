@@ -124,8 +124,8 @@ pub async fn run(config: Config) -> Result<()> {
         CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME,
     };
     use crate::platform::windows::{
-        handle_tray_command, hide_status_popup, run_tray_loop_with_config, show_recording_popup,
-        show_status_popup, TrayCommand, WindowsPlatformAdapter,
+        handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_tray_state,
+        show_recording_popup, show_status_popup, TrayCommand, WindowsPlatformAdapter,
     };
 
     let (controller_tx, controller_rx) = std_mpsc::channel::<ControllerRequest>();
@@ -254,6 +254,7 @@ pub async fn run(config: Config) -> Result<()> {
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
+                set_tray_state(tray_state_from_response(&response));
                 server.write_all(response.as_bytes()).await?;
                 anyhow::Ok(())
             }
@@ -274,6 +275,7 @@ pub async fn run(config: Config) -> Result<()> {
                     show_status_popup("processing", None).ok();
                     let response =
                         request_controller(&tray_controller_tx, ControllerCommand::Toggle).await;
+                    set_tray_state(tray_state_from_response(&response));
                     eprint!("{response}");
                     match toggle_status_popup(&response) {
                         ToggleStatusPopup::ShowText { text, timeout_ms } => {
@@ -294,6 +296,7 @@ pub async fn run(config: Config) -> Result<()> {
                 Ok(false) if matches!(command, TrayCommand::Cancel) => {
                     let response =
                         request_controller(&tray_controller_tx, ControllerCommand::Cancel).await;
+                    set_tray_state(tray_state_from_response(&response));
                     eprint!("{response}");
                     hide_status_popup().ok();
                 }
@@ -317,6 +320,24 @@ pub async fn run(config: Config) -> Result<()> {
         config.app.start_hidden,
         config.ui.theme,
     )
+}
+
+#[cfg(target_os = "windows")]
+fn tray_state_from_response(response: &str) -> crate::core::settings_ui::TrayIconState {
+    use crate::core::settings_ui::TrayIconState;
+    if response.starts_with("error:") {
+        TrayIconState::Error
+    } else if response.contains("Started") {
+        TrayIconState::Recording
+    } else if response.contains("Busy")
+        || response.contains("WritingAudio")
+        || response.contains("Transcribing")
+        || response.contains("InsertingText")
+    {
+        TrayIconState::Processing
+    } else {
+        TrayIconState::Idle
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
