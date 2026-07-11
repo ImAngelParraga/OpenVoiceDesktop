@@ -5,7 +5,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::core::audio::{
-    enumerate_input_devices, resolve_input_device_details, InputDeviceInfo, InputDeviceResolution,
+    effective_audio_encoding, enumerate_input_devices, resolve_input_device_details,
+    AudioEncodingSettings, InputDeviceInfo, InputDeviceResolution,
 };
 use crate::core::config::Config;
 use crate::core::settings_inventory::{ControlState, InventoryKind, SETTINGS_INVENTORY};
@@ -19,6 +20,7 @@ pub struct SettingsDocument {
     pub post_processing_token_configured: bool,
     pub input_devices: Vec<InputDeviceInfo>,
     pub input_device_fallback: Option<String>,
+    pub audio_encoding: AudioEncodingSettings,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -61,23 +63,21 @@ impl SettingsService {
         let mut loaded = Config::load_from(&self.path)?.config;
         let fields = field_results(&loaded, &loaded)?;
         let input_devices = enumerate_input_devices().unwrap_or_default();
-        let input_device_fallback = match resolve_input_device_details(
-            &loaded.audio,
-            &input_devices,
-        ) {
-            InputDeviceResolution::DefaultWithMissingSelected {
-                missing,
-                default_name,
-            } => Some(match default_name {
-                Some(default_name) => {
-                    format!("Microphone {missing:?} is unavailable; using {default_name:?}.")
-                }
-                None => format!(
+        let input_device_fallback =
+            match resolve_input_device_details(&loaded.audio, &input_devices) {
+                InputDeviceResolution::DefaultWithMissingSelected {
+                    missing,
+                    default_name,
+                } => Some(match default_name {
+                    Some(default_name) => {
+                        format!("Microphone {missing:?} is unavailable; using {default_name:?}.")
+                    }
+                    None => format!(
                     "Microphone {missing:?} is unavailable; using system default when available."
                 ),
-            }),
-            _ => None,
-        };
+                }),
+                _ => None,
+            };
         let asr_token_configured = loaded.asr.bearer_token.is_some();
         let post_processing_token_configured = loaded.post_processing.bearer_token.is_some();
         loaded.asr.bearer_token = None;
@@ -88,6 +88,7 @@ impl SettingsService {
             post_processing_token_configured,
             input_devices,
             input_device_fallback,
+            audio_encoding: effective_audio_encoding(),
             fields,
         })
     }

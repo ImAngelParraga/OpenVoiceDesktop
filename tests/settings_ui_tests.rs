@@ -444,3 +444,23 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
         ]
     );
 }
+
+#[test]
+fn asr_encoding_controls_are_read_only() {
+    let general = SettingsWindowLayout::default_layout()
+        .sections
+        .into_iter()
+        .find(|section| section.id == SettingsSectionId::General)
+        .unwrap();
+    for id in ["sample-rate", "channels"] {
+        assert_eq!(
+            general
+                .controls
+                .iter()
+                .find(|control| control.id == id)
+                .unwrap()
+                .kind,
+            SettingsControlKind::ReadOnly
+        );
+    }
+}

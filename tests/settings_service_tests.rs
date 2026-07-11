@@ -24,6 +24,9 @@ fn settings_get_covers_inventory_without_returning_tokens() {
         .input_devices
         .iter()
         .all(|device| !device.name.is_empty()));
+    assert_eq!(document.audio_encoding.sample_rate_hz, 16_000);
+    assert_eq!(document.audio_encoding.channels, 1);
+    assert!(!document.audio_encoding.editable);
 
     let result = SettingsService::new(&path)
         .save_with(

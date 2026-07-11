@@ -85,19 +85,24 @@ function render() {
       form.append(row);
       continue;
     }
-    if (typeof value === "boolean") {
+    const displayValue = path === "audio.sample_rate_hz"
+      ? documentModel.audio_encoding.sample_rate_hz
+      : path === "audio.channels"
+        ? documentModel.audio_encoding.channels
+        : value;
+    if (typeof displayValue === "boolean") {
       input.type = "checkbox";
-      input.checked = value;
-    } else if (typeof value === "number") {
+      input.checked = displayValue;
+    } else if (typeof displayValue === "number") {
       input.type = "number";
       input.step = "any";
-      input.value = value;
-    } else if (Array.isArray(value)) {
+      input.value = displayValue;
+    } else if (Array.isArray(displayValue)) {
       input.type = "text";
-      input.value = value.join(", ");
+      input.value = displayValue.join(", ");
     } else {
       input.type = "text";
-      input.value = value ?? "";
+      input.value = displayValue ?? "";
     }
     if (input.disabled) input.title = contract.reason ?? "Unavailable";
     input.addEventListener("change", () => {

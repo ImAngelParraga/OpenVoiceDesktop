@@ -310,13 +310,13 @@ impl SettingsWindowLayout {
                         SettingsControl::bound(
                             "sample-rate",
                             "Sample rate",
-                            SettingsControlKind::Number,
+                            SettingsControlKind::ReadOnly,
                             "audio.sample_rate_hz",
                         ),
                         SettingsControl::bound(
                             "channels",
                             "Channels",
-                            SettingsControlKind::Number,
+                            SettingsControlKind::ReadOnly,
                             "audio.channels",
                         ),
                     ],

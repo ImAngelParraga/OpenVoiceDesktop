@@ -1,8 +1,8 @@
 use openvoice_desktop::core::audio::{
-    audio_feedback_plan, mute_restore_plan, recording_buffer_plan, resolve_input_device,
-    resolve_input_device_details, resolve_output_device, vad_decision, write_wav,
-    AudioFeedbackEvent, DeviceSelection, InputDeviceInfo, InputDeviceResolution, VadDecision,
-    DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
+    audio_feedback_plan, effective_audio_encoding, mute_restore_plan, recording_buffer_plan,
+    resolve_input_device, resolve_input_device_details, resolve_output_device, vad_decision,
+    write_wav, AudioFeedbackEvent, DeviceSelection, InputDeviceInfo, InputDeviceResolution,
+    VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
 use openvoice_desktop::core::config::{AudioConfig, TextConfig};
 use openvoice_desktop::core::recorder::RecordedAudio;
@@ -22,6 +22,14 @@ fn writes_valid_16khz_mono_pcm_wav() {
     assert_eq!(spec.channels, DEFAULT_CHANNELS);
     assert_eq!(spec.bits_per_sample, PCM_BITS_PER_SAMPLE);
     assert_eq!(reader.duration(), DEFAULT_SAMPLE_RATE_HZ / 10);
+}
+
+#[test]
+fn effective_asr_encoding_is_fixed_and_read_only() {
+    let encoding = effective_audio_encoding();
+    assert_eq!(encoding.sample_rate_hz, DEFAULT_SAMPLE_RATE_HZ);
+    assert_eq!(encoding.channels, DEFAULT_CHANNELS);
+    assert!(!encoding.editable);
 }
 
 #[test]

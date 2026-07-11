@@ -120,8 +120,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     ),
     u!("audio.audio_feedback_volume"),
     u!("audio.sound_theme"),
-    u!("audio.sample_rate_hz"),
-    u!("audio.channels"),
+    u!("audio.sample_rate_hz", "fixed ASR encoding: 16000 Hz, mono"),
+    u!("audio.channels", "fixed ASR encoding: 16000 Hz, mono"),
     // I.settings.asr
     w!("asr.base_url"),
     w!("asr.model"),

@@ -12,6 +12,21 @@ pub const DEFAULT_SAMPLE_RATE_HZ: u32 = 16_000;
 pub const DEFAULT_CHANNELS: u16 = 1;
 pub const PCM_BITS_PER_SAMPLE: u16 = 16;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioEncodingSettings {
+    pub sample_rate_hz: u32,
+    pub channels: u16,
+    pub editable: bool,
+}
+
+pub const fn effective_audio_encoding() -> AudioEncodingSettings {
+    AudioEncodingSettings {
+        sample_rate_hz: DEFAULT_SAMPLE_RATE_HZ,
+        channels: DEFAULT_CHANNELS,
+        editable: false,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WavWriteStats {
     pub elapsed: Duration,
