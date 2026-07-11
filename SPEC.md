@@ -160,3 +160,4 @@ id|date|cause|fix
 B1|2026-07-10|Settings work built config/UI contract but no user-invokable settings surface existed|V14
 B2|2026-07-10|Settings tasks marked complete from schema/model/string tests without render-persist-runtime/action proof, exposing dead controls and placeholder tray actions|V15,V16,V17,V18,V19,V20,V21,V22
 B3|2026-07-10|Tauri generated context required missing default `icons/icon.png`, breaking desktop-shell builds on Linux and Windows|V23
+B4|2026-07-10|V23 asset test checked Linux icon only; Tauri Windows resource build required missing `icons/icon.ico`|V23

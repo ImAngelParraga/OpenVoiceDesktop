@@ -47,6 +47,7 @@ fn test_v23_desktop_shell_assets_exist() {
     assert_eq!(config["build"]["frontendDist"], "ui");
     assert!(std::path::Path::new("ui/index.html").is_file());
     assert!(std::path::Path::new("icons/icon.png").is_file());
+    assert!(std::path::Path::new("icons/icon.ico").is_file());
 }
 
 #[test]
