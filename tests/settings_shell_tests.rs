@@ -133,3 +133,14 @@ fn about_readonly_values_render_from_typed_document() {
         assert!(SETTINGS_JS.contains(field), "{field}");
     }
 }
+
+#[test]
+fn onboarding_completion_and_permission_repair_are_connected() {
+    for command in ["complete_onboarding", "repair_permissions"] {
+        assert!(SHELL_RS.contains(command), "{command}");
+        assert!(SETTINGS_JS.contains(command), "{command}");
+    }
+    assert!(SETTINGS_JS.contains("function renderOnboarding()"));
+    assert!(SETTINGS_JS.contains("documentModel.onboarding_flow.steps"));
+    assert!(SETTINGS_JS.contains("permissionsConfirmed"));
+}

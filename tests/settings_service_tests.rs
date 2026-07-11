@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::settings_inventory::{InventoryKind, SETTINGS_INVENTORY};
 use openvoice_desktop::core::settings_service::{
-    validate_config, ApplyStatus, SaveSettingsRequest, SettingsService,
+    complete_onboarding, validate_config, ApplyStatus, SaveSettingsRequest, SettingsService,
 };
 
 #[test]
@@ -100,6 +100,30 @@ fn about_document_exposes_real_values() {
         .acknowledgements
         .iter()
         .any(|value| value.contains("Handy")));
+}
+
+#[test]
+fn onboarding_requires_permissions_endpoint_token_and_shortcut() {
+    let mut config = Config::default();
+    assert!(complete_onboarding(&mut config, false)
+        .unwrap_err()
+        .to_string()
+        .contains("permissions"));
+    assert!(complete_onboarding(&mut config, true)
+        .unwrap_err()
+        .to_string()
+        .contains("token"));
+    config.asr.bearer_token = Some("test-token".to_string());
+    config.behavior.shortcut.clear();
+    assert!(complete_onboarding(&mut config, true)
+        .unwrap_err()
+        .to_string()
+        .contains("shortcut"));
+    config.behavior.shortcut = "Ctrl+Space".to_string();
+    config.onboarding.show_permission_repair = true;
+    complete_onboarding(&mut config, true).unwrap();
+    assert!(config.onboarding.completed);
+    assert!(!config.onboarding.show_permission_repair);
 }
 
 #[cfg(target_os = "linux")]

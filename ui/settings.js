@@ -126,6 +126,7 @@ function render() {
     if (path === "schema_version" || !allowed.some((prefix) => path.startsWith(`${prefix}.`))) continue;
     if (path === "asr.bearer_token") continue;
     if (path.startsWith("updates.")) continue;
+    if (path.startsWith("onboarding.")) continue;
     if (path === "behavior.restore_clipboard" || path === "behavior.clipboard_restore_delay_ms") continue;
     const contract = availability.get(path);
     if (!contract) continue;
@@ -232,6 +233,7 @@ function render() {
   if (activeSection === "debug") renderDebugActions();
   if (activeSection === "asr") renderAsrActions();
   if (activeSection === "about") renderAbout();
+  renderOnboarding();
 }
 
 function actionButton(label, command, args = {}) {
@@ -345,6 +347,40 @@ function renderAbout() {
     row.textContent = `${label}: ${value}`;
     form.append(row);
   }
+}
+
+function renderOnboarding() {
+  const onboarding = documentModel.config.onboarding;
+  if (onboarding.completed && !onboarding.show_permission_repair) return;
+  const panel = document.createElement("section");
+  panel.className = "onboarding-panel";
+  const title = document.createElement("h3");
+  title.textContent = onboarding.completed ? "Repair permissions" : "Finish setup";
+  const steps = document.createElement("ol");
+  for (const step of documentModel.onboarding_flow.steps ?? []) {
+    const item = document.createElement("li");
+    item.textContent = String(step).replaceAll("-", " ");
+    steps.append(item);
+  }
+  const permissions = document.createElement("input");
+  permissions.type = "checkbox";
+  const permissionLabel = document.createElement("label");
+  permissionLabel.append(permissions, " Microphone/accessibility permissions confirmed");
+  const finish = document.createElement("button");
+  finish.type = "button";
+  finish.textContent = onboarding.completed ? "Confirm repair" : "Complete setup";
+  finish.addEventListener("click", async () => {
+    const command = onboarding.completed ? "repair_permissions" : "complete_onboarding";
+    try {
+      status.textContent = await invoke(command, { permissionsConfirmed: permissions.checked });
+      documentModel = await invoke("get_settings");
+      render();
+    } catch (error) {
+      status.textContent = `Setup failed: ${error}`;
+    }
+  });
+  panel.append(title, steps, permissionLabel, finish);
+  form.prepend(panel);
 }
 
 for (const button of document.querySelectorAll("nav button")) {

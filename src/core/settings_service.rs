@@ -31,6 +31,7 @@ pub struct SettingsDocument {
     pub history_entries: Vec<crate::core::settings_ui::HistoryEntry>,
     pub live_log_lines: Vec<String>,
     pub about: crate::core::settings_ui::AboutSettings,
+    pub onboarding_flow: crate::core::settings_ui::OnboardingFlow,
     pub fields: Vec<FieldApplyResult>,
 }
 
@@ -133,6 +134,10 @@ impl SettingsService {
             app_data_path,
             logs_path,
         );
+        let onboarding_flow = crate::core::settings_ui::OnboardingFlow::from_config(
+            &loaded,
+            loaded.onboarding.show_permission_repair,
+        );
         loaded.asr.bearer_token = None;
         Ok(SettingsDocument {
             config: loaded,
@@ -149,6 +154,7 @@ impl SettingsService {
             history_entries,
             live_log_lines,
             about,
+            onboarding_flow,
             fields,
         })
     }
@@ -292,6 +298,20 @@ pub fn validate_config(config: &Config) -> Result<()> {
         bail!("output.auto_submit requires an output method that focuses a target");
     }
     crate::core::lifecycle::validate_lifecycle(config)?;
+    Ok(())
+}
+
+pub fn complete_onboarding(config: &mut Config, permissions_confirmed: bool) -> Result<()> {
+    anyhow::ensure!(permissions_confirmed, "permissions must be confirmed");
+    validate_http_url("asr.base_url", &config.asr.base_url)?;
+    non_empty("asr.model", &config.asr.model)?;
+    anyhow::ensure!(
+        crate::core::config::bearer_token_source(config).is_some(),
+        "ASR token must be configured"
+    );
+    non_empty("behavior.shortcut", &config.behavior.shortcut)?;
+    config.onboarding.completed = true;
+    config.onboarding.show_permission_repair = false;
     Ok(())
 }
 

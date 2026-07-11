@@ -67,7 +67,9 @@ pub fn run() -> Result<()> {
             open_log_directory,
             open_app_data_directory,
             set_asr_token,
-            test_endpoint
+            test_endpoint,
+            complete_onboarding,
+            repair_permissions
         ])
         .run(tauri::generate_context!())
         .map_err(Into::into)
@@ -189,6 +191,34 @@ async fn test_endpoint() -> std::result::Result<crate::core::asr::AsrDiagnostic,
         config.save_to(&path).map_err(safe_error)?;
     }
     Ok(diagnostic)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn complete_onboarding(permissions_confirmed: bool) -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let mut config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    crate::core::settings_service::complete_onboarding(&mut config, permissions_confirmed)
+        .map_err(safe_error)?;
+    config.save_to(&path).map_err(safe_error)?;
+    Ok("Onboarding completed".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+fn repair_permissions(permissions_confirmed: bool) -> std::result::Result<String, String> {
+    if !permissions_confirmed {
+        return Err("permissions must be confirmed".to_string());
+    }
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let mut config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    config.onboarding.show_permission_repair = false;
+    config.save_to(&path).map_err(safe_error)?;
+    Ok("Permissions repaired".to_string())
 }
 
 #[cfg(feature = "desktop-shell")]

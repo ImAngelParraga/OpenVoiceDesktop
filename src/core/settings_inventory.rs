@@ -199,8 +199,8 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
         "release service is not available in this build"
     ),
     w!("portable.data_dir"),
-    u!("onboarding.completed"),
-    u!("onboarding.show_permission_repair"),
+    w!("onboarding.completed"),
+    w!("onboarding.show_permission_repair"),
     // I.settings.about
     wr!("version"),
     wr!("config-path"),
