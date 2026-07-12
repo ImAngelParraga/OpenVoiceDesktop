@@ -5,7 +5,9 @@ use std::time::Duration;
 use crate::core::audio::{
     audio_feedback_plan, enumerate_output_devices, AudioFeedbackPlan, OutputDeviceInfo,
 };
-use crate::core::config::{ClipboardHandling, OutputConfig, PasteMethod, TypingTool};
+use crate::core::config::{
+    ClipboardHandling, OutputConfig, PasteMethod, RecordingOutputMode, TypingTool,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasteResult {
@@ -13,14 +15,15 @@ pub enum PasteResult {
     LeftInClipboard,
 }
 
-/// Output mute state captured before recording. `NotMuted` means the adapter
-/// could not or did not need to change the session; it must remain a no-op on
-/// restore. `WasMuted` preserves an already-muted user's choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioMuteState {
-    NotMuted,
-    Muted,
-    WasMuted,
+/// Exact output state captured before recording adjustment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioOutputState {
+    pub muted: bool,
+    pub volume: f32,
+}
+
+pub fn reduced_output_volume(current: f32, configured: f32) -> f32 {
+    current.clamp(0.0, 1.0).min(configured.clamp(0.0, 1.0))
 }
 
 #[async_trait]
@@ -48,14 +51,17 @@ pub trait PlatformAdapter: Send + Sync {
     }
     async fn notify(&self, title: &str, body: &str) -> Result<()>;
 
-    /// Capture current output mute state and mute output for recording.
-    /// Platform adapters override this when an audio-session API is present.
-    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
-        Ok(AudioMuteState::NotMuted)
+    /// Capture exact output state, then apply recording mute or attenuation.
+    async fn adjust_output_for_recording(
+        &self,
+        _mode: RecordingOutputMode,
+        _volume: f32,
+    ) -> Result<Option<AudioOutputState>> {
+        Ok(None)
     }
 
-    /// Restore exactly the state returned by `mute_output_for_recording`.
-    async fn restore_output_after_recording(&self, _state: AudioMuteState) -> Result<()> {
+    /// Restore exactly the state returned by `adjust_output_for_recording`.
+    async fn restore_output_after_recording(&self, _state: AudioOutputState) -> Result<()> {
         Ok(())
     }
 

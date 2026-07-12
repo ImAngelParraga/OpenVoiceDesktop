@@ -6,8 +6,9 @@ use tokio::process::Command;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
+use crate::core::config::RecordingOutputMode;
 use crate::core::config::TypingTool;
-use crate::core::platform::{AudioMuteState, PlatformAdapter};
+use crate::core::platform::{reduced_output_volume, AudioOutputState, PlatformAdapter};
 
 #[derive(Debug, Clone, Default)]
 pub struct LinuxPlatformAdapter;
@@ -107,21 +108,31 @@ impl PlatformAdapter for LinuxPlatformAdapter {
         }
     }
 
-    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
-        let was_muted = linux_output_is_muted().await?;
-        if !was_muted {
-            set_linux_output_mute(true).await?;
-            Ok(AudioMuteState::Muted)
-        } else {
-            Ok(AudioMuteState::WasMuted)
+    async fn adjust_output_for_recording(
+        &self,
+        mode: RecordingOutputMode,
+        volume: f32,
+    ) -> Result<Option<AudioOutputState>> {
+        if mode == RecordingOutputMode::Unchanged {
+            return Ok(None);
         }
+        let state = linux_output_state().await?;
+        let adjusted = match mode {
+            RecordingOutputMode::Unchanged => Ok(()),
+            RecordingOutputMode::Reduced => {
+                set_linux_output_volume(reduced_output_volume(state.volume, volume)).await
+            }
+            RecordingOutputMode::Muted => set_linux_output_mute(true).await,
+        };
+        if let Err(error) = adjusted {
+            let _ = restore_linux_output(state).await;
+            return Err(error);
+        }
+        Ok(Some(state))
     }
 
-    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
-        match state {
-            AudioMuteState::NotMuted | AudioMuteState::WasMuted => Ok(()),
-            AudioMuteState::Muted => set_linux_output_mute(false).await,
-        }
+    async fn restore_output_after_recording(&self, state: AudioOutputState) -> Result<()> {
+        restore_linux_output(state).await
     }
 
     async fn play_audio_feedback(&self, plan: &AudioFeedbackPlan) -> Result<()> {
@@ -134,27 +145,65 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 }
 
-async fn linux_output_is_muted() -> Result<bool> {
+async fn linux_output_state() -> Result<AudioOutputState> {
     if let Ok(output) = Command::new("wpctl")
         .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
         .output()
         .await
     {
         if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).contains("[MUTED]"));
+            return parse_linux_output_state(&String::from_utf8_lossy(&output.stdout));
         }
     }
-    let output = Command::new("pactl")
+    let volume = Command::new("pactl")
+        .args(["get-sink-volume", "@DEFAULT_SINK@"])
+        .output()
+        .await
+        .context("querying Linux output volume with wpctl or pactl")?;
+    let muted = Command::new("pactl")
         .args(["get-sink-mute", "@DEFAULT_SINK@"])
         .output()
         .await
         .context("querying Linux output mute state with wpctl or pactl")?;
-    if !output.status.success() {
+    if !volume.status.success() || !muted.status.success() {
         return Err(anyhow!(
-            "wpctl and pactl could not query the default output mute state"
+            "wpctl and pactl could not query the default output state"
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).contains("yes"))
+    parse_pactl_output_state(
+        &String::from_utf8_lossy(&volume.stdout),
+        &String::from_utf8_lossy(&muted.stdout),
+    )
+}
+
+pub fn parse_linux_output_state(output: &str) -> Result<AudioOutputState> {
+    let volume = output
+        .split_whitespace()
+        .find_map(|part| part.parse::<f32>().ok())
+        .ok_or_else(|| anyhow!("wpctl returned no output volume"))?;
+    Ok(AudioOutputState {
+        muted: output.contains("[MUTED]"),
+        volume: volume.clamp(0.0, 1.0),
+    })
+}
+
+pub fn parse_pactl_output_state(volume: &str, muted: &str) -> Result<AudioOutputState> {
+    let percent = volume
+        .split_whitespace()
+        .find_map(|part| {
+            part.strip_suffix('%')
+                .and_then(|value| value.parse::<f32>().ok())
+        })
+        .ok_or_else(|| anyhow!("pactl returned no output volume"))?;
+    Ok(AudioOutputState {
+        muted: muted.split_whitespace().last() == Some("yes"),
+        volume: (percent / 100.0).clamp(0.0, 1.0),
+    })
+}
+
+async fn restore_linux_output(state: AudioOutputState) -> Result<()> {
+    set_linux_output_volume(state.volume).await?;
+    set_linux_output_mute(state.muted).await
 }
 
 async fn set_linux_output_mute(muted: bool) -> Result<()> {
@@ -182,6 +231,32 @@ async fn set_linux_output_mute(muted: bool) -> Result<()> {
     } else {
         Err(anyhow!(
             "wpctl and pactl could not set the default output mute state"
+        ))
+    }
+}
+
+async fn set_linux_output_volume(volume: f32) -> Result<()> {
+    let value = format!("{:.4}", volume.clamp(0.0, 1.0));
+    if let Ok(status) = Command::new("wpctl")
+        .args(["set-volume", "@DEFAULT_AUDIO_SINK@", &value])
+        .status()
+        .await
+    {
+        if status.success() {
+            return Ok(());
+        }
+    }
+    let percent = format!("{:.2}%", volume.clamp(0.0, 1.0) * 100.0);
+    let status = Command::new("pactl")
+        .args(["set-sink-volume", "@DEFAULT_SINK@", &percent])
+        .status()
+        .await
+        .context("setting Linux output volume with wpctl or pactl")?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "wpctl and pactl could not set default output volume"
         ))
     }
 }

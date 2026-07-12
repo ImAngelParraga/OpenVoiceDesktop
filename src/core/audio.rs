@@ -530,16 +530,19 @@ fn fill_feedback_buffer<T, F>(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MuteRestorePlan {
-    pub mute_before_recording: bool,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecordingOutputPlan {
+    pub mode: crate::core::config::RecordingOutputMode,
+    pub volume: f32,
     pub restore_after_finish: bool,
 }
 
-pub fn mute_restore_plan(config: &AudioConfig) -> MuteRestorePlan {
-    MuteRestorePlan {
-        mute_before_recording: config.mute_while_recording,
-        restore_after_finish: config.mute_while_recording,
+pub fn recording_output_plan(config: &AudioConfig) -> RecordingOutputPlan {
+    RecordingOutputPlan {
+        mode: config.recording_output_mode,
+        volume: config.recording_output_volume.clamp(0.0, 1.0),
+        restore_after_finish: config.recording_output_mode
+            != crate::core::config::RecordingOutputMode::Unchanged,
     }
 }
 

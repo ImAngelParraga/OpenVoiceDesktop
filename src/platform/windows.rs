@@ -42,8 +42,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
-use crate::core::config::{Theme, TypingTool};
-use crate::core::platform::{AudioMuteState, PlatformAdapter};
+use crate::core::config::{RecordingOutputMode, Theme, TypingTool};
+use crate::core::platform::{reduced_output_volume, AudioOutputState, PlatformAdapter};
 
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
@@ -176,20 +176,38 @@ impl PlatformAdapter for WindowsPlatformAdapter {
         show_status_popup(&format!("{title}: {body}"), Some(4_000))
     }
 
-    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
-        let was_muted = tokio::task::spawn_blocking(|| windows_output_mute(None)).await??;
-        if was_muted {
-            Ok(AudioMuteState::WasMuted)
-        } else {
-            tokio::task::spawn_blocking(|| windows_output_mute(Some(true))).await??;
-            Ok(AudioMuteState::Muted)
+    async fn adjust_output_for_recording(
+        &self,
+        mode: RecordingOutputMode,
+        volume: f32,
+    ) -> Result<Option<AudioOutputState>> {
+        if mode == RecordingOutputMode::Unchanged {
+            return Ok(None);
         }
+        let state = tokio::task::spawn_blocking(|| windows_output_state(None, None)).await??;
+        let adjusted = tokio::task::spawn_blocking(move || match mode {
+            RecordingOutputMode::Unchanged => Ok(state),
+            RecordingOutputMode::Reduced => {
+                windows_output_state(None, Some(reduced_output_volume(state.volume, volume)))
+            }
+            RecordingOutputMode::Muted => windows_output_state(Some(true), None),
+        })
+        .await?;
+        if let Err(error) = adjusted {
+            let _ = tokio::task::spawn_blocking(move || {
+                windows_output_state(Some(state.muted), Some(state.volume))
+            })
+            .await;
+            return Err(error);
+        }
+        Ok(Some(state))
     }
 
-    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
-        if state == AudioMuteState::Muted {
-            tokio::task::spawn_blocking(|| windows_output_mute(Some(false))).await??;
-        }
+    async fn restore_output_after_recording(&self, state: AudioOutputState) -> Result<()> {
+        tokio::task::spawn_blocking(move || {
+            windows_output_state(Some(state.muted), Some(state.volume))
+        })
+        .await??;
         Ok(())
     }
 
@@ -232,7 +250,15 @@ struct EndpointVolumeVtable {
     query_interface: usize,
     add_ref: usize,
     release: usize,
-    methods_before_mute: [usize; 11],
+    register_control_change_notify: usize,
+    unregister_control_change_notify: usize,
+    get_channel_count: usize,
+    set_master_volume_level: usize,
+    set_master_volume_level_scalar:
+        unsafe extern "system" fn(*mut c_void, f32, *const GUID) -> HRESULT,
+    get_master_volume_level: usize,
+    get_master_volume_level_scalar: unsafe extern "system" fn(*mut c_void, *mut f32) -> HRESULT,
+    channel_volume_methods: [usize; 4],
     set_mute: unsafe extern "system" fn(*mut c_void, i32, *const GUID) -> HRESULT,
     get_mute: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
 }
@@ -256,7 +282,10 @@ const IID_AUDIO_ENDPOINT_VOLUME: GUID = GUID {
     data4: [0x97, 0x22, 0x0c, 0xf7, 0x40, 0x78, 0x22, 0x9a],
 };
 
-fn windows_output_mute(set_muted: Option<bool>) -> Result<bool> {
+fn windows_output_state(
+    set_muted: Option<bool>,
+    set_volume: Option<f32>,
+) -> Result<AudioOutputState> {
     let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
     if init < 0 {
         return Err(anyhow!(
@@ -301,10 +330,25 @@ fn windows_output_mute(set_muted: Option<bool>) -> Result<bool> {
         )?;
         let endpoint_vtable = *(endpoint as *mut *mut EndpointVolumeVtable);
         let mut muted = 0_i32;
+        let mut volume = 0.0_f32;
         check_hresult(
             ((*endpoint_vtable).get_mute)(endpoint, &mut muted),
             "reading Windows output mute state",
         )?;
+        check_hresult(
+            ((*endpoint_vtable).get_master_volume_level_scalar)(endpoint, &mut volume),
+            "reading Windows output volume",
+        )?;
+        if let Some(set_volume) = set_volume {
+            check_hresult(
+                ((*endpoint_vtable).set_master_volume_level_scalar)(
+                    endpoint,
+                    set_volume.clamp(0.0, 1.0),
+                    std::ptr::null(),
+                ),
+                "setting Windows output volume",
+            )?;
+        }
         if let Some(set_muted) = set_muted {
             check_hresult(
                 ((*endpoint_vtable).set_mute)(endpoint, i32::from(set_muted), std::ptr::null()),
@@ -314,7 +358,10 @@ fn windows_output_mute(set_muted: Option<bool>) -> Result<bool> {
         release_com(endpoint);
         release_com(device);
         release_com(enumerator);
-        Ok(muted != 0)
+        Ok(AudioOutputState {
+            muted: muted != 0,
+            volume: volume.clamp(0.0, 1.0),
+        })
     })();
     unsafe { CoUninitialize() };
     result

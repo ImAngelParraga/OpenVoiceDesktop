@@ -506,7 +506,11 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
             ("push-to-talk", Some("behavior.push_to_talk")),
             ("cancel-shortcut", Some("behavior.cancel_shortcut")),
             ("microphone", Some("audio.selected_microphone")),
-            ("mute-while-recording", Some("audio.mute_while_recording")),
+            ("recording-output-mode", Some("audio.recording_output_mode")),
+            (
+                "recording-output-volume",
+                Some("audio.recording_output_volume")
+            ),
             ("audio-feedback", Some("audio.audio_feedback")),
             ("output-device", Some("audio.selected_output_device")),
             ("always-on-microphone", Some("audio.always_on_microphone")),

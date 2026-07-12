@@ -1,10 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use openvoice_desktop::core::asr::{AsrClient, Transcription};
-use openvoice_desktop::core::config::Config;
+use openvoice_desktop::core::config::{Config, RecordingOutputMode};
 use openvoice_desktop::core::controller::VoiceController;
 use openvoice_desktop::core::events::{AppEventSink, AppShellEvent};
-use openvoice_desktop::core::platform::{AudioMuteState, PlatformAdapter};
+use openvoice_desktop::core::platform::{AudioOutputState, PlatformAdapter};
 use openvoice_desktop::core::recorder::{RecordedAudio, Recorder};
 use openvoice_desktop::core::state::{RecordingState, ToggleOutcome};
 use std::path::Path;
@@ -184,7 +184,7 @@ async fn paste_failure_preserves_transcript_in_history() {
 #[tokio::test]
 async fn mute_session_restores_after_success_and_paste_failure() {
     let mut config = Config::default();
-    config.audio.mute_while_recording = true;
+    config.audio.recording_output_mode = RecordingOutputMode::Muted;
     config.output.paste_delay_ms = 0;
     config.output.restore_delay_ms = 0;
 
@@ -201,7 +201,7 @@ async fn mute_session_restores_after_success_and_paste_failure() {
     );
     controller.toggle().await.unwrap();
     controller.toggle().await.unwrap();
-    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
 
     let platform = FakePlatform::new(None).with_paste_failure();
     let restores = platform.restores.clone();
@@ -216,14 +216,44 @@ async fn mute_session_restores_after_success_and_paste_failure() {
     );
     controller.toggle().await.unwrap();
     assert!(controller.toggle().await.is_err());
-    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
     assert_eq!(controller.state(), RecordingState::Idle);
+}
+
+#[tokio::test]
+async fn test_v28_v29_reduced_output_applies_level_and_restores_exact_state() {
+    let mut config = Config::default();
+    config.audio.recording_output_mode = RecordingOutputMode::Reduced;
+    config.audio.recording_output_volume = 0.25;
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
+    let platform = FakePlatform::new(None);
+    let adjustments = platform.adjustments.clone();
+    let restores = platform.restores.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config,
+    );
+
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+
+    assert_eq!(
+        *adjustments.lock().unwrap(),
+        vec![(RecordingOutputMode::Reduced, 0.25)]
+    );
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
 }
 
 #[tokio::test]
 async fn shutdown_restores_active_mute_session() {
     let mut config = Config::default();
-    config.audio.mute_while_recording = true;
+    config.audio.recording_output_mode = RecordingOutputMode::Muted;
     let platform = FakePlatform::new(None);
     let restores = platform.restores.clone();
     let mut controller = VoiceController::new(
@@ -237,7 +267,7 @@ async fn shutdown_restores_active_mute_session() {
     );
     controller.toggle().await.unwrap();
     controller.shutdown().await.unwrap();
-    assert_eq!(*restores.lock().unwrap(), vec![AudioMuteState::Muted]);
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
     assert_eq!(controller.state(), RecordingState::Idle);
 }
 
@@ -623,7 +653,8 @@ impl AsrClient for CancelingAsr {
 struct FakePlatform {
     clipboard: Arc<Mutex<Option<String>>>,
     observations: Arc<Mutex<Vec<String>>>,
-    restores: Arc<Mutex<Vec<AudioMuteState>>>,
+    adjustments: Arc<Mutex<Vec<(RecordingOutputMode, f32)>>>,
+    restores: Arc<Mutex<Vec<AudioOutputState>>>,
     fail_paste: bool,
     fail_selection: bool,
 }
@@ -633,6 +664,7 @@ impl FakePlatform {
         Self {
             clipboard: Arc::new(Mutex::new(clipboard)),
             observations: Arc::new(Mutex::new(Vec::new())),
+            adjustments: Arc::new(Mutex::new(Vec::new())),
             restores: Arc::new(Mutex::new(Vec::new())),
             fail_paste: false,
             fail_selection: false,
@@ -731,13 +763,25 @@ impl PlatformAdapter for FakePlatform {
         Ok(())
     }
 
-    async fn mute_output_for_recording(&self) -> Result<AudioMuteState> {
-        Ok(AudioMuteState::Muted)
+    async fn adjust_output_for_recording(
+        &self,
+        mode: RecordingOutputMode,
+        volume: f32,
+    ) -> Result<Option<AudioOutputState>> {
+        self.adjustments.lock().unwrap().push((mode, volume));
+        Ok((mode != RecordingOutputMode::Unchanged).then(fake_output_state))
     }
 
-    async fn restore_output_after_recording(&self, state: AudioMuteState) -> Result<()> {
+    async fn restore_output_after_recording(&self, state: AudioOutputState) -> Result<()> {
         self.restores.lock().unwrap().push(state);
         Ok(())
+    }
+}
+
+fn fake_output_state() -> AudioOutputState {
+    AudioOutputState {
+        muted: false,
+        volume: 0.73,
     }
 }
 

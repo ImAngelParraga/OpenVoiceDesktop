@@ -1,12 +1,13 @@
 use openvoice_desktop::core::audio::{
-    apply_vad, audio_feedback_plan, effective_audio_encoding, feedback_sound, mute_restore_plan,
-    resolve_input_device, resolve_input_device_details, resolve_output_device,
-    resolve_output_device_details, vad_decision, write_wav, AudioFeedbackEvent, DeviceSelection,
-    FeedbackSound, InputDeviceInfo, InputDeviceResolution, OutputDeviceInfo,
-    OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE_HZ,
-    PCM_BITS_PER_SAMPLE,
+    apply_vad, audio_feedback_plan, effective_audio_encoding, feedback_sound,
+    recording_output_plan, resolve_input_device, resolve_input_device_details,
+    resolve_output_device, resolve_output_device_details, vad_decision, write_wav,
+    AudioFeedbackEvent, DeviceSelection, FeedbackSound, InputDeviceInfo, InputDeviceResolution,
+    OutputDeviceInfo, OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS,
+    DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
-use openvoice_desktop::core::config::{AudioConfig, TextConfig};
+use openvoice_desktop::core::config::{AudioConfig, RecordingOutputMode, TextConfig};
+use openvoice_desktop::core::platform::reduced_output_volume;
 use openvoice_desktop::core::recorder::RecordedAudio;
 
 #[test]
@@ -93,16 +94,16 @@ fn input_device_inventory_marks_default_and_reports_missing_selection() {
 fn audio_feedback_and_mute_plans_restore_after_finish() {
     let mut config = AudioConfig::default();
     config.audio_feedback = true;
-    config.mute_while_recording = true;
+    config.recording_output_mode = RecordingOutputMode::Muted;
     config.audio_feedback_volume = 2.0;
 
     let feedback = audio_feedback_plan(&config, AudioFeedbackEvent::Start).unwrap();
     assert_eq!(feedback.volume, 1.0);
     assert_eq!(feedback.event, AudioFeedbackEvent::Start);
 
-    let mute = mute_restore_plan(&config);
-    assert!(mute.mute_before_recording);
-    assert!(mute.restore_after_finish);
+    let output = recording_output_plan(&config);
+    assert_eq!(output.mode, RecordingOutputMode::Muted);
+    assert!(output.restore_after_finish);
 }
 
 #[test]
@@ -121,6 +122,12 @@ fn test_v27_fresh_config_uses_builtin_feedback_without_files() {
             FeedbackSound::BuiltIn { .. }
         ));
     }
+}
+
+#[test]
+fn test_v28_reduced_output_never_increases_existing_volume() {
+    assert_eq!(reduced_output_volume(0.8, 0.2), 0.2);
+    assert_eq!(reduced_output_volume(0.1, 0.2), 0.1);
 }
 
 #[test]

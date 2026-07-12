@@ -11,7 +11,7 @@ use crate::core::config::Config;
 use crate::core::events::{AppEventSink, AppShellEvent, NoopEventSink, ProcessingStage};
 use crate::core::history::HistoryStore;
 use crate::core::logging::FileLogger;
-use crate::core::platform::{paste_with_output_config, AudioMuteState, PlatformAdapter};
+use crate::core::platform::{paste_with_output_config, AudioOutputState, PlatformAdapter};
 use crate::core::recorder::Recorder;
 use crate::core::settings_ui::{apply_text_presentation, HistoryEntry, HistoryStatus};
 use crate::core::state::{RecordingState, ToggleOutcome};
@@ -25,7 +25,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     state: RecordingState,
     recording_started_at: Option<Instant>,
     cancel_requested: Arc<AtomicBool>,
-    mute_state: Option<AudioMuteState>,
+    output_state: Option<AudioOutputState>,
     history: Option<HistoryStore>,
     logger: Option<FileLogger>,
 }
@@ -58,7 +58,7 @@ where
             state: RecordingState::Idle,
             recording_started_at: None,
             cancel_requested: Arc::new(AtomicBool::new(false)),
-            mute_state: None,
+            output_state: None,
             history: None,
             logger: None,
         }
@@ -143,13 +143,18 @@ where
                 self.state = RecordingState::Recording;
                 self.events.emit(AppShellEvent::Recording);
 
-                if self.config.audio.mute_while_recording {
-                    match self.platform.mute_output_for_recording().await {
-                        Ok(state) => self.mute_state = Some(state),
-                        Err(error) => return Err(self.fail_operation(error).await),
-                    }
-                }
                 self.play_feedback(AudioFeedbackEvent::Start).await;
+                match self
+                    .platform
+                    .adjust_output_for_recording(
+                        self.config.audio.recording_output_mode,
+                        self.config.audio.recording_output_volume,
+                    )
+                    .await
+                {
+                    Ok(state) => self.output_state = state,
+                    Err(error) => return Err(self.fail_operation(error).await),
+                }
                 if let Err(error) = self.recorder.start().await {
                     return Err(self.fail_operation(error).await);
                 }
@@ -396,7 +401,7 @@ where
     }
 
     async fn restore_audio_session(&mut self) -> Result<()> {
-        let Some(state) = self.mute_state.take() else {
+        let Some(state) = self.output_state.take() else {
             return Ok(());
         };
         self.platform.restore_output_after_recording(state).await

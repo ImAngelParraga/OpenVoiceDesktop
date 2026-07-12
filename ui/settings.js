@@ -111,7 +111,13 @@ function feedbackDependent(path) {
   ].includes(path);
 }
 
+function recordingOutputDependent(path) {
+  return path === "audio.recording_output_volume"
+    && documentModel.config.audio.recording_output_mode !== "reduced";
+}
+
 function selectOptions(path) {
+  if (path === "audio.recording_output_mode") return ["unchanged", "reduced", "muted"];
   if (path === "audio.sound_theme") return ["default", "minimal", "custom"];
   if (path === "app.overlay_position") return ["top", "bottom"];
   if (path === "app.overlay_style") return ["compact", "expanded"];
@@ -145,6 +151,8 @@ function render() {
       ? contract.reason ?? "Unavailable in this build."
       : feedbackDependent(path) && !documentModel.config.audio.audio_feedback
         ? "Enable Audio feedback to use this option."
+        : recordingOutputDependent(path)
+          ? "Select reduced output mode to set recording volume."
         : null;
     const input = document.createElement(control.kind === "text-area" ? "textarea" : "input");
     input.name = path;
@@ -200,7 +208,10 @@ function render() {
         option.selected = String(displayValue ?? "") === optionValue;
         select.append(option);
       }
-      select.addEventListener("change", () => setPath(documentModel.config, path, select.value));
+      select.addEventListener("change", () => {
+        setPath(documentModel.config, path, select.value);
+        if (path === "audio.recording_output_mode") render();
+      });
       row.append(fieldCopy(control), select);
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
       form.append(row);

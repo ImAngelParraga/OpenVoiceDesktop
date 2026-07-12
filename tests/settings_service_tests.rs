@@ -93,6 +93,16 @@ fn recording_buffer_is_bounded_to_handy_control_range() {
 }
 
 #[test]
+fn test_v28_recording_output_volume_is_validated() {
+    let mut config = Config::default();
+    config.audio.recording_output_volume = 1.01;
+    assert!(validate_config(&config)
+        .unwrap_err()
+        .to_string()
+        .contains("audio.recording_output_volume"));
+}
+
+#[test]
 fn about_document_exposes_real_values() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

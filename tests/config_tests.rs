@@ -1,7 +1,7 @@
 use openvoice_desktop::core::config::{
     require_private_file, resolve_portable_path, token_source_from_availability, ClipboardHandling,
-    Config, LogLevel, OverlayPosition, OverlayStyle, PasteMethod, RecordingRetention, SoundTheme,
-    Theme, TypingTool, CURRENT_SCHEMA_VERSION,
+    Config, LogLevel, OverlayPosition, OverlayStyle, PasteMethod, RecordingOutputMode,
+    RecordingRetention, SoundTheme, Theme, TypingTool, CURRENT_SCHEMA_VERSION,
 };
 use openvoice_desktop::core::settings_ui::AsrTokenSource;
 use std::fs;
@@ -20,7 +20,11 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.audio.channels, 1);
     assert_eq!(loaded.config.audio.selected_microphone, None);
     assert!(!loaded.config.audio.always_on_microphone);
-    assert!(!loaded.config.audio.mute_while_recording);
+    assert_eq!(
+        loaded.config.audio.recording_output_mode,
+        RecordingOutputMode::Unchanged
+    );
+    assert_eq!(loaded.config.audio.recording_output_volume, 0.2);
     assert!(loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
@@ -62,6 +66,27 @@ fn missing_config_uses_defaults() {
     assert!(!loaded.config.updates.check_for_updates);
     assert!(!loaded.config.portable.enabled);
     assert!(!loaded.config.onboarding.completed);
+}
+
+#[test]
+fn test_v28_legacy_mute_setting_migrates_to_muted_mode() {
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(
+        file,
+        r#"
+schema_version = 1
+
+[audio]
+mute_while_recording = true
+"#
+    )
+    .unwrap();
+
+    let loaded = Config::load_from(file.path()).unwrap();
+    assert_eq!(
+        loaded.config.audio.recording_output_mode,
+        RecordingOutputMode::Muted
+    );
 }
 
 #[test]
@@ -333,7 +358,10 @@ cancel_shortcut = "Ctrl+Escape"
         loaded.config.audio.selected_microphone.as_deref(),
         Some("Studio Mic")
     );
-    assert!(loaded.config.audio.mute_while_recording);
+    assert_eq!(
+        loaded.config.audio.recording_output_mode,
+        RecordingOutputMode::Muted
+    );
     assert!(loaded.config.audio.audio_feedback);
     assert_eq!(
         loaded.config.audio.selected_output_device.as_deref(),
@@ -401,7 +429,10 @@ sample_rate_hz = 48000
     assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
     assert_eq!(loaded.config.audio.sample_rate_hz, 48_000);
     assert_eq!(loaded.config.audio.selected_microphone, None);
-    assert!(!loaded.config.audio.mute_while_recording);
+    assert_eq!(
+        loaded.config.audio.recording_output_mode,
+        RecordingOutputMode::Unchanged
+    );
     assert!(loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);

@@ -3,7 +3,8 @@
 use openvoice_desktop::core::config::TypingTool;
 use openvoice_desktop::platform::linux::{
     linux_paste_command_candidates, linux_select_command_candidates,
-    linux_submit_command_candidates, linux_type_command_candidates,
+    linux_submit_command_candidates, linux_type_command_candidates, parse_linux_output_state,
+    parse_pactl_output_state,
 };
 
 #[test]
@@ -39,4 +40,19 @@ fn linux_submit_uses_configured_typing_tool_only() {
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].program, "xdotool");
     assert_eq!(commands[0].args, vec!["key", "Return"]);
+}
+
+#[test]
+fn test_v29_linux_output_state_parsers_preserve_mute_and_volume() {
+    let pipewire = parse_linux_output_state("Volume: 0.4200 [MUTED]\n").unwrap();
+    assert!(pipewire.muted);
+    assert_eq!(pipewire.volume, 0.42);
+
+    let pulse = parse_pactl_output_state(
+        "Volume: front-left: 32768 / 50% / -18.06 dB\n",
+        "Mute: no\n",
+    )
+    .unwrap();
+    assert!(!pulse.muted);
+    assert_eq!(pulse.volume, 0.5);
 }

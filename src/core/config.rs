@@ -57,7 +57,8 @@ pub struct AudioConfig {
     pub channels: u16,
     pub selected_microphone: Option<String>,
     pub always_on_microphone: bool,
-    pub mute_while_recording: bool,
+    pub recording_output_mode: RecordingOutputMode,
+    pub recording_output_volume: f32,
     pub audio_feedback: bool,
     pub selected_output_device: Option<String>,
     pub audio_feedback_volume: f32,
@@ -213,6 +214,14 @@ pub enum SoundTheme {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecordingOutputMode {
+    Unchanged,
+    Reduced,
+    Muted,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct UpdatesConfig {
@@ -300,7 +309,8 @@ impl Default for AudioConfig {
             channels: 1,
             selected_microphone: None,
             always_on_microphone: false,
-            mute_while_recording: false,
+            recording_output_mode: RecordingOutputMode::Unchanged,
+            recording_output_volume: 0.2,
             audio_feedback: true,
             selected_output_device: None,
             audio_feedback_volume: 0.5,
@@ -597,6 +607,28 @@ fn migrate_config_toml(contents: &str) -> Result<Config> {
                 version,
                 CURRENT_SCHEMA_VERSION
             ));
+        }
+    }
+
+    let root = value
+        .as_table_mut()
+        .ok_or_else(|| anyhow!("config root must be a TOML table"))?;
+    if let Some(audio) = root.get_mut("audio").and_then(toml::Value::as_table_mut) {
+        let legacy_mute = audio
+            .remove("mute_while_recording")
+            .and_then(|value| value.as_bool());
+        if !audio.contains_key("recording_output_mode") {
+            audio.insert(
+                "recording_output_mode".to_string(),
+                toml::Value::String(
+                    if legacy_mute == Some(true) {
+                        "muted"
+                    } else {
+                        "unchanged"
+                    }
+                    .to_string(),
+                ),
+            );
         }
     }
 
