@@ -57,6 +57,28 @@ fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
 }
 
 #[test]
+fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
+    assert!(
+        WINDOWS_RS.contains("const CANCEL_HOTKEY_ID: i32 = 2"),
+        "cancel shortcut needs its own Windows hotkey id"
+    );
+    assert!(
+        WINDOWS_RS.contains(
+            "RegisterHotKey(hwnd, CANCEL_HOTKEY_ID, MOD_NOREPEAT as u32, VK_ESCAPE as u32)",
+        ),
+        "Escape must be registered as a non-repeating global hotkey"
+    );
+    assert!(
+        WINDOWS_RS.contains("CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel)"),
+        "Escape hotkey must route through the normal cancel command"
+    );
+    assert!(
+        WINDOWS_RS.contains("UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID)"),
+        "cancel hotkey must be released when tray loop exits"
+    );
+}
+
+#[test]
 fn test_v11_settings_menu_launches_settings_panel() {
     assert!(
         WINDOWS_RS.contains("open_settings_panel"),

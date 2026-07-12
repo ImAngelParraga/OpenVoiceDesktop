@@ -24,7 +24,8 @@ use windows_sys::Win32::System::Com::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOD_CONTROL, VK_CONTROL, VK_LEFT, VK_RETURN, VK_SHIFT, VK_SPACE, VK_V,
+    KEYEVENTF_KEYUP, MOD_CONTROL, MOD_NOREPEAT, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RETURN,
+    VK_SHIFT, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -46,6 +47,7 @@ use crate::core::platform::{AudioMuteState, PlatformAdapter};
 
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
+const CANCEL_HOTKEY_ID: i32 = 2;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_STATUS_POPUP: u32 = WM_APP + 2;
@@ -401,6 +403,18 @@ pub fn run_tray_loop_with_config(
                 "Ctrl+Space is already registered by another application.",
             )?;
         }
+        if RegisterHotKey(
+            hwnd,
+            CANCEL_HOTKEY_ID,
+            MOD_NOREPEAT as u32,
+            VK_ESCAPE as u32,
+        ) == 0
+        {
+            message_box(
+                "OpenVoiceDesktop cancel shortcut unavailable",
+                "Escape is already registered by another application.",
+            )?;
+        }
 
         if show_tray_icon {
             add_tray_icon(hwnd)?;
@@ -420,6 +434,7 @@ pub fn run_tray_loop_with_config(
             remove_tray_icon(hwnd);
         }
         UnregisterHotKey(hwnd, HOTKEY_ID);
+        UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
         Ok(())
     }
 }
@@ -509,7 +524,11 @@ unsafe extern "system" fn wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_HOTKEY => {
-            send_command(TrayCommand::Toggle);
+            match wparam as i32 {
+                HOTKEY_ID => send_command(TrayCommand::Toggle),
+                CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel),
+                _ => {}
+            }
             0
         }
         WM_COMMAND => {
