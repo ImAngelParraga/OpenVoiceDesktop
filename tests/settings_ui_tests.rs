@@ -58,6 +58,41 @@ fn settings_window_layout_excludes_handy_local_model_sections() {
 }
 
 #[test]
+fn test_v26_visible_settings_have_human_labels_and_help_text() {
+    let layout = SettingsWindowLayout::default_layout();
+    for section in &layout.sections {
+        for control in &section.controls {
+            assert!(
+                !control.label.contains('.'),
+                "raw config label: {}",
+                control.label
+            );
+            assert!(
+                !control.description.trim().is_empty(),
+                "missing help text: {}",
+                control.inventory_id()
+            );
+            assert_ne!(
+                control.description,
+                "Configure this option.",
+                "generic help text: {}",
+                control.inventory_id()
+            );
+        }
+    }
+
+    let prompt = layout
+        .sections
+        .iter()
+        .flat_map(|section| &section.controls)
+        .find(|control| control.config_key == Some("asr.prompt"))
+        .unwrap();
+    assert!(prompt.description.contains("natural text"));
+    assert!(prompt.description.contains("commas"));
+    assert!(prompt.description.contains("OpenVoiceDesktop, Whisper"));
+}
+
+#[test]
 fn asr_endpoint_settings_exposes_t5_endpoint_controls() {
     let layout = SettingsWindowLayout::default_layout();
     let endpoint = layout

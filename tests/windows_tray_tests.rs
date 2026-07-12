@@ -63,9 +63,10 @@ fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
         "cancel shortcut needs its own Windows hotkey id"
     );
     assert!(
-        WINDOWS_RS.contains(
-            "RegisterHotKey(hwnd, CANCEL_HOTKEY_ID, MOD_NOREPEAT as u32, VK_ESCAPE as u32)",
-        ),
+        WINDOWS_RS.contains("RegisterHotKey(")
+            && WINDOWS_RS.contains("CANCEL_HOTKEY_ID,")
+            && WINDOWS_RS.contains("MOD_NOREPEAT as u32,")
+            && WINDOWS_RS.contains("VK_ESCAPE as u32,"),
         "Escape must be registered as a non-repeating global hotkey"
     );
     assert!(

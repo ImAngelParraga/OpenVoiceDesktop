@@ -11,12 +11,13 @@ use crate::core::audio::{
 };
 use crate::core::config::Config;
 use crate::core::settings_inventory::{ControlState, InventoryKind, SETTINGS_INVENTORY};
-use crate::core::settings_ui::{LocaleCatalog, ThemeSelection};
+use crate::core::settings_ui::{LocaleCatalog, SettingsWindowLayout, ThemeSelection};
 use crate::core::shortcut::ShortcutBindings;
 
 /// Typed settings boundary adapted from `H:src-tauri/src/settings.rs`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsDocument {
+    pub layout: SettingsWindowLayout,
     pub config: Config,
     pub asr_token_configured: bool,
     pub asr_token_status: crate::core::settings_ui::AsrTokenStatus,
@@ -140,6 +141,7 @@ impl SettingsService {
         );
         loaded.asr.bearer_token = None;
         Ok(SettingsDocument {
+            layout: SettingsWindowLayout::default_layout(),
             config: loaded,
             asr_token_configured,
             asr_token_status,

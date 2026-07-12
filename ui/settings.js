@@ -1,12 +1,12 @@
 const { invoke } = window.__TAURI__.core;
 
-const sections = {
-  general: ["behavior", "audio"],
-  asr: ["asr"],
-  advanced: ["app", "output", "text", "ui", "updates", "portable"],
-  history: ["history"],
-  debug: ["debug", "diagnostics", "ipc"],
-  about: ["onboarding"],
+const layoutSectionIds = {
+  general: "general",
+  asr: "asr-endpoint",
+  advanced: "advanced",
+  history: "history",
+  debug: "debug",
+  about: "about",
 };
 const translations = {
   en: {
@@ -29,16 +29,6 @@ const translations = {
     general: "一般", asr: "ASR エンドポイント", advanced: "詳細", history: "履歴", debug: "デバッグ", about: "情報",
     save: "設定を保存", loading: "設定を読み込み中…", loaded: "設定を読み込みました。",
   },
-};
-
-const fieldLabels = {
-  "asr.base_url": "Base URL", "asr.model": "Model", "asr.language": "Language", "asr.prompt": "Prompt",
-  "asr.bearer_token": "Token status", "asr.timeout_seconds": "Timeout",
-  "ui.language": "Language", "ui.theme": "Theme", "portable.enabled": "Portable mode",
-  "updates.check_for_updates": "Update checks", "updates.show_whats_new": "Show what's new", "updates.release_channel": "Release channel",
-  "output.paste_method": "Paste method", "output.typing_tool": "Typing tool", "output.clipboard_handling": "Clipboard handling",
-  "output.auto_submit": "Auto-submit", "output.paste_delay_ms": "Paste delay", "output.restore_delay_ms": "Restore delay",
-  "output.external_script_path": "External script",
 };
 
 let documentModel;
@@ -72,23 +62,41 @@ function applyTheme(theme) {
   document.documentElement.style.colorScheme = selected === "system" ? "light dark" : selected;
 }
 
-function flatten(value, prefix = "", output = new Map()) {
-  for (const [key, child] of Object.entries(value)) {
-    const path = prefix ? `${prefix}.${key}` : key;
-    if (child !== null && typeof child === "object" && !Array.isArray(child)) {
-      flatten(child, path, output);
-    } else {
-      output.set(path, child);
-    }
-  }
-  return output;
-}
-
 function setPath(root, path, value) {
   const parts = path.split(".");
   const leaf = parts.pop();
   const owner = parts.reduce((current, part) => current[part], root);
   owner[leaf] = value;
+}
+
+function getPath(root, path) {
+  return path.split(".").reduce((current, part) => current?.[part], root);
+}
+
+function activeControls() {
+  const sectionId = layoutSectionIds[activeSection];
+  return documentModel.layout.sections.find((section) => section.id === sectionId)?.controls ?? [];
+}
+
+function fieldCopy(control) {
+  const copy = document.createElement("span");
+  copy.className = "field-copy";
+  const name = document.createElement("span");
+  name.className = "field-name";
+  name.textContent = control.label;
+  const help = document.createElement("small");
+  help.className = "field-help";
+  help.textContent = control.description;
+  copy.append(name, help);
+  return copy;
+}
+
+function addFieldNote(row, text, className = "field-note") {
+  if (!text) return;
+  const note = document.createElement("small");
+  note.className = className;
+  note.textContent = text;
+  row.append(note);
 }
 
 function feedbackDependent(path) {
@@ -120,24 +128,26 @@ function selectOptions(path) {
 
 function render() {
   form.replaceChildren();
-  const allowed = sections[activeSection];
   const availability = new Map(documentModel.fields.map((field) => [field.field, field]));
-  for (const [path, value] of flatten(documentModel.config)) {
-    if (path === "schema_version" || !allowed.some((prefix) => path.startsWith(`${prefix}.`))) continue;
+  for (const control of activeControls()) {
+    const path = control.config_key;
+    if (!path) continue;
     if (path === "asr.bearer_token") continue;
     if (path.startsWith("updates.")) continue;
-    if (path.startsWith("onboarding.")) continue;
-    if (path === "behavior.restore_clipboard" || path === "behavior.clipboard_restore_delay_ms") continue;
     const contract = availability.get(path);
     if (!contract) continue;
+    const value = getPath(documentModel.config, path);
     const row = document.createElement("label");
     row.dataset.field = path;
-    const name = document.createElement("span");
-    name.textContent = fieldLabels[path] ?? path;
-    const input = document.createElement("input");
+    row.title = control.description;
+    const unavailableReason = contract.status === "unavailable"
+      ? contract.reason ?? "Unavailable in this build."
+      : feedbackDependent(path) && !documentModel.config.audio.audio_feedback
+        ? "Enable Audio feedback to use this option."
+        : null;
+    const input = document.createElement(control.kind === "text-area" ? "textarea" : "input");
     input.name = path;
-    input.disabled = contract.status === "unavailable" ||
-      (feedbackDependent(path) && !documentModel.config.audio.audio_feedback);
+    input.disabled = unavailableReason !== null;
     if (path === "audio.selected_microphone" || path === "audio.selected_output_device") {
       const select = document.createElement("select");
       select.name = path;
@@ -159,16 +169,13 @@ function render() {
       select.addEventListener("change", () => {
         setPath(documentModel.config, path, select.value || null);
       });
-      row.append(name, select);
+      row.append(fieldCopy(control), select);
+      addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
       if (documentModel.input_device_fallback) {
-        const note = document.createElement("small");
-        note.textContent = documentModel.input_device_fallback;
-        row.append(note);
+        addFieldNote(row, documentModel.input_device_fallback);
       }
       if (documentModel.output_device_fallback && path === "audio.selected_output_device") {
-        const note = document.createElement("small");
-        note.textContent = documentModel.output_device_fallback;
-        row.append(note);
+        addFieldNote(row, documentModel.output_device_fallback);
       }
       form.append(row);
       continue;
@@ -193,7 +200,8 @@ function render() {
         select.append(option);
       }
       select.addEventListener("change", () => setPath(documentModel.config, path, select.value));
-      row.append(name, select);
+      row.append(fieldCopy(control), select);
+      addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
       form.append(row);
       continue;
     }
@@ -211,7 +219,7 @@ function render() {
       input.type = "text";
       input.value = displayValue ?? "";
     }
-    if (input.disabled) input.title = contract.reason ?? "Unavailable";
+    if (input.disabled) input.title = unavailableReason;
     input.addEventListener("change", () => {
       let next = input.value;
       if (input.type === "checkbox") next = input.checked;
@@ -226,7 +234,8 @@ function render() {
       }
       if (path === "ui.theme") applyTheme(documentModel.config.ui.theme);
     });
-    row.append(name, input);
+    row.append(fieldCopy(control), input);
+    addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
     form.append(row);
   }
   if (activeSection === "history") renderHistoryActions();

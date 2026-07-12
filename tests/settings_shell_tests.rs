@@ -83,6 +83,16 @@ fn settings_surface_applies_locale_theme_and_hides_unavailable_updates() {
 }
 
 #[test]
+fn test_v26_settings_render_typed_labels_help_and_unavailable_reasons() {
+    assert!(SETTINGS_JS.contains("function activeControls()"));
+    assert!(SETTINGS_JS.contains("control.label"));
+    assert!(SETTINGS_JS.contains("control.description"));
+    assert!(SETTINGS_JS.contains("Unavailable: ${unavailableReason}"));
+    assert!(!SETTINGS_JS.contains("fieldLabels"));
+    assert!(!SETTINGS_JS.contains("fieldLabels[path] ?? path"));
+}
+
+#[test]
 fn history_controls_and_actions_are_connected() {
     for command in [
         "open_recordings_folder",

@@ -15,6 +15,14 @@ fn settings_document_exposes_only_asr_token_status() {
     config.save_to(&path).unwrap();
 
     let document = SettingsService::new(&path).get().unwrap();
+    assert_eq!(document.layout.title, "OpenVoiceDesktop Settings");
+    assert!(document
+        .layout
+        .sections
+        .iter()
+        .flat_map(|section| &section.controls)
+        .any(|control| control.config_key == Some("behavior.shortcut")
+            && control.label == "Shortcut"));
     assert!(document.asr_token_configured);
     assert_eq!(document.config.asr.bearer_token, None);
     assert!(document
