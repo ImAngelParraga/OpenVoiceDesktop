@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const settingsWindow = window.__TAURI__.window.getCurrentWindow();
 
 const layoutSectionIds = {
   general: "general",
@@ -404,6 +405,7 @@ for (const button of document.querySelectorAll("nav button")) {
 }
 
 document.querySelector("#save").addEventListener("click", async () => {
+  const activeSectionBeforeSave = activeSection;
   status.textContent = "Saving…";
   try {
     const result = await invoke("save_settings", { request: { config: documentModel.config } });
@@ -412,6 +414,10 @@ document.querySelector("#save").addEventListener("click", async () => {
     status.textContent = `Saved. ${applied} applied; ${restart} restart-required.`;
   } catch (error) {
     status.textContent = `Save failed: ${error}`;
+  } finally {
+    activeSection = activeSectionBeforeSave;
+    await settingsWindow.show();
+    await settingsWindow.setFocus();
   }
 });
 

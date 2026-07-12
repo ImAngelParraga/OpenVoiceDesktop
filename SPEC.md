@@ -92,6 +92,10 @@ V22: Completeness invariant: CI maintains explicit inventory of every config fie
 V23: Desktop-shell invariant: `cargo test --features desktop-shell` passes on Linux and Windows; every Tauri configured/generated bundle asset exists.
 V24: Text-ownership invariant: desktop sends audio plus configured `language`/`prompt`, then preserves returned transcript text except explicit presentation operations such as one trailing space; no fuzzy replacement, filler removal, translation, or second-LLM call.
 V25: Post-paste selection invariant: when `output.select_pasted_text=true`, successful clipboard-paste or direct-type output leaves exact inserted transcript span selected in target app, including whitespace, punctuation, Unicode, and multiline text. Selection runs after insertion and before clipboard restore. Disabled setting changes nothing. Copy-only, failed insertion, external-script output, unsupported tool/app, and `auto_submit` incompatibility produce validated unavailability or sanitized visible failure; never select unrelated pre-existing text or report inserted success falsely.
+V26: Settings-save invariant: successful Save keeps settings window open and focused, preserves active section, and displays persistent applied/restart-required confirmation; failure keeps panel open with sanitized error.
+V27: Built-in-feedback invariant: default start/stop/error feedback requires no user-provided files; `audio.audio_feedback` alone enables built-in theme on fresh config, while custom paths are required only for custom theme.
+V28: Recording-output invariant: recording output mode is exactly `unchanged`, `reduced`, or `muted`; reduced mode applies validated `audio.recording_output_volume` in `0.0..=1.0`, and muted mode suppresses output.
+V29: Audio-restore invariant: stop, cancel, recorder/ASR/paste error, reload rejection, and shutdown restore exact pre-recording output mute and volume state; failed output adjustment cannot leave partial changed state.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -161,6 +165,9 @@ T62|x|Installer and process lifecycle|Package Tauri/WebView prerequisites, stop/
 T63|x|Settings end-to-end matrix|Windows UI automation: open from tray, inspect defaults/options, modify each working control, assert file and runtime, exercise every action/error. Linux adapter tests plus documented manual GNOME pass.|H:src/App.tsx|V12,V15,V16,V17,V18,V19,V20,V21,V22
 T64|x|Onboarding state|Implement first-run permission/endpoint/microphone/shortcut flow backed by `onboarding.completed` and `onboarding.show_permission_repair`, or remove both fields until onboarding ships.|H:src/App.tsx; H:src/components/onboarding/*|V8,V15,V22
 T65|x|Optional post-paste selection|Add persisted `output.select_pasted_text=false`, settings toggle/help/availability state, live runtime apply, and platform adapter operation selecting exact newly inserted span. Support Windows `SendInput` and Linux active typing tools; define validation for `auto_submit`, copy-only, external scripts, and unsupported tools. Preserve clipboard-restore ordering and surface sanitized failure without losing transcript. Add config migration/default, settings inventory/UI/service, controller/platform ordering, Unicode/multiline boundary, no-op-disabled, failure, Windows adapter, Linux command, and end-to-end tests.|—|G6,C13,I.settings.output,V6,V7,V9,V12,V15,V17,V22,V25
+T66|x|Keep settings open after save|Preserve settings window and active section after successful/failed Save; show persistent applied/restart-required result and prove no close/hide path runs.|H:src/components/settings/general/GeneralSettings.tsx|V14,V16,V17,V26
+T67|.|Ship default audio feedback|Enable built-in default start/stop/error theme on fresh config without custom paths; keep settings toggle and custom theme optional.|H:src-tauri/src/audio_feedback.rs; H:src/components/settings/AudioFeedback.tsx|V15,V20,V27
+T68|.|Recording output mute and reduction|Replace binary mute lifecycle with unchanged/reduced/muted output mode, migrate existing mute config, apply Linux/Windows volume controls, and restore exact prior mute and volume on every exit path.|H:src/components/settings/MuteWhileRecording.tsx; H:src-tauri/src/managers/audio.rs|V5,V12,V15,V20,V28,V29
 
 §B
 id|date|cause|fix
@@ -179,3 +186,6 @@ B12|2026-07-11|External-script failure test exited before consuming stdin, racin
 B13|2026-07-11|Windows GNU cross-check could not start because x86_64-w64-mingw32-gcc is absent|—
 B14|2026-07-11|Root-owned generated `gen/schemas/*` blocked Tauri schema regeneration with `Permission denied` before Rust compilation|—
 B15|2026-07-11|Windows controller command match used guard before match, so `ControllerCommand::Status` remained non-exhaustive; COM API expects `COINIT_MULTITHREADED` as `u32`|V23
+B16|2026-07-12|Settings Save lacked explicit window-lifecycle contract and regression proof, allowing panel disappearance instead of persistent confirmation|V26
+B17|2026-07-12|Fresh config disabled audio feedback despite built-in generated sounds, making available defaults undiscoverable|V27
+B18|2026-07-12|Recording output lifecycle modeled mute state only and could not attenuate or restore exact prior volume|V28,V29
