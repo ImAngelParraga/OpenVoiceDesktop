@@ -27,6 +27,8 @@ Tests are standard Cargo integration tests in `tests/*_tests.rs`. Add focused te
 
 History mostly uses Conventional Commit prefixes such as `feat:`, `fix:`, and `chore:`; keep subjects short and imperative. Some spec/task commits use labels like `T1:`. After implementing a `SPEC.md` task or full spec, commit the completed changes and push them to the active branch. PRs should include a concise problem/solution summary, linked issue or task when available, test results, and screenshots or short recordings for tray, popup, or installer UI changes. Call out config or credential-store changes explicitly.
 
+Always commit and push after each change.
+
 ## Security & Configuration Tips
 
 Use `config.example.toml` as template. Prefer `OPENVOICE_DESKTOP_TOKEN`, Secret Service, or Windows Credential Manager over plaintext `asr.bearer_token`. If plaintext token config is unavoidable on Unix, keep file permissions private with `chmod 600`.
