@@ -21,7 +21,7 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.audio.selected_microphone, None);
     assert!(!loaded.config.audio.always_on_microphone);
     assert!(!loaded.config.audio.mute_while_recording);
-    assert!(!loaded.config.audio.audio_feedback);
+    assert!(loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
     assert_eq!(loaded.config.audio.sound_theme, SoundTheme::Default);
@@ -402,7 +402,7 @@ sample_rate_hz = 48000
     assert_eq!(loaded.config.audio.sample_rate_hz, 48_000);
     assert_eq!(loaded.config.audio.selected_microphone, None);
     assert!(!loaded.config.audio.mute_while_recording);
-    assert!(!loaded.config.audio.audio_feedback);
+    assert!(loaded.config.audio.audio_feedback);
     assert_eq!(loaded.config.audio.selected_output_device, None);
     assert_eq!(loaded.config.audio.audio_feedback_volume, 0.5);
     assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Space");

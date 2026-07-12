@@ -106,6 +106,24 @@ fn audio_feedback_and_mute_plans_restore_after_finish() {
 }
 
 #[test]
+fn test_v27_fresh_config_uses_builtin_feedback_without_files() {
+    let config = AudioConfig::default();
+    assert!(config.audio_feedback);
+    for event in [
+        AudioFeedbackEvent::Start,
+        AudioFeedbackEvent::Stop,
+        AudioFeedbackEvent::Error,
+    ] {
+        let plan = audio_feedback_plan(&config, event).unwrap();
+        assert!(plan.custom_sound_path.is_none());
+        assert!(matches!(
+            feedback_sound(&plan).unwrap(),
+            FeedbackSound::BuiltIn { .. }
+        ));
+    }
+}
+
+#[test]
 fn output_device_selection_marks_missing_device_and_feedback_theme_is_deterministic() {
     let mut config = AudioConfig::default();
     config.selected_output_device = Some("Headphones".to_string());

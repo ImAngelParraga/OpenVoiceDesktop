@@ -301,7 +301,7 @@ impl Default for AudioConfig {
             selected_microphone: None,
             always_on_microphone: false,
             mute_while_recording: false,
-            audio_feedback: false,
+            audio_feedback: true,
             selected_output_device: None,
             audio_feedback_volume: 0.5,
             sound_theme: SoundTheme::Default,
