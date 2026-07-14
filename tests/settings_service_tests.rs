@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::settings_inventory::{InventoryKind, SETTINGS_INVENTORY};
@@ -6,8 +7,17 @@ use openvoice_desktop::core::settings_service::{
     complete_onboarding, validate_config, ApplyStatus, SaveSettingsRequest, SettingsService,
 };
 
+static DEVICE_ENUMERATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_native_device_enumeration() -> MutexGuard<'static, ()> {
+    DEVICE_ENUMERATION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[test]
-fn settings_document_exposes_only_asr_token_status() {
+fn test_v31_settings_document_exposes_only_asr_token_status() {
+    let _device_lock = lock_native_device_enumeration();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let mut config = Config::default();
@@ -103,7 +113,8 @@ fn test_v28_recording_output_volume_is_validated() {
 }
 
 #[test]
-fn about_document_exposes_real_values() {
+fn test_v31_about_document_exposes_real_values() {
+    let _device_lock = lock_native_device_enumeration();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     Config::default().save_to(&path).unwrap();
