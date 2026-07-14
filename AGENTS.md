@@ -29,6 +29,10 @@ History mostly uses Conventional Commit prefixes such as `feat:`, `fix:`, and `c
 
 Always commit and push after each change.
 
+## Remote CI Waiting
+
+After triggering a long-running remote CI job or build, confirm it started, then detach instead of polling until completion. Provide the run link, exact commands or UI steps for checking status, expected success/failure signals, and instructions for waking the agent after completion. Resume inspection or fixes when the user reports completion or explicitly asks for another status check. Only keep waiting in the same turn when the user explicitly asks to babysit or wait for the remote job.
+
 ## Security & Configuration Tips
 
 Use `config.example.toml` as template. Prefer `OPENVOICE_DESKTOP_TOKEN`, Secret Service, or Windows Credential Manager over plaintext `asr.bearer_token`. If plaintext token config is unavoidable on Unix, keep file permissions private with `chmod 600`.
