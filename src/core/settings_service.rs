@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::sync::OnceLock;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -74,8 +76,7 @@ impl SettingsService {
     pub fn get(&self) -> Result<SettingsDocument> {
         let mut loaded = Config::load_from(&self.path)?.config;
         let fields = field_results(&loaded, &loaded)?;
-        let input_devices = enumerate_input_devices().unwrap_or_default();
-        let output_devices = enumerate_output_devices().unwrap_or_default();
+        let (input_devices, output_devices) = settings_device_inventory();
         let input_device_fallback =
             match resolve_input_device_details(&loaded.audio, &input_devices) {
                 InputDeviceResolution::DefaultWithMissingSelected {
@@ -192,6 +193,29 @@ impl SettingsService {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+fn settings_device_inventory() -> (Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>) {
+    #[cfg(target_os = "windows")]
+    {
+        static CACHE: OnceLock<(Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>)> = OnceLock::new();
+        return CACHE
+            .get_or_init(|| {
+                (
+                    enumerate_input_devices().unwrap_or_default(),
+                    enumerate_output_devices().unwrap_or_default(),
+                )
+            })
+            .clone();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        (
+            enumerate_input_devices().unwrap_or_default(),
+            enumerate_output_devices().unwrap_or_default(),
+        )
     }
 }
 

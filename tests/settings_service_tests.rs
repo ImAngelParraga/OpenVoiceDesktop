@@ -132,6 +132,20 @@ fn test_v31_about_document_exposes_real_values() {
 }
 
 #[test]
+fn test_v31_repeated_settings_loads_reuse_safe_device_inventory() {
+    let _device_lock = lock_native_device_enumeration();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    Config::default().save_to(&path).unwrap();
+    let service = SettingsService::new(path);
+
+    let first = service.get().unwrap();
+    let second = service.get().unwrap();
+    assert_eq!(second.input_devices, first.input_devices);
+    assert_eq!(second.output_devices, first.output_devices);
+}
+
+#[test]
 fn onboarding_requires_permissions_endpoint_token_and_shortcut() {
     let mut config = Config::default();
     assert!(complete_onboarding(&mut config, false)

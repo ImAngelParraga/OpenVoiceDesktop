@@ -97,7 +97,7 @@ V27: Built-in-feedback invariant: default start/stop/error feedback requires no 
 V28: Recording-output invariant: recording output mode is exactly `unchanged`, `reduced`, or `muted`; reduced mode applies validated `audio.recording_output_volume` in `0.0..=1.0`, and muted mode suppresses output.
 V29: Audio-restore invariant: stop, cancel, recorder/ASR/paste error, reload rejection, and shutdown restore exact pre-recording output mute and volume state; failed output adjustment cannot leave partial changed state.
 V30: Windows-install invariant: release provides versioned per-user NSIS setup executable requiring no Git, Rust, source checkout, or administrator rights; interactive install opens first-run setup, `/S` installs silently, upgrade/uninstall preserve config and credentials, and uninstall removes executable, shortcuts, and autostart registration.
-V31: Native-device-test invariant: tests that enumerate live Windows CPAL/WASAPI devices run serially; parallel settings tests never enter native device enumeration concurrently.
+V31: Windows-device-inventory invariant: one settings process enumerates live CPAL/WASAPI input/output devices at most once and reuses that inventory for repeated document loads; runtime audio paths remain live.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -195,4 +195,4 @@ B18|2026-07-12|Recording output lifecycle modeled mute state only and could not 
 B19|2026-07-12|Focused verification passed two positional test filters to one Cargo invocation, which Cargo rejects|—
 B20|2026-07-12|Parallel full-suite run transiently returned `Text file busy` while executing a closed unique tempfile script; isolated retry used to distinguish harness/filesystem race|—
 B21|2026-07-14|Optional local workflow-YAML verification assumed unavailable `ruby`; product tests were green|—
-B22|2026-07-14|Parallel Windows settings tests entered live CPAL/WASAPI enumeration and process crashed with `STATUS_ACCESS_VIOLATION`|V31
+B22|2026-07-14|Repeated Windows settings document loads re-entered CPAL/WASAPI enumeration and second load crashed with `STATUS_ACCESS_VIOLATION`|V31
