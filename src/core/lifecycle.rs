@@ -18,6 +18,22 @@ pub struct LifecyclePolicy {
     pub autostart_enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefaultLaunch {
+    Daemon,
+    Settings,
+}
+
+/// Native Windows bundles open the setup surface until onboarding completes.
+/// Service/source builds keep their explicit daemon command behavior.
+pub fn default_launch(config: &Config, setup_ui_available: bool) -> DefaultLaunch {
+    if setup_ui_available && !config.onboarding.completed {
+        DefaultLaunch::Settings
+    } else {
+        DefaultLaunch::Daemon
+    }
+}
+
 /// Derive one runtime policy from persisted lifecycle fields. A hidden tray
 /// never removes the CLI/settings recovery path.
 pub fn lifecycle_policy(config: &Config) -> LifecyclePolicy {

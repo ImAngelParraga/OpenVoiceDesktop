@@ -1,5 +1,7 @@
 use openvoice_desktop::core::config::Config;
-use openvoice_desktop::core::lifecycle::{lifecycle_policy, StartupVisibility};
+use openvoice_desktop::core::lifecycle::{
+    default_launch, lifecycle_policy, DefaultLaunch, StartupVisibility,
+};
 
 #[test]
 fn lifecycle_policy_keeps_settings_recovery_when_tray_hidden() {
@@ -36,4 +38,14 @@ fn daemon_and_settings_have_single_instance_guards() {
     assert!(lifecycle.contains("CreateMutexW"));
     assert!(lifecycle.contains("ERROR_ALREADY_EXISTS"));
     assert!(shell.contains("tauri_plugin_single_instance::init"));
+}
+
+#[test]
+fn default_launch_routes_windows_first_run_to_settings() {
+    let mut config = Config::default();
+    assert_eq!(default_launch(&config, true), DefaultLaunch::Settings);
+    assert_eq!(default_launch(&config, false), DefaultLaunch::Daemon);
+
+    config.onboarding.completed = true;
+    assert_eq!(default_launch(&config, true), DefaultLaunch::Daemon);
 }

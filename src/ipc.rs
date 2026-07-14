@@ -4,6 +4,7 @@ pub const TOGGLE_COMMAND: &str = "toggle\n";
 pub const CANCEL_COMMAND: &str = "cancel\n";
 pub const RELOAD_CONFIG_COMMAND: &str = "reload-config\n";
 pub const STATUS_COMMAND: &str = "status\n";
+pub const SHUTDOWN_COMMAND: &str = "shutdown\n";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DaemonStatus {
@@ -36,6 +37,11 @@ pub async fn send_reload_config(socket_path: &std::path::Path) -> anyhow::Result
 pub async fn send_status(socket_path: &std::path::Path) -> anyhow::Result<DaemonStatus> {
     let response = send_command(socket_path, STATUS_COMMAND).await?;
     Ok(serde_json::from_str(response.trim())?)
+}
+
+#[cfg(target_os = "linux")]
+pub async fn send_shutdown(socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(socket_path, SHUTDOWN_COMMAND).await
 }
 
 #[cfg(target_os = "linux")]
@@ -73,6 +79,16 @@ pub async fn send_reload_config(_socket_path: &std::path::Path) -> anyhow::Resul
 pub async fn send_status(_socket_path: &std::path::Path) -> anyhow::Result<DaemonStatus> {
     let response = send_command(STATUS_COMMAND).await?;
     Ok(serde_json::from_str(response.trim())?)
+}
+
+#[cfg(target_os = "windows")]
+pub async fn send_shutdown(_socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(SHUTDOWN_COMMAND).await
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub async fn send_shutdown(_socket_path: &std::path::Path) -> anyhow::Result<String> {
+    anyhow::bail!("OpenVoiceDesktop daemon supports Linux and Windows only")
 }
 
 #[cfg(target_os = "windows")]

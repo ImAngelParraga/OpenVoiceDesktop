@@ -1,5 +1,8 @@
 const INSTALL_PS1: &str = include_str!("../scripts/install.ps1");
 const INSTALL_SH: &str = include_str!("../scripts/install.sh");
+const INSTALLER_HOOKS: &str = include_str!("../nsis/installer-hooks.nsh");
+const INSTALLER_SMOKE: &str = include_str!("../scripts/test-installer.ps1");
+const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
 
 #[test]
 fn test_v1_installer_does_not_cleanup_undefined_tempdir() {
@@ -51,4 +54,63 @@ fn windows_installer_requires_webview2_and_tauri_bundles_icons() {
         serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
     assert_eq!(config["bundle"]["active"], true);
     assert!(config["bundle"]["icon"].as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn native_windows_installer_contract() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let bundle = &config["bundle"];
+    let windows = &bundle["windows"];
+    let nsis = &windows["nsis"];
+
+    assert_eq!(bundle["targets"], serde_json::json!(["nsis"]));
+    assert_eq!(windows["allowDowngrades"], false);
+    assert_eq!(
+        windows["webviewInstallMode"]["type"],
+        "downloadBootstrapper"
+    );
+    assert_eq!(nsis["installMode"], "currentUser");
+    assert_eq!(nsis["installerHooks"], "nsis/installer-hooks.nsh");
+    assert!(
+        config.get("version").is_none(),
+        "Cargo version must be canonical"
+    );
+
+    for required in [
+        "shutdown",
+        "taskkill.exe",
+        "schtasks.exe /Delete /TN OpenVoiceDesktop /F",
+        "OpenVoiceDesktop.lnk",
+    ] {
+        assert!(INSTALLER_HOOKS.contains(required), "{required}");
+    }
+    assert!(!INSTALLER_HOOKS.contains("openvoice-desktop\\config.toml"));
+
+    for required in [
+        "Invoke-Setup",
+        "reinstall changed existing config",
+        "uninstall removed user config",
+        "uninstall left autostart task",
+    ] {
+        assert!(INSTALLER_SMOKE.contains(required), "{required}");
+    }
+}
+
+#[test]
+fn tag_release_builds_versioned_setup_and_checksum_after_smoke() {
+    let smoke = CI_WORKFLOW
+        .find("Smoke test install, reinstall, and uninstall")
+        .unwrap();
+    let release = CI_WORKFLOW.find("Upload checksum to release").unwrap();
+    assert!(smoke < release);
+    for required in [
+        "tauri-apps/tauri-action@v1",
+        "--bundles nsis",
+        "release tag ${{ github.ref_name }} does not match Cargo version",
+        "OpenVoiceDesktop_${version}_x64-setup.exe",
+        "Get-FileHash",
+    ] {
+        assert!(CI_WORKFLOW.contains(required), "{required}");
+    }
 }

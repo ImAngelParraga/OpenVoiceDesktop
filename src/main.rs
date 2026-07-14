@@ -38,6 +38,8 @@ enum Command {
     ConfigPath,
     /// Open or focus the native settings window.
     Settings,
+    /// Gracefully stop the resident daemon.
+    Shutdown,
 }
 
 #[tokio::main]
@@ -58,7 +60,21 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    match cli.command.unwrap_or(Command::Daemon) {
+    let command = match cli.command {
+        Some(command) => command,
+        None => {
+            let setup_ui_available = cfg!(all(target_os = "windows", feature = "desktop-shell"));
+            match openvoice_desktop::core::lifecycle::default_launch(
+                &Config::load_default()?.config,
+                setup_ui_available,
+            ) {
+                openvoice_desktop::core::lifecycle::DefaultLaunch::Daemon => Command::Daemon,
+                openvoice_desktop::core::lifecycle::DefaultLaunch::Settings => Command::Settings,
+            }
+        }
+    };
+
+    match command {
         Command::Daemon => {
             let loaded = Config::load_default()?;
             for warning in &loaded.warnings {
@@ -95,5 +111,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Settings => settings_shell::run(),
+        Command::Shutdown => {
+            let loaded = Config::load_default()?;
+            let response = ipc::send_shutdown(&loaded.config.socket_path()?).await?;
+            print!("{response}");
+            Ok(())
+        }
     }
 }

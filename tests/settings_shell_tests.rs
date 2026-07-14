@@ -54,6 +54,15 @@ fn test_v26_save_keeps_settings_open_and_reports_result() {
 }
 
 #[test]
+fn onboarding_completion_starts_windows_daemon() {
+    assert!(SHELL_RS.contains("async fn complete_onboarding"));
+    assert!(SHELL_RS.contains("apply_autostart(config.app.autostart)"));
+    assert!(SHELL_RS.contains("crate::ipc::send_status"));
+    assert!(SHELL_RS.contains(".arg(\"daemon\")"));
+    assert!(SHELL_RS.contains("CREATE_NO_WINDOW"));
+}
+
+#[test]
 fn test_v23_desktop_shell_assets_exist() {
     let config: serde_json::Value = serde_json::from_str(TAURI_CONFIG).unwrap();
     assert_eq!(config["build"]["frontendDist"], "ui");

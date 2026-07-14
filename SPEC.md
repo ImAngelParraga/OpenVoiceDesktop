@@ -96,6 +96,7 @@ V26: Settings-save invariant: successful Save keeps settings window open and foc
 V27: Built-in-feedback invariant: default start/stop/error feedback requires no user-provided files; `audio.audio_feedback` alone enables built-in theme on fresh config, while custom paths are required only for custom theme.
 V28: Recording-output invariant: recording output mode is exactly `unchanged`, `reduced`, or `muted`; reduced mode applies validated `audio.recording_output_volume` in `0.0..=1.0`, and muted mode suppresses output.
 V29: Audio-restore invariant: stop, cancel, recorder/ASR/paste error, reload rejection, and shutdown restore exact pre-recording output mute and volume state; failed output adjustment cannot leave partial changed state.
+V30: Windows-install invariant: release provides versioned per-user NSIS setup executable requiring no Git, Rust, source checkout, or administrator rights; interactive install opens first-run setup, `/S` installs silently, upgrade/uninstall preserve config and credentials, and uninstall removes executable, shortcuts, and autostart registration.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -168,6 +169,7 @@ T65|x|Optional post-paste selection|Add persisted `output.select_pasted_text=fal
 T66|x|Keep settings open after save|Preserve settings window and active section after successful/failed Save; show persistent applied/restart-required result and prove no close/hide path runs.|H:src/components/settings/general/GeneralSettings.tsx|V14,V16,V17,V26
 T67|x|Ship default audio feedback|Enable built-in default start/stop/error theme on fresh config without custom paths; keep settings toggle and custom theme optional.|H:src-tauri/src/audio_feedback.rs; H:src/components/settings/AudioFeedback.tsx|V15,V20,V27
 T68|x|Recording output mute and reduction|Replace binary mute lifecycle with unchanged/reduced/muted output mode, migrate existing mute config, apply Linux/Windows volume controls, and restore exact prior mute and volume on every exit path.|H:src/components/settings/MuteWhileRecording.tsx; H:src-tauri/src/managers/audio.rs|V5,V12,V15,V20,V28,V29
+T69|x|Native Windows easy install|Ship versioned current-user NSIS setup, first-run onboarding launch, graceful upgrade/uninstall lifecycle, tag-driven private GitHub Release asset/checksum, silent install, source-build fallback docs, and Windows install/reinstall/uninstall smoke coverage.|H:BUILD.md; H:src-tauri/tauri.conf.json; H:src-tauri/nsis/installer.nsi|V8,V12,V16,V17,V23,V30
 
 §B
 id|date|cause|fix
@@ -191,3 +193,4 @@ B17|2026-07-12|Fresh config disabled audio feedback despite built-in generated s
 B18|2026-07-12|Recording output lifecycle modeled mute state only and could not attenuate or restore exact prior volume|V28,V29
 B19|2026-07-12|Focused verification passed two positional test filters to one Cargo invocation, which Cargo rejects|—
 B20|2026-07-12|Parallel full-suite run transiently returned `Text file busy` while executing a closed unique tempfile script; isolated retry used to distinguish harness/filesystem race|—
+B21|2026-07-14|Optional local workflow-YAML verification assumed unavailable `ruby`; product tests were green|—

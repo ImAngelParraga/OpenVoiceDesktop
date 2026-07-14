@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpenVoiceDesktop",
-  "version": "0.1.0",
   "identifier": "com.openvoice.desktop",
   "build": {
     "frontendDist": "ui"
@@ -39,6 +38,24 @@
   },
   "bundle": {
     "active": true,
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "targets": ["nsis"],
+    "publisher": "OpenVoiceDesktop",
+    "homepage": "https://github.com/ImAngelParraga/OpenVoiceDesktop",
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "languages": ["English"],
+        "startMenuFolder": "OpenVoiceDesktop",
+        "installerHooks": "nsis/installer-hooks.nsh"
+      }
+    }
   }
 }

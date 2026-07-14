@@ -3,10 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: write
@@ -27,29 +26,66 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo test --features desktop-shell
 
-  windows-release:
-    name: Build Windows release artifact
+  windows-installer:
+    name: Build Windows installer
     runs-on: windows-latest
     needs: test
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --features desktop-shell
-      - name: Package
+      - name: Verify release tag matches Cargo version
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target/release/openvoice-desktop.exe dist/openvoice-desktop.exe
-          Copy-Item README.md dist/README.md
-          Copy-Item config.example.toml dist/config.example.toml
-          Compress-Archive -Path dist/* -DestinationPath openvoice-desktop-windows-x86_64.zip -Force
-      - uses: actions/upload-artifact@v4
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq 'openvoice-desktop').version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "release tag ${{ github.ref_name }} does not match Cargo version v$version"
+          }
+      - name: Build NSIS setup
+        uses: tauri-apps/tauri-action@v1
         with:
-          name: openvoice-desktop-windows-x86_64
-          path: openvoice-desktop-windows-x86_64.zip
-      - name: Upload release asset
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: OpenVoiceDesktop_Windows_x64_installer
+          args: --features desktop-shell --bundles nsis
+      - name: Smoke test install, reinstall, and uninstall
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS setup executable was not produced" }
+          ./scripts/test-installer.ps1 -InstallerPath $installer.FullName
+      - name: Create installer checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq 'openvoice-desktop').version
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS setup executable was not produced" }
+          $assetName = "OpenVoiceDesktop_${version}_x64-setup.exe"
+          $checksum = "OpenVoiceDesktop_${version}_x64-setup.exe.sha256"
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $assetName" | Set-Content $checksum -Encoding ascii
+          "path=$checksum" >> $env:GITHUB_OUTPUT
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: openvoice-desktop-windows-x86_64.zip
+          name: OpenVoiceDesktop_Windows_x64_checksum
+          path: ${{ steps.checksum.outputs.path }}
+      - name: Upload checksum to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq 'openvoice-desktop').version
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $asset = "OpenVoiceDesktop_${version}_x64-setup.exe"
+          Copy-Item $installer.FullName $asset
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "${{ github.ref_name }}" --title "OpenVoiceDesktop ${{ github.ref_name }}" --generate-notes --notes "Download $asset, then double-click it. This personal-use build is unsigned, so Windows SmartScreen may require confirmation."
+          }
+          gh release upload "${{ github.ref_name }}" $asset "${{ steps.checksum.outputs.path }}" --clobber

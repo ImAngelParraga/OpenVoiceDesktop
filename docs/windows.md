@@ -4,23 +4,23 @@ OpenVoiceDesktop on Windows runs as a resident tray app. It registers `Ctrl+Spac
 
 ## Install
 
-Because this repository is currently private, install through the authenticated GitHub CLI:
+Because the repository is private, sign in to GitHub before opening its **Releases** page. Download `OpenVoiceDesktop_<version>_x64-setup.exe`, then double-click it.
+
+Setup installs for the current user, so no administrator prompt is needed. It creates a Start menu shortcut and Windows uninstall entry, then opens the first-run panel. Configure endpoint, token, microphone, shortcut, and autostart there.
+
+Silent install of an already-downloaded setup file:
 
 ```powershell
-winget install --id GitHub.cli -e
-gh auth login
-gh repo clone ImAngelParraga/OpenVoiceDesktop
-cd OpenVoiceDesktop
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start
+.\OpenVoiceDesktop_<version>_x64-setup.exe /S
 ```
 
-The installer downloads the latest release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml` if missing, and adds a per-user Startup folder shortcut. If no release is available, the installer can build from source when run from a checkout with `-BuildFromSource`.
+Running a newer setup upgrades the installed app. Config, history, logs, and Windows Credential Manager token remain unchanged. Release assets include a `.sha256` checksum.
 
 V1 binaries are unsigned. Windows SmartScreen may show a warning until the project has a code-signing certificate.
 
 ## Configure
 
-Edit:
+Use **OpenVoiceDesktop** from the Start menu to open first-run setup. Advanced users can edit:
 
 ```powershell
 notepad "$env:APPDATA\openvoice-desktop\config.toml"
@@ -49,17 +49,13 @@ Token lookup order is:
 
 ## Use
 
-- Start the tray app: `%LOCALAPPDATA%\OpenVoiceDesktop\openvoice-desktop.exe daemon`
+- Start the app from the Start menu. Completed setup launches the resident tray app.
 - Toggle recording: `Ctrl+Space`
 - First press starts recording.
 - Second press stops, uploads WAV audio to `{base_url}/v1/audio/transcriptions`, and pastes the returned transcript.
 - `Ctrl+Space` shows a compact bottom-of-screen status popup: animated bars while recording, `processing` while uploading/transcribing, and short feedback for empty transcript, busy, or error states. Successful insertion stays quiet. It does not use Windows notification balloons.
 
-If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Test the daemon with:
-
-```powershell
-& "$env:LOCALAPPDATA\OpenVoiceDesktop\openvoice-desktop.exe" toggle
-```
+If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Open Settings from the tray and choose a different shortcut.
 
 The Windows adapter saves the current clipboard text, sets the transcript, sends `Ctrl+V`, then restores the previous clipboard after the configured delay.
 Paste behavior follows `[output]`: `clipboard-paste` restores or leaves the clipboard according to `clipboard_handling`, `copy-only` never sends `Ctrl+V`, and `direct-type` uses the native `SendInput` path.
@@ -67,12 +63,9 @@ Paste errors are surfaced as user-facing error feedback while the transcript rem
 
 ## Uninstall
 
-```powershell
-Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\OpenVoiceDesktop.lnk" -ErrorAction SilentlyContinue
-Remove-Item "$env:LOCALAPPDATA\OpenVoiceDesktop" -Recurse -Force
-```
+Open **Settings → Apps → Installed apps**, select **OpenVoiceDesktop**, then choose **Uninstall**. App binaries, Start menu shortcut, and autostart task are removed. Config, history, logs, and stored token remain for later reinstall.
 
-Remove the stored token:
+To remove the retained token too:
 
 ```powershell
 cmdkey /delete:openvoice-desktop/asr-token

@@ -612,6 +612,14 @@ fn send_command(command: TrayCommand) {
     }
 }
 
+pub fn request_tray_exit() {
+    if let Some(hwnd) = TRAY_HWND.get() {
+        unsafe {
+            let _ = PostMessageW(*hwnd, WM_COMMAND, MENU_QUIT, 0);
+        }
+    }
+}
+
 unsafe fn add_tray_icon(hwnd: HWND) -> Result<()> {
     let mut data: NOTIFYICONDATAW = std::mem::zeroed();
     data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;

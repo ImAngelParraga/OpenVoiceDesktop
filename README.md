@@ -30,31 +30,31 @@ WAV is the default because short desktop dictation clips are usually under 10 se
 
 ## Windows Easy Install
 
-Because this repository is currently private, install through the authenticated GitHub CLI:
+No terminal or source checkout required:
+
+1. Sign in to GitHub and open this repository's **Releases** page.
+2. Download `OpenVoiceDesktop_<version>_x64-setup.exe`.
+3. Double-click it and finish setup.
+
+Setup installs for the current user without an administrator prompt, creates a Start menu shortcut and Windows uninstaller, then opens the first-run setup panel. Configure the ASR endpoint, token, microphone, shortcut, and autostart there. Existing settings and credentials survive upgrades and uninstall.
+
+For a silent install of an already-downloaded setup file:
 
 ```powershell
-winget install --id GitHub.cli -e
-gh auth login
-gh repo clone ImAngelParraga/OpenVoiceDesktop
+.\OpenVoiceDesktop_<version>_x64-setup.exe /S
+```
+
+Unsigned personal builds can trigger Windows SmartScreen. Verify the adjacent `.sha256` checksum from the release before running the setup file.
+
+Source builds remain available for development:
+
+```powershell
+git clone https://github.com/ImAngelParraga/OpenVoiceDesktop.git
 cd OpenVoiceDesktop
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -BuildFromSource -Start
 ```
 
-That downloads the latest release, installs `openvoice-desktop.exe` to `%LOCALAPPDATA%\OpenVoiceDesktop`, creates `%APPDATA%\openvoice-desktop\config.toml`, adds a per-user Startup shortcut, and starts the tray app. If no release is available, the installer can build from source when run from a checkout with `-BuildFromSource`.
-
-Edit the config:
-
-```powershell
-notepad "$env:APPDATA\openvoice-desktop\config.toml"
-```
-
-Store your token in Windows Credential Manager:
-
-```powershell
-cmdkey /generic:openvoice-desktop/asr-token /user:asr /pass:YOUR_TOKEN
-```
-
-Windows usage notes are in [docs/windows.md](docs/windows.md). V1 Windows binaries are unsigned, so SmartScreen may show a warning.
+Windows usage and uninstall notes are in [docs/windows.md](docs/windows.md).
 
 ## Linux Easy Install
 

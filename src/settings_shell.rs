@@ -195,7 +195,7 @@ async fn test_endpoint() -> std::result::Result<crate::core::asr::AsrDiagnostic,
 
 #[cfg(feature = "desktop-shell")]
 #[tauri::command]
-fn complete_onboarding(permissions_confirmed: bool) -> std::result::Result<String, String> {
+async fn complete_onboarding(permissions_confirmed: bool) -> std::result::Result<String, String> {
     let path = crate::core::config::Config::default_path().map_err(safe_error)?;
     let mut config = crate::core::config::Config::load_from(&path)
         .map_err(safe_error)?
@@ -203,6 +203,23 @@ fn complete_onboarding(permissions_confirmed: bool) -> std::result::Result<Strin
     crate::core::settings_service::complete_onboarding(&mut config, permissions_confirmed)
         .map_err(safe_error)?;
     config.save_to(&path).map_err(safe_error)?;
+    #[cfg(target_os = "windows")]
+    {
+        crate::core::lifecycle::apply_autostart(config.app.autostart).map_err(safe_error)?;
+        if crate::ipc::send_status(&config.socket_path().map_err(safe_error)?)
+            .await
+            .is_err()
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let exe = std::env::current_exe().map_err(safe_error)?;
+            std::process::Command::new(exe)
+                .arg("daemon")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(safe_error)?;
+        }
+    }
     Ok("Onboarding completed".to_string())
 }
 

@@ -18,7 +18,9 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::{CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND};
+    use crate::ipc::{
+        CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND,
+    };
     use crate::platform::linux::LinuxPlatformAdapter;
 
     crate::core::lifecycle::acquire_daemon_instance()?;
@@ -51,6 +53,7 @@ pub async fn run(config: Config) -> Result<()> {
                 let (mut stream, _) = result?;
                 let mut command = String::new();
                 stream.read_to_string(&mut command).await?;
+                let mut shutdown_requested = false;
                 let response = if command == STATUS_COMMAND {
                     serde_json::to_string(&crate::ipc::DaemonStatus {
                         state: controller.state(),
@@ -79,6 +82,12 @@ pub async fn run(config: Config) -> Result<()> {
                         }
                         Err(error) => format!("error: rejected config: {error}\n"),
                     }
+                } else if command == SHUTDOWN_COMMAND {
+                    shutdown_requested = true;
+                    match controller.shutdown().await {
+                        Ok(()) => "Shutdown\n".to_string(),
+                        Err(error) => format!("error: {error}\n"),
+                    }
                 } else if command == TOGGLE_COMMAND || command == CANCEL_COMMAND {
                     let result = if command == TOGGLE_COMMAND {
                         controller.toggle().await
@@ -93,6 +102,10 @@ pub async fn run(config: Config) -> Result<()> {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
                 stream.write_all(response.as_bytes()).await?;
+                if shutdown_requested {
+                    cleanup_socket(&socket_path);
+                    return Ok(());
+                }
             }
             signal = tokio::signal::ctrl_c() => {
                 signal?;
@@ -123,7 +136,8 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
     use crate::ipc::{
-        CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME,
+        CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND,
+        WINDOWS_PIPE_NAME,
     };
     use crate::platform::windows::{
         handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_tray_state,
@@ -262,6 +276,11 @@ pub async fn run(config: Config) -> Result<()> {
                         }
                         Err(error) => format!("error: rejected config: {error}\n"),
                     }
+                } else if command == SHUTDOWN_COMMAND {
+                    let response =
+                        request_controller(&pipe_controller_tx, ControllerCommand::Shutdown).await;
+                    crate::platform::windows::request_tray_exit();
+                    response
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };

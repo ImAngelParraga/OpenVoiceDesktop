@@ -1,9 +1,11 @@
 [package]
 name = "openvoice-desktop"
-version = "0.1.0"
+version = "0.1.5"
 edition = "2021"
 description = "Resident desktop dictation client for OpenVoice-compatible ASR services"
 license = "MIT"
+repository = "https://github.com/ImAngelParraga/OpenVoiceDesktop"
+homepage = "https://github.com/ImAngelParraga/OpenVoiceDesktop"
 
 [features]
 default = []
