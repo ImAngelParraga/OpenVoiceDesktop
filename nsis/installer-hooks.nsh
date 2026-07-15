@@ -1,7 +1,10 @@
 !macro StopOpenVoiceDesktop
-  nsExec::ExecToLog '"$INSTDIR\openvoice-desktop.exe" shutdown'
-  Sleep 1000
-  nsExec::ExecToLog 'taskkill.exe /IM openvoice-desktop.exe /T /F'
+  ; Never let a damaged or busy daemon hold the installer forever.
+  nsExec::ExecToLog /TIMEOUT=3000 '"$INSTDIR\openvoice-desktop.exe" shutdown'
+  Pop $0
+  Sleep 500
+  nsExec::ExecToLog /TIMEOUT=5000 'taskkill.exe /IM openvoice-desktop.exe /T /F'
+  Pop $0
 !macroend
 
 !macro RemoveLegacyStartupShortcut
@@ -15,6 +18,7 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro StopOpenVoiceDesktop
-  nsExec::ExecToLog 'schtasks.exe /Delete /TN OpenVoiceDesktop /F'
+  nsExec::ExecToLog /TIMEOUT=5000 'schtasks.exe /Delete /TN OpenVoiceDesktop /F'
+  Pop $0
   !insertmacro RemoveLegacyStartupShortcut
 !macroend

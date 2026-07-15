@@ -80,13 +80,20 @@ fn native_windows_installer_contract() {
 
     for required in [
         "shutdown",
+        "/TIMEOUT=3000",
         "taskkill.exe",
+        "/TIMEOUT=5000",
         "schtasks.exe /Delete /TN OpenVoiceDesktop /F",
         "OpenVoiceDesktop.lnk",
     ] {
         assert!(INSTALLER_HOOKS.contains(required), "{required}");
     }
     assert!(!INSTALLER_HOOKS.contains("openvoice-desktop\\config.toml"));
+    assert!(
+        INSTALLER_HOOKS.find("/TIMEOUT=3000").unwrap()
+            < INSTALLER_HOOKS.find("taskkill.exe").unwrap(),
+        "graceful shutdown must be bounded before forced termination"
+    );
 
     for required in [
         "Invoke-Setup",
