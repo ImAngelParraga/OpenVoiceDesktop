@@ -68,6 +68,19 @@ fn test_v34_save_keeps_ui_thread_responsive() {
 }
 
 #[test]
+fn test_v41_save_recovers_missing_daemon_with_bounded_hidden_startup() {
+    let save = SHELL_RS.split("async fn save_settings").nth(1).unwrap();
+    let save = save.split("async fn cancel_transcription").next().unwrap();
+    assert!(save.contains("reload_or_start_daemon"));
+    assert!(SHELL_RS.contains("async fn reload_or_start_daemon"));
+    assert!(SHELL_RS.contains("spawn_resident_daemon"));
+    assert!(SHELL_RS.contains("Duration::from_secs(5)"));
+    assert!(SHELL_RS.contains("send_status"));
+    assert!(SHELL_RS.contains("CREATE_NO_WINDOW"));
+    assert!(SHELL_RS.contains("Stdio::null()"));
+}
+
+#[test]
 fn test_v37_save_button_has_busy_success_error_and_duplicate_guard() {
     assert!(SETTINGS_HTML.contains("id=\"save-result\""));
     assert!(SETTINGS_HTML.contains("aria-live=\"polite\""));

@@ -101,15 +101,7 @@ async fn save_settings(
         .save_with_async(request, move |candidate| {
             let socket_path = socket_path.clone();
             async move {
-                let response = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    crate::ipc::send_reload_config(&socket_path),
-                )
-                .await
-                .context("timed out waiting for daemon config reload")??;
-                if response.trim() != "Reloaded" {
-                    anyhow::bail!(response.trim().to_string());
-                }
+                reload_or_start_daemon(&candidate, &socket_path).await?;
                 let autostart = candidate.app.autostart;
                 tauri::async_runtime::spawn_blocking(move || {
                     crate::core::lifecycle::apply_autostart(autostart)
@@ -121,6 +113,60 @@ async fn save_settings(
         })
         .await
         .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+async fn reload_or_start_daemon(
+    _candidate: &crate::core::config::Config,
+    socket_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use std::time::{Duration, Instant};
+
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        crate::ipc::send_reload_config(socket_path),
+    )
+    .await
+    {
+        Ok(Ok(response)) if response.trim() == "Reloaded" => return Ok(()),
+        Ok(Ok(response)) => anyhow::bail!(response.trim().to_string()),
+        Err(_) => anyhow::bail!("timed out waiting for daemon config reload"),
+        Ok(Err(_unreachable)) => {}
+    }
+
+    spawn_resident_daemon().context("starting resident daemon")?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if crate::ipc::send_status(socket_path).await.is_ok() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!("resident daemon did not become ready within 5 seconds");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[cfg(feature = "desktop-shell")]
+fn spawn_resident_daemon() -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+
+    let exe = std::env::current_exe()?;
+    let mut command = Command::new(exe);
+    command
+        .arg("daemon")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command.spawn()?;
+    Ok(())
 }
 
 #[cfg(feature = "desktop-shell")]
@@ -224,14 +270,7 @@ async fn complete_onboarding(permissions_confirmed: bool) -> std::result::Result
             .await
             .is_err()
         {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            let exe = std::env::current_exe().map_err(safe_error)?;
-            std::process::Command::new(exe)
-                .arg("daemon")
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .map_err(safe_error)?;
+            spawn_resident_daemon().map_err(safe_error)?;
         }
     }
     Ok("Onboarding completed".to_string())
