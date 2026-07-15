@@ -259,13 +259,13 @@ pub fn validate_config(config: &Config) -> Result<()> {
         "output.paste_delay_ms",
         config.output.paste_delay_ms,
         0,
-        60_000,
+        2_000,
     )?;
     range_u64(
         "output.restore_delay_ms",
         config.output.restore_delay_ms,
         0,
-        60_000,
+        2_000,
     )?;
     range_u64(
         "behavior.clipboard_restore_delay_ms",

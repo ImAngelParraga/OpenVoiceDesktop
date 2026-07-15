@@ -90,6 +90,23 @@ fn invalid_save_preserves_file_and_runtime() {
 }
 
 #[test]
+fn test_v40_paste_delays_are_bounded_to_two_seconds() {
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 2_001;
+    assert!(validate_config(&config)
+        .unwrap_err()
+        .to_string()
+        .contains("output.paste_delay_ms must be between 0 and 2000"));
+
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 2_001;
+    assert!(validate_config(&config)
+        .unwrap_err()
+        .to_string()
+        .contains("output.restore_delay_ms must be between 0 and 2000"));
+}
+
+#[test]
 fn recording_buffer_is_bounded_to_handy_control_range() {
     let mut config = Config::default();
     config.debug.recording_buffer_ms = 1_501;

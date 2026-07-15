@@ -356,7 +356,7 @@ impl Default for OutputConfig {
             clipboard_handling: ClipboardHandling::RestoreAfterPaste,
             auto_submit: false,
             select_pasted_text: false,
-            paste_delay_ms: 25,
+            paste_delay_ms: 0,
             restore_delay_ms: 250,
             external_script_path: None,
         }

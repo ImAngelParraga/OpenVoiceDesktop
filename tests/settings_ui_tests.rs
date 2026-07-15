@@ -173,6 +173,33 @@ fn advanced_settings_exposes_t6_app_controls() {
 }
 
 #[test]
+fn test_v40_delay_controls_are_advanced_named_and_explained() {
+    let layout = SettingsWindowLayout::default_layout();
+    let advanced = layout
+        .sections
+        .iter()
+        .find(|section| section.id == SettingsSectionId::Advanced)
+        .unwrap();
+    let paste = advanced
+        .controls
+        .iter()
+        .find(|control| control.config_key == Some("output.paste_delay_ms"))
+        .unwrap();
+    let restore = advanced
+        .controls
+        .iter()
+        .find(|control| control.config_key == Some("output.restore_delay_ms"))
+        .unwrap();
+
+    assert_eq!(paste.label, "Pre-paste settling delay (ms)");
+    assert!(paste.description.contains("Default: 0 ms"));
+    assert!(paste.description.contains("clipboard-paste"));
+    assert_eq!(restore.label, "Clipboard restoration delay (ms)");
+    assert!(restore.description.contains("old clipboard"));
+    assert!(restore.description.contains("Default: 250 ms"));
+}
+
+#[test]
 fn output_and_text_settings_expose_client_owned_controls() {
     let layout = SettingsWindowLayout::default_layout();
     let advanced = layout

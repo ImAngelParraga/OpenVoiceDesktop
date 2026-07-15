@@ -119,6 +119,19 @@ function recordingOutputDependent(path) {
     && documentModel.config.audio.recording_output_mode !== "reduced";
 }
 
+function outputDelayUnavailable(path) {
+  const output = documentModel.config.output;
+  if (path === "output.paste_delay_ms" && (
+    output.paste_method !== "clipboard-paste"
+    || output.clipboard_handling === "copy-only"
+  )) return "Used only by clipboard-paste output.";
+  if (path === "output.restore_delay_ms" && (
+    output.paste_method !== "clipboard-paste"
+    || output.clipboard_handling !== "restore-after-paste"
+  )) return "Used only when clipboard-paste restores the previous clipboard.";
+  return null;
+}
+
 function selectOptions(path) {
   if (path === "audio.recording_output_mode") return ["unchanged", "reduced", "muted"];
   if (path === "audio.sound_theme") return ["default", "minimal", "custom"];
@@ -156,7 +169,7 @@ function render() {
         ? "Enable Audio feedback to use this option."
         : recordingOutputDependent(path)
           ? "Select reduced output mode to set recording volume."
-        : null;
+          : outputDelayUnavailable(path);
     const input = document.createElement(control.kind === "text-area" ? "textarea" : "input");
     input.name = path;
     input.disabled = unavailableReason !== null;
@@ -213,7 +226,7 @@ function render() {
       }
       select.addEventListener("change", () => {
         setPath(documentModel.config, path, select.value);
-        if (path === "audio.recording_output_mode") render();
+        if (["audio.recording_output_mode", "output.paste_method", "output.clipboard_handling"].includes(path)) render();
       });
       row.append(fieldCopy(control), select);
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
@@ -227,6 +240,11 @@ function render() {
       input.type = "number";
       input.step = "any";
       input.value = displayValue;
+      if (["output.paste_delay_ms", "output.restore_delay_ms"].includes(path)) {
+        input.min = "0";
+        input.max = "2000";
+        input.step = "1";
+      }
     } else if (Array.isArray(displayValue)) {
       input.type = "text";
       input.value = displayValue.join(", ");

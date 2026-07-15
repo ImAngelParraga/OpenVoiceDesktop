@@ -84,6 +84,15 @@ fn test_v37_save_button_has_busy_success_error_and_duplicate_guard() {
 }
 
 #[test]
+fn test_v40_delay_inputs_have_bounds_and_disable_when_irrelevant() {
+    assert!(SETTINGS_JS.contains("function outputDelayUnavailable(path)"));
+    assert!(SETTINGS_JS.contains("output.paste_method !== \"clipboard-paste\""));
+    assert!(SETTINGS_JS.contains("output.clipboard_handling !== \"restore-after-paste\""));
+    assert!(SETTINGS_JS.contains("input.min = \"0\""));
+    assert!(SETTINGS_JS.contains("input.max = \"2000\""));
+}
+
+#[test]
 fn test_v36_prompt_editor_maps_blank_to_absent_without_rewriting_text() {
     assert!(SETTINGS_JS.contains("path === \"asr.prompt\""));
     assert!(SETTINGS_JS.contains("input.value.trim().length === 0 ? null : input.value"));

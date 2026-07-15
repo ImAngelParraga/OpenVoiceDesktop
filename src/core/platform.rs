@@ -447,7 +447,6 @@ where
         }
     }
     if let Some(previous) = previous_clipboard {
-        tokio::time::sleep(Duration::from_millis(output.restore_delay_ms)).await;
         platform.set_clipboard_text(&previous).await?;
     }
     Ok(PasteResult::Pasted)

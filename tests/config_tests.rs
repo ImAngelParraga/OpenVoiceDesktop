@@ -48,7 +48,7 @@ fn missing_config_uses_defaults() {
         loaded.config.output.clipboard_handling,
         ClipboardHandling::RestoreAfterPaste
     );
-    assert_eq!(loaded.config.output.paste_delay_ms, 25);
+    assert_eq!(loaded.config.output.paste_delay_ms, 0);
     assert_eq!(loaded.config.output.restore_delay_ms, 250);
     assert!(!loaded.config.output.select_pasted_text);
     assert!(!loaded.config.text.append_trailing_space);

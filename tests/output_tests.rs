@@ -92,6 +92,24 @@ async fn test_v39_clipboard_paste_reports_three_stages_and_notifies_before_resto
     );
 }
 
+#[tokio::test]
+async fn test_v40_copy_only_ignores_pre_paste_delay() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let platform = TimingPlatform(observations);
+    let mut output = Config::default().output;
+    output.paste_method = openvoice_desktop::core::config::PasteMethod::CopyOnly;
+    output.paste_delay_ms = 2_000;
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        paste_with_output_config(&platform, "hello", &output, Instant::now(), || {}),
+    )
+    .await
+    .expect("irrelevant pre-paste delay must not run")
+    .unwrap();
+    assert_eq!(result.result, PasteResult::LeftInClipboard);
+}
+
 struct TimingPlatform(Arc<Mutex<Vec<String>>>);
 
 #[async_trait]
