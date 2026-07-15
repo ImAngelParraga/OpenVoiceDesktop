@@ -1,3 +1,12 @@
+#![cfg_attr(
+    all(
+        target_os = "windows",
+        feature = "desktop-shell",
+        not(debug_assertions)
+    ),
+    windows_subsystem = "windows"
+)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use openvoice_desktop::core::config::{Config, LogLevel};

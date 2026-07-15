@@ -3,6 +3,7 @@ const INSTALL_SH: &str = include_str!("../scripts/install.sh");
 const INSTALLER_HOOKS: &str = include_str!("../nsis/installer-hooks.nsh");
 const INSTALLER_SMOKE: &str = include_str!("../scripts/test-installer.ps1");
 const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
+const MAIN_RS: &str = include_str!("../src/main.rs");
 
 #[test]
 fn test_v1_installer_does_not_cleanup_undefined_tempdir() {
@@ -97,6 +98,14 @@ fn native_windows_installer_contract() {
         assert!(INSTALLER_SMOKE.contains(required), "{required}");
     }
     assert!(INSTALLER_SMOKE.trim_end().ends_with("exit 0"));
+}
+
+#[test]
+fn test_v33_windows_release_uses_gui_subsystem() {
+    assert!(MAIN_RS.contains("windows_subsystem = \"windows\""));
+    assert!(MAIN_RS.contains("target_os = \"windows\""));
+    assert!(MAIN_RS.contains("feature = \"desktop-shell\""));
+    assert!(MAIN_RS.contains("not(debug_assertions)"));
 }
 
 #[test]
