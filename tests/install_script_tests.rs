@@ -92,10 +92,11 @@ fn native_windows_installer_contract() {
         "reinstall changed existing config",
         "uninstall removed user config",
         "uninstall left autostart task",
-        "Windows installer smoke: PASS\"\nexit 0",
+        "Windows installer smoke: PASS",
     ] {
         assert!(INSTALLER_SMOKE.contains(required), "{required}");
     }
+    assert!(INSTALLER_SMOKE.trim_end().ends_with("exit 0"));
 }
 
 #[test]

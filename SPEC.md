@@ -198,3 +198,4 @@ B20|2026-07-12|Parallel full-suite run transiently returned `Text file busy` whi
 B21|2026-07-14|Optional local workflow-YAML verification assumed unavailable `ruby`; product tests were green|—
 B22|2026-07-14|Repeated Windows settings document loads re-entered CPAL/WASAPI enumeration and second load crashed with `STATUS_ACCESS_VIOLATION`|V31
 B23|2026-07-14|Successful installer smoke inherited expected missing-task `schtasks /Query` exit code `1`, so CI failed after printing PASS|V32
+B24|2026-07-15|Installer smoke regression test matched LF-only text; Windows checkout used CRLF and failed before installer build|V32
