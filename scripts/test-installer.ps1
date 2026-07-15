@@ -55,3 +55,4 @@ schtasks.exe /Query /TN OpenVoiceDesktop *> $null
 if ($LASTEXITCODE -eq 0) { throw "uninstall left autostart task" }
 
 Write-Host "Windows installer smoke: PASS"
+exit 0
