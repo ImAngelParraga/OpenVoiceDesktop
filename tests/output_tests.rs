@@ -1,5 +1,13 @@
-use openvoice_desktop::core::platform::{run_external_script, validate_external_script};
+use anyhow::Result;
+use async_trait::async_trait;
+use openvoice_desktop::core::config::{Config, TypingTool};
+use openvoice_desktop::core::platform::{
+    paste_with_output_config, run_external_script, validate_external_script, PasteResult,
+    PlatformAdapter,
+};
 use std::fs;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[cfg(unix)]
 #[tokio::test]
@@ -58,4 +66,56 @@ fn external_script_path_requires_regular_file_and_executable_on_unix() {
     assert!(validate_external_script(&script).is_err());
     #[cfg(not(unix))]
     assert!(validate_external_script(&script).is_ok());
+}
+
+#[tokio::test]
+async fn test_v39_clipboard_paste_reports_three_stages_and_notifies_before_restore() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let platform = TimingPlatform(observations.clone());
+    let mut output = Config::default().output;
+    output.paste_delay_ms = 0;
+    output.restore_delay_ms = 1;
+
+    let report = paste_with_output_config(&platform, "hello", &output, Instant::now(), || {
+        observations.lock().unwrap().push("inserted".to_string());
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(report.result, PasteResult::Pasted);
+    assert!(report.timings.response_to_clipboard_write.is_some());
+    assert!(report.timings.clipboard_write_to_paste_input.is_some());
+    assert!(report.timings.paste_input_to_clipboard_restore.is_some());
+    assert_eq!(
+        observations.lock().unwrap().as_slice(),
+        ["read", "write:hello", "paste", "inserted", "write:original"]
+    );
+}
+
+struct TimingPlatform(Arc<Mutex<Vec<String>>>);
+
+#[async_trait]
+impl PlatformAdapter for TimingPlatform {
+    async fn clipboard_text(&self) -> Result<Option<String>> {
+        self.0.lock().unwrap().push("read".to_string());
+        Ok(Some("original".to_string()))
+    }
+
+    async fn set_clipboard_text(&self, text: &str) -> Result<()> {
+        self.0.lock().unwrap().push(format!("write:{text}"));
+        Ok(())
+    }
+
+    async fn trigger_paste(&self) -> Result<()> {
+        self.0.lock().unwrap().push("paste".to_string());
+        Ok(())
+    }
+
+    async fn type_text_with_tool(&self, _text: &str, _tool: TypingTool) -> Result<()> {
+        Ok(())
+    }
+
+    async fn notify(&self, _title: &str, _body: &str) -> Result<()> {
+        Ok(())
+    }
 }

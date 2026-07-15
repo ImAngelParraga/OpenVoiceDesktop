@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::core::audio::{
     audio_feedback_plan, enumerate_output_devices, AudioFeedbackPlan, OutputDeviceInfo,
@@ -9,10 +9,23 @@ use crate::core::config::{
     ClipboardHandling, OutputConfig, PasteMethod, RecordingOutputMode, TypingTool,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteResult {
     Pasted,
     LeftInClipboard,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PasteTimings {
+    pub response_to_clipboard_write: Option<Duration>,
+    pub clipboard_write_to_paste_input: Option<Duration>,
+    pub paste_input_to_clipboard_restore: Option<Duration>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PasteReport {
+    pub result: PasteResult,
+    pub timings: PasteTimings,
 }
 
 /// Exact output state captured before recording adjustment.
@@ -176,29 +189,40 @@ where
     Ok(PasteResult::Pasted)
 }
 
-pub async fn paste_with_output_config<P>(
+pub async fn paste_with_output_config<P, F>(
     platform: &P,
     transcript: &str,
     output: &OutputConfig,
-) -> Result<PasteResult>
+    asr_response_at: Instant,
+    on_inserted: F,
+) -> Result<PasteReport>
 where
     P: PlatformAdapter,
+    F: FnOnce(),
 {
-    if output.paste_delay_ms > 0 {
-        tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
-    }
+    let mut on_inserted = Some(on_inserted);
+    let complete = |result, on_inserted: &mut Option<F>| {
+        if let Some(callback) = on_inserted.take() {
+            callback();
+        }
+        PasteReport {
+            result,
+            timings: PasteTimings::default(),
+        }
+    };
 
     if matches!(output.paste_method, PasteMethod::CopyOnly)
         || matches!(output.clipboard_handling, ClipboardHandling::CopyOnly)
     {
         platform.set_clipboard_text(transcript).await?;
-        return Ok(PasteResult::LeftInClipboard);
+        return Ok(complete(PasteResult::LeftInClipboard, &mut on_inserted));
     }
 
     if matches!(output.paste_method, PasteMethod::ExternalScript)
         || matches!(output.typing_tool, TypingTool::ExternalScript)
     {
-        return run_external_script_output(platform, transcript, output).await;
+        let result = run_external_script_output(platform, transcript, output).await?;
+        return Ok(complete(result, &mut on_inserted));
     }
 
     if matches!(output.paste_method, PasteMethod::DirectType) {
@@ -244,22 +268,85 @@ where
                 return Err(anyhow!("selecting typed transcript failed: {error}"));
             }
         }
-        return Ok(PasteResult::Pasted);
+        return Ok(complete(PasteResult::Pasted, &mut on_inserted));
     }
 
-    paste_with_clipboard_restore_options(
-        platform,
-        transcript,
-        matches!(
-            output.clipboard_handling,
-            ClipboardHandling::RestoreAfterPaste
-        ),
-        Duration::from_millis(output.restore_delay_ms),
-        output.typing_tool,
-        output.auto_submit,
-        output.select_pasted_text,
-    )
-    .await
+    let previous_clipboard = if matches!(
+        output.clipboard_handling,
+        ClipboardHandling::RestoreAfterPaste
+    ) {
+        platform.clipboard_text().await.ok().flatten()
+    } else {
+        None
+    };
+    if output.paste_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
+    }
+    platform.set_clipboard_text(transcript).await?;
+    let clipboard_written_at = Instant::now();
+    if let Err(error) = platform.trigger_paste().await {
+        platform
+            .notify(
+                "OpenVoiceDesktop paste failed",
+                "Transcript was left in the clipboard. Paste it manually with Ctrl+V.",
+            )
+            .await
+            .ok();
+        return Err(anyhow!("{error}"));
+    }
+    let paste_input_at = Instant::now();
+    if let Some(callback) = on_inserted.take() {
+        callback();
+    }
+
+    if output.auto_submit {
+        if let Err(error) = platform.trigger_submit_with_tool(output.typing_tool).await {
+            platform
+                .notify(
+                    "OpenVoiceDesktop auto-submit failed",
+                    "Transcript was left in the clipboard. Submit it manually.",
+                )
+                .await
+                .ok();
+            return Err(anyhow!("{error}"));
+        }
+    }
+    if output.select_pasted_text {
+        if let Err(error) = platform
+            .select_inserted_text(transcript, output.typing_tool)
+            .await
+        {
+            platform
+                .notify(
+                    "OpenVoiceDesktop selection failed",
+                    "Transcript was pasted but could not be selected.",
+                )
+                .await
+                .ok();
+            return Err(anyhow!("selecting pasted transcript failed: {error}"));
+        }
+    }
+
+    let clipboard_restored_at = if let Some(previous) = previous_clipboard {
+        tokio::time::sleep(Duration::from_millis(output.restore_delay_ms)).await;
+        platform.set_clipboard_text(&previous).await?;
+        Some(Instant::now())
+    } else {
+        None
+    };
+    Ok(PasteReport {
+        result: PasteResult::Pasted,
+        timings: PasteTimings {
+            response_to_clipboard_write: Some(
+                clipboard_written_at.saturating_duration_since(asr_response_at),
+            ),
+            clipboard_write_to_paste_input: Some(
+                paste_input_at.saturating_duration_since(clipboard_written_at),
+            ),
+            paste_input_to_clipboard_restore: clipboard_restored_at
+                .map(|restored| restored.saturating_duration_since(paste_input_at)),
+        },
+    })
 }
 
 pub fn validate_external_script(path: &std::path::Path) -> Result<()> {

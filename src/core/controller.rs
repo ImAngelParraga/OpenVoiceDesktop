@@ -233,6 +233,7 @@ where
                 return Err(error);
             }
         };
+        let asr_response_at = Instant::now();
         self.update_diagnostics(Some((transcription.elapsed.as_millis() as u64, 200)), None);
         self.log_event(
             crate::core::config::LogLevel::Info,
@@ -264,24 +265,46 @@ where
             stage: ProcessingStage::InsertingText,
         });
         let paste_start = Instant::now();
-        if let Err(error) =
-            paste_with_output_config(&self.platform, &transcription.text, &self.config.output).await
+        let events = &self.events;
+        let paste_report = match paste_with_output_config(
+            &self.platform,
+            &transcription.text,
+            &self.config.output,
+            asr_response_at,
+            || events.emit(AppShellEvent::Inserted),
+        )
+        .await
         {
-            self.record_history(
-                &transcription.text,
-                HistoryStatus::PasteFailed,
-                Some(temp_file.path()),
-            );
-            return Err(error);
-        }
+            Ok(report) => report,
+            Err(error) => {
+                self.record_history(
+                    &transcription.text,
+                    HistoryStatus::PasteFailed,
+                    Some(temp_file.path()),
+                );
+                return Err(error);
+            }
+        };
         eprintln!(
-            "openvoice-desktop paste: paste_ms={}",
-            ms(paste_start.elapsed())
+            "openvoice-desktop paste: paste_ms={} response_to_clipboard_write_ms={:?} clipboard_write_to_paste_input_ms={:?} paste_input_to_clipboard_restore_ms={:?}",
+            ms(paste_start.elapsed()),
+            paste_report.timings.response_to_clipboard_write.map(ms),
+            paste_report.timings.clipboard_write_to_paste_input.map(ms),
+            paste_report.timings.paste_input_to_clipboard_restore.map(ms),
+        );
+        self.log_event(
+            crate::core::config::LogLevel::Info,
+            "paste_completed",
+            serde_json::json!({
+                "result": format!("{:?}", paste_report.result),
+                "response_to_clipboard_write_ms": paste_report.timings.response_to_clipboard_write.map(ms),
+                "clipboard_write_to_paste_input_ms": paste_report.timings.clipboard_write_to_paste_input.map(ms),
+                "paste_input_to_clipboard_restore_ms": paste_report.timings.paste_input_to_clipboard_restore.map(ms),
+            }),
         );
         self.restore_audio_session().await?;
         self.play_feedback(AudioFeedbackEvent::Stop).await;
         self.state = RecordingState::Idle;
-        self.events.emit(AppShellEvent::Inserted);
         self.events.emit(AppShellEvent::Idle);
         self.record_history(
             &transcription.text,

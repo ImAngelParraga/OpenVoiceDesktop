@@ -49,6 +49,34 @@ async fn toggle_runs_record_transcribe_insert_and_restore_clipboard() {
 }
 
 #[tokio::test]
+async fn test_v39_inserted_feedback_precedes_clipboard_restore_cleanup() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let platform =
+        FakePlatform::new(Some("original".to_string())).with_observations(observations.clone());
+    let events = FakeEventSink {
+        observations: observations.clone(),
+    };
+    let mut config = Config::default();
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 1;
+    let mut controller = VoiceController::with_event_sink(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config,
+        events,
+    );
+
+    controller.toggle().await.unwrap();
+    controller.toggle().await.unwrap();
+    let observations = observations.lock().unwrap();
+    assert_before(&observations, "event:Inserted", "set_clipboard:original");
+}
+
+#[tokio::test]
 async fn empty_transcript_does_not_paste() {
     let recorder = FakeRecorder::default();
     let asr = FakeAsr {
