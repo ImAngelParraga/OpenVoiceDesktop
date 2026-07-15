@@ -100,6 +100,7 @@ V30: Windows-install invariant: release provides versioned per-user NSIS setup e
 V31: Windows-device-inventory invariant: one settings process enumerates live CPAL/WASAPI input/output devices at most once and reuses that inventory for repeated document loads; runtime audio paths remain live.
 V32: Installer-smoke invariant: successful Windows install/reinstall/uninstall smoke exits `0`; expected negative probes such as absent scheduled-task checks never leak nonzero native exit status.
 V33: Windows-GUI invariant: release `desktop-shell` executable uses Windows GUI subsystem, so double-click/Start menu launch opens settings or tray app without console window; debug builds retain console diagnostics.
+V34: Settings-responsiveness invariant: Save never blocks Tauri UI thread on daemon IPC or OS lifecycle commands; daemon reload has bounded timeout, window remains responsive/open, and atomic rollback semantics remain intact.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -174,6 +175,7 @@ T67|x|Ship default audio feedback|Enable built-in default start/stop/error theme
 T68|x|Recording output mute and reduction|Replace binary mute lifecycle with unchanged/reduced/muted output mode, migrate existing mute config, apply Linux/Windows volume controls, and restore exact prior mute and volume on every exit path.|H:src/components/settings/MuteWhileRecording.tsx; H:src-tauri/src/managers/audio.rs|V5,V12,V15,V20,V28,V29
 T69|x|Native Windows easy install|Ship versioned current-user NSIS setup, first-run onboarding launch, graceful upgrade/uninstall lifecycle, tag-driven private GitHub Release asset/checksum, silent install, source-build fallback docs, and Windows install/reinstall/uninstall smoke coverage.|H:BUILD.md; H:src-tauri/tauri.conf.json; H:src-tauri/nsis/installer.nsi|V8,V12,V16,V17,V23,V30,V31,V32
 T70|x|Hide Windows release console|Build installed desktop-shell executable with Windows GUI subsystem while preserving debug console diagnostics; prove packaged launch needs no terminal.|H:src-tauri/src/main.rs|V12,V16,V30,V33
+T71|x|Make Settings Save asynchronous|Move daemon reload and autostart synchronization off Tauri UI thread, bound reload wait, preserve atomic config/runtime rollback, and prove settings window remains responsive.|H:src-tauri/src/settings.rs; H:src-tauri/src/commands/mod.rs|V8,V12,V16,V17,V26,V34
 
 §B
 id|date|cause|fix
@@ -202,3 +204,4 @@ B22|2026-07-14|Repeated Windows settings document loads re-entered CPAL/WASAPI e
 B23|2026-07-14|Successful installer smoke inherited expected missing-task `schtasks /Query` exit code `1`, so CI failed after printing PASS|V32
 B24|2026-07-15|Installer smoke regression test matched LF-only text; Windows checkout used CRLF and failed before installer build|V32
 B25|2026-07-15|Packaged Windows executable used console subsystem, so double-click opened terminal whose closure stopped tray app|V33
+B26|2026-07-15|Synchronous Settings Save blocked Tauri UI thread while waiting on daemon IPC and `schtasks.exe`, making window hang/close after config persisted|V34

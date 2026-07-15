@@ -54,6 +54,16 @@ fn test_v26_save_keeps_settings_open_and_reports_result() {
 }
 
 #[test]
+fn test_v34_save_keeps_ui_thread_responsive() {
+    let save = SHELL_RS.split("async fn save_settings").nth(1).unwrap();
+    let save = save.split("async fn cancel_transcription").next().unwrap();
+    assert!(save.contains("save_with_async"));
+    assert!(save.contains("tokio::time::timeout"));
+    assert!(save.contains("spawn_blocking"));
+    assert!(!save.contains("block_on"));
+}
+
+#[test]
 fn onboarding_completion_starts_windows_daemon() {
     assert!(SHELL_RS.contains("async fn complete_onboarding"));
     assert!(SHELL_RS.contains("apply_autostart(config.app.autostart)"));

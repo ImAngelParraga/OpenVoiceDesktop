@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::sync::OnceLock;
@@ -183,6 +184,34 @@ impl SettingsService {
                 .save_to(&self.path)
                 .context("rolling back rejected settings file")?;
             let _ = apply(&previous);
+            return Err(anyhow!("runtime rejected settings: {rejection}"));
+        }
+
+        Ok(SaveSettingsResult {
+            fields: field_results(&previous, &candidate)?,
+        })
+    }
+
+    pub async fn save_with_async<F, Fut>(
+        &self,
+        request: SaveSettingsRequest,
+        mut apply: F,
+    ) -> Result<SaveSettingsResult>
+    where
+        F: FnMut(Config) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        let previous = Config::load_from(&self.path)?.config;
+        let mut candidate = request.config;
+        candidate.asr.bearer_token = previous.asr.bearer_token.clone();
+        validate_config(&candidate)?;
+
+        candidate.save_to(&self.path)?;
+        if let Err(rejection) = apply(candidate.clone()).await {
+            previous
+                .save_to(&self.path)
+                .context("rolling back rejected settings file")?;
+            let _ = apply(previous.clone()).await;
             return Err(anyhow!("runtime rejected settings: {rejection}"));
         }
 

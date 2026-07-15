@@ -221,6 +221,39 @@ fn daemon_rejection_rolls_back_file_and_runtime() {
     assert_eq!(Config::load_from(&path).unwrap().config, original);
 }
 
+#[tokio::test]
+async fn test_v34_async_rejection_rolls_back_file_and_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let original = Config::default();
+    original.save_to(&path).unwrap();
+    let mut candidate = original.clone();
+    candidate.asr.model = "async-model".into();
+    let applied_models = std::sync::Mutex::new(Vec::new());
+
+    let error = SettingsService::new(&path)
+        .save_with_async(SaveSettingsRequest { config: candidate }, |config| {
+            let model = config.asr.model.clone();
+            let applied_models = &applied_models;
+            async move {
+                applied_models.lock().unwrap().push(model.clone());
+                if model == "async-model" {
+                    anyhow::bail!("busy");
+                }
+                Ok(())
+            }
+        })
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("runtime rejected settings"));
+    assert_eq!(
+        applied_models.into_inner().unwrap(),
+        ["async-model", "whisper-1"]
+    );
+    assert_eq!(Config::load_from(&path).unwrap().config, original);
+}
+
 #[test]
 fn save_is_atomic_and_leaves_parseable_private_file() {
     let dir = tempfile::tempdir().unwrap();

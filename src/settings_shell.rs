@@ -86,26 +86,40 @@ fn get_settings() -> std::result::Result<crate::core::settings_service::Settings
 
 #[cfg(feature = "desktop-shell")]
 #[tauri::command]
-fn save_settings(
+async fn save_settings(
     request: crate::core::settings_service::SaveSettingsRequest,
 ) -> std::result::Result<crate::core::settings_service::SaveSettingsResult, String> {
     use crate::core::config::Config;
     use crate::core::settings_service::SettingsService;
+    use anyhow::Context;
 
     let path = Config::default_path().map_err(safe_error)?;
     let socket_path = Config::load_from(&path)
         .and_then(|loaded| loaded.config.socket_path())
         .map_err(safe_error)?;
     SettingsService::new(path)
-        .save_with(request, |_| {
-            let response =
-                tauri::async_runtime::block_on(crate::ipc::send_reload_config(&socket_path))?;
-            if response.trim() != "Reloaded" {
-                anyhow::bail!(response.trim().to_string());
+        .save_with_async(request, move |candidate| {
+            let socket_path = socket_path.clone();
+            async move {
+                let response = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    crate::ipc::send_reload_config(&socket_path),
+                )
+                .await
+                .context("timed out waiting for daemon config reload")??;
+                if response.trim() != "Reloaded" {
+                    anyhow::bail!(response.trim().to_string());
+                }
+                let autostart = candidate.app.autostart;
+                tauri::async_runtime::spawn_blocking(move || {
+                    crate::core::lifecycle::apply_autostart(autostart)
+                })
+                .await
+                .context("joining autostart synchronization")??;
+                Ok(())
             }
-            crate::core::lifecycle::apply_autostart(candidate_autostart(&response))?;
-            Ok(())
         })
+        .await
         .map_err(safe_error)
 }
 
@@ -397,16 +411,6 @@ fn apply_overlay_window(
     }
     window.show()?;
     Ok(())
-}
-
-#[cfg(feature = "desktop-shell")]
-fn candidate_autostart(_reload_response: &str) -> bool {
-    // The daemon reload validates and consumes the candidate config. Reload
-    // response intentionally carries no config or secret fields, so read the
-    // persisted candidate after atomic save through the typed boundary.
-    crate::core::config::Config::load_default()
-        .map(|loaded| loaded.config.app.autostart)
-        .unwrap_or(false)
 }
 
 #[cfg(feature = "desktop-shell")]
