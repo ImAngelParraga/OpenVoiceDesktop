@@ -37,6 +37,9 @@ let activeSection = "general";
 const content = document.querySelector("#content");
 const form = document.querySelector("#settings-form");
 const status = document.querySelector("#status");
+const saveButton = document.querySelector("#save");
+const saveResult = document.querySelector("#save-result");
+let saveInProgress = false;
 
 function locale() {
   return translations[documentModel?.config?.ui?.language] ? documentModel.config.ui.language : "en";
@@ -54,7 +57,7 @@ function applyLocale() {
     button.textContent = translate(button.dataset.section);
   }
   content.querySelector("h2").textContent = translate(activeSection);
-  document.querySelector("#save").textContent = translate("save");
+  if (!saveInProgress) saveButton.textContent = translate("save");
 }
 
 function applyTheme(theme) {
@@ -416,17 +419,33 @@ for (const button of document.querySelectorAll("nav button")) {
   });
 }
 
-document.querySelector("#save").addEventListener("click", async () => {
+saveButton.addEventListener("click", async () => {
+  if (saveInProgress) return;
+  saveInProgress = true;
   const activeSectionBeforeSave = activeSection;
   status.textContent = "Saving…";
+  saveResult.textContent = "Saving settings…";
+  saveResult.dataset.state = "busy";
+  saveButton.disabled = true;
+  saveButton.setAttribute("aria-busy", "true");
+  saveButton.textContent = "Saving…";
   try {
+    await new Promise(requestAnimationFrame);
     const result = await invoke("save_settings", { request: { config: documentModel.config } });
     const applied = result.fields.filter((field) => field.status === "applied").length;
     const restart = result.fields.filter((field) => field.status === "restart-required").length;
     status.textContent = `Saved. ${applied} applied; ${restart} restart-required.`;
+    saveResult.textContent = `Saved. ${applied} changes applied; ${restart} require restart.`;
+    saveResult.dataset.state = "success";
   } catch (error) {
     status.textContent = `Save failed: ${error}`;
+    saveResult.textContent = `Save failed: ${error}`;
+    saveResult.dataset.state = "error";
   } finally {
+    saveInProgress = false;
+    saveButton.disabled = false;
+    saveButton.setAttribute("aria-busy", "false");
+    saveButton.textContent = translate("save");
     activeSection = activeSectionBeforeSave;
     await settingsWindow.show();
     await settingsWindow.setFocus();

@@ -4,6 +4,8 @@ const MAIN_RS: &str = include_str!("../src/main.rs");
 const SHELL_RS: &str = include_str!("../src/settings_shell.rs");
 const TAURI_CONFIG: &str = include_str!("../tauri.conf.json");
 const SETTINGS_JS: &str = include_str!("../ui/settings.js");
+const SETTINGS_HTML: &str = include_str!("../ui/index.html");
+const SETTINGS_CSS: &str = include_str!("../ui/styles.css");
 const DAEMON_RS: &str = include_str!("../src/daemon.rs");
 const IPC_RS: &str = include_str!("../src/ipc.rs");
 const OVERLAY_JS: &str = include_str!("../ui/overlay.js");
@@ -61,6 +63,22 @@ fn test_v34_save_keeps_ui_thread_responsive() {
     assert!(save.contains("tokio::time::timeout"));
     assert!(save.contains("spawn_blocking"));
     assert!(!save.contains("block_on"));
+}
+
+#[test]
+fn test_v37_save_button_has_busy_success_error_and_duplicate_guard() {
+    assert!(SETTINGS_HTML.contains("id=\"save-result\""));
+    assert!(SETTINGS_HTML.contains("aria-live=\"polite\""));
+    assert!(SETTINGS_JS.contains("let saveInProgress = false"));
+    assert!(SETTINGS_JS.contains("if (saveInProgress) return"));
+    assert!(SETTINGS_JS.contains("saveButton.disabled = true"));
+    assert!(SETTINGS_JS.contains("saveButton.setAttribute(\"aria-busy\", \"true\")"));
+    assert!(SETTINGS_JS.contains("saveButton.textContent = \"Saving…\""));
+    assert!(SETTINGS_JS.contains("saveResult.dataset.state = \"success\""));
+    assert!(SETTINGS_JS.contains("saveResult.dataset.state = \"error\""));
+    assert!(SETTINGS_JS.contains("saveButton.disabled = false"));
+    assert!(SETTINGS_CSS.contains("#save[aria-busy=\"true\"]::before"));
+    assert!(SETTINGS_CSS.contains("@keyframes save-spin"));
 }
 
 #[test]

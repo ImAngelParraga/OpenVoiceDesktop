@@ -47,4 +47,12 @@ nav button:hover, nav button.active { background: color-mix(in srgb, var(--accen
 #settings-form input, #settings-form select, #settings-form textarea { border: 1px solid var(--border); border-radius: .4rem; padding: .55rem .65rem; background: var(--bg); color: var(--fg); }
 #settings-form textarea { min-height: 5rem; resize: vertical; }
 #settings-form input:disabled, #settings-form select:disabled, #settings-form textarea:disabled { opacity: .55; }
-#save { border: 0; border-radius: .5rem; padding: .7rem 1rem; background: var(--accent); color: AccentColorText; }
+.save-actions { display: flex; align-items: center; gap: .8rem; min-height: 2.7rem; }
+#save { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border: 0; border-radius: .5rem; min-width: 8.5rem; padding: .7rem 1rem; background: var(--accent); color: AccentColorText; }
+#save:disabled { cursor: wait; opacity: .78; }
+#save[aria-busy="true"]::before { content: ""; width: .85rem; height: .85rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: save-spin .65s linear infinite; }
+#save-result { margin: 0; font-weight: 600; }
+#save-result[data-state="busy"] { color: var(--muted); }
+#save-result[data-state="success"] { color: #15803d; }
+#save-result[data-state="error"] { color: #b91c1c; }
+@keyframes save-spin { to { transform: rotate(360deg); } }
