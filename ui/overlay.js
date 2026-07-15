@@ -15,9 +15,9 @@ function render(view) {
   waveform.replaceChildren();
   if (!view.show_waveform) return;
   const level = view.level_bucket ?? 0;
-  for (let index = 0; index < 10; index += 1) {
+  for (let index = 0; index < 5; index += 1) {
     const bar = document.createElement("i");
-    bar.style.height = `${Math.max(3, 5 + ((index + level) % 5) * 4)}px`;
+    bar.style.height = `${Math.max(3, 4 + ((index + level) % 4) * 3)}px`;
     waveform.append(bar);
   }
 }

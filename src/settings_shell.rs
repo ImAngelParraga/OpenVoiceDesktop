@@ -384,27 +384,29 @@ fn apply_overlay_window(
     window: &tauri::WebviewWindow,
     view: &crate::core::settings_ui::OverlayView,
 ) -> anyhow::Result<()> {
-    use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
+    use tauri::{LogicalSize, PhysicalPosition, Position, Size};
 
     if !view.visible {
         window.hide()?;
         return Ok(());
     }
-    let width = if view.style == crate::core::config::OverlayStyle::Expanded {
-        520
+    let (width, height) = if view.style == crate::core::config::OverlayStyle::Expanded {
+        (420.0, 72.0)
     } else {
-        420
+        (260.0, 52.0)
     };
-    let height = 88;
-    window.set_size(Size::Physical(PhysicalSize::new(width, height)))?;
+    window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
     if let Some(monitor) = window.current_monitor()? {
         let monitor_position = monitor.position();
         let monitor_size = monitor.size();
-        let x = monitor_position.x + (monitor_size.width.saturating_sub(width)) as i32 / 2;
+        let scale = monitor.scale_factor();
+        let physical_width = (width * scale).round() as u32;
+        let physical_height = (height * scale).round() as u32;
+        let x = monitor_position.x + (monitor_size.width.saturating_sub(physical_width)) as i32 / 2;
         let y = match view.position {
             crate::core::config::OverlayPosition::Top => monitor_position.y + 32,
             crate::core::config::OverlayPosition::Bottom => {
-                monitor_position.y + monitor_size.height as i32 - height as i32 - 64
+                monitor_position.y + monitor_size.height as i32 - physical_height as i32 - 64
             }
         };
         window.set_position(Position::Physical(PhysicalPosition::new(x, y)))?;

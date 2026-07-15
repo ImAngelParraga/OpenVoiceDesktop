@@ -9,6 +9,8 @@ const SETTINGS_CSS: &str = include_str!("../ui/styles.css");
 const DAEMON_RS: &str = include_str!("../src/daemon.rs");
 const IPC_RS: &str = include_str!("../src/ipc.rs");
 const OVERLAY_JS: &str = include_str!("../ui/overlay.js");
+const OVERLAY_HTML: &str = include_str!("../ui/overlay.html");
+const OVERLAY_CSS: &str = include_str!("../ui/overlay.css");
 
 #[test]
 fn settings_cli_owns_one_native_window_without_browser_or_localhost() {
@@ -125,6 +127,24 @@ fn overlay_shell_is_native_and_cancelable_with_live_daemon_status() {
     assert!(SHELL_RS.contains("overlay-state"));
     assert!(SHELL_RS.contains("cancel_transcription"));
     assert!(OVERLAY_JS.contains("invoke(\"cancel_transcription\")"));
+}
+
+#[test]
+fn test_v38_compact_overlay_is_tiny_accessible_and_dpi_logical() {
+    let config: serde_json::Value = serde_json::from_str(TAURI_CONFIG).unwrap();
+    let overlay = config["app"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|window| window["label"] == "overlay")
+        .unwrap();
+    assert!(overlay["width"].as_u64().unwrap() <= 260);
+    assert!(overlay["height"].as_u64().unwrap() <= 52);
+    assert_eq!(overlay["focus"], false);
+    assert!(OVERLAY_HTML.contains("aria-label=\"Cancel recording\""));
+    assert!(OVERLAY_CSS.contains("max-width: 260px"));
+    assert!(OVERLAY_CSS.contains("min-height: 42px"));
+    assert!(OVERLAY_JS.contains("index < 5"));
 }
 
 #[test]
