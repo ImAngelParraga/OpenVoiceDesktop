@@ -24,6 +24,15 @@ fn builds_openai_compatible_request_fields() {
     assert_eq!(fields.timeout.as_secs(), 30);
 }
 
+#[test]
+fn test_v36_prompt_preserves_unicode_and_newlines_in_request_fields() {
+    let mut config = Config::default();
+    let prompt = "Rankis\nOpenVoiceDesktop, naïve, 東京";
+    config.asr.prompt = Some(prompt.to_string());
+
+    assert_eq!(request_fields(&config).prompt.as_deref(), Some(prompt));
+}
+
 #[tokio::test]
 async fn endpoint_test_uses_configured_request_and_sanitizes_response() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

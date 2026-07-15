@@ -237,6 +237,7 @@ function render() {
       if (input.type === "checkbox") next = input.checked;
       else if (typeof value === "number") next = Number(input.value);
       else if (Array.isArray(value)) next = input.value.split(",").map((part) => part.trim()).filter(Boolean);
+      else if (path === "asr.prompt") next = input.value.trim().length === 0 ? null : input.value;
       else if (value === null && input.value === "") next = null;
       setPath(documentModel.config, path, next);
       if (path === "audio.audio_feedback") render();

@@ -434,7 +434,7 @@ impl SettingsWindowLayout {
                         ),
                         SettingsControl::bound(
                             "prompt",
-                            "Prompt",
+                            "Prompt / vocabulary hints",
                             SettingsControlKind::TextArea,
                             "asr.prompt",
                         ),
@@ -1253,7 +1253,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "asr.base_url" => "Server root URL. Transcriptions are sent to /v1/audio/transcriptions.",
         "asr.model" => "Model name accepted by the configured ASR server.",
         "asr.language" => "Optional spoken-language code such as en, de, es, fr, or ja. Leave empty for auto-detection.",
-        "asr.prompt" => "Optional context for spelling and style. Use natural text, or separate distinct names and terms with commas, for example: OpenVoiceDesktop, Whisper, Acme Corp.",
+        "asr.prompt" => "Optional context sent to the ASR service for spelling and style. Use natural text, or separate distinct names and terms with commas, for example: OpenVoiceDesktop, Whisper, Acme Corp.",
         "asr.bearer_token" => "Authentication token source and storage status. Token value is never displayed.",
         "asr.timeout_seconds" => "Maximum time to wait for one ASR request before reporting failure.",
         "test-endpoint" => "Send a small authenticated diagnostic request without recording speech.",

@@ -93,6 +93,22 @@ fn test_v26_visible_settings_have_human_labels_and_help_text() {
 }
 
 #[test]
+fn test_v36_prompt_is_discoverable_multiline_vocabulary_hint() {
+    let layout = SettingsWindowLayout::default_layout();
+    let prompt = layout
+        .sections
+        .iter()
+        .flat_map(|section| &section.controls)
+        .find(|control| control.config_key == Some("asr.prompt"))
+        .unwrap();
+
+    assert_eq!(prompt.label, "Prompt / vocabulary hints");
+    assert_eq!(prompt.kind, SettingsControlKind::TextArea);
+    assert!(prompt.description.contains("ASR service"));
+    assert!(prompt.description.contains("names and terms"));
+}
+
+#[test]
 fn asr_endpoint_settings_exposes_t5_endpoint_controls() {
     let layout = SettingsWindowLayout::default_layout();
     let endpoint = layout

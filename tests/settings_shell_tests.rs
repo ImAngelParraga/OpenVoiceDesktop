@@ -64,6 +64,12 @@ fn test_v34_save_keeps_ui_thread_responsive() {
 }
 
 #[test]
+fn test_v36_prompt_editor_maps_blank_to_absent_without_rewriting_text() {
+    assert!(SETTINGS_JS.contains("path === \"asr.prompt\""));
+    assert!(SETTINGS_JS.contains("input.value.trim().length === 0 ? null : input.value"));
+}
+
+#[test]
 fn onboarding_completion_starts_windows_daemon() {
     assert!(SHELL_RS.contains("async fn complete_onboarding"));
     assert!(SHELL_RS.contains("apply_autostart(config.app.autostart)"));
