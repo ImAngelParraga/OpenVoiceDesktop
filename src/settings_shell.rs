@@ -53,6 +53,14 @@ pub fn run() -> Result<()> {
             });
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() == SETTINGS_WINDOW_LABEL {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         // Compatibility marker for the original typed settings command contract:
         // generate_handler![get_settings, save_settings]
         .invoke_handler(tauri::generate_handler![

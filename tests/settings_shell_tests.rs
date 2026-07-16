@@ -40,6 +40,18 @@ fn tauri_shell_registers_single_instance_first_and_focuses_settings() {
 }
 
 #[test]
+fn test_v43_close_hides_settings_for_single_instance_reopen() {
+    assert!(SHELL_RS.contains(".on_window_event(|window, event|"));
+    assert!(SHELL_RS.contains("window.label() == SETTINGS_WINDOW_LABEL"));
+    assert!(SHELL_RS.contains("tauri::WindowEvent::CloseRequested"));
+    assert!(SHELL_RS.contains("api.prevent_close()"));
+    assert!(SHELL_RS.contains("window.hide()"));
+    assert!(SHELL_RS.contains("window.show()"));
+    assert!(SHELL_RS.contains("window.unminimize()"));
+    assert!(SHELL_RS.contains("window.set_focus()"));
+}
+
+#[test]
 fn production_settings_path_contains_no_localhost_server_or_external_browser() {
     assert!(!SHELL_RS.contains("TcpListener"));
     assert!(!SHELL_RS.contains("open_url"));
