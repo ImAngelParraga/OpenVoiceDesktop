@@ -111,6 +111,7 @@ V38: Tiny-overlay invariant: default compact recording overlay is at most `260×
 V39: Paste-latency invariant: diagnostics measure ASR-response→clipboard-write, clipboard-write→paste-input, and paste-input→clipboard-restore separately. Windows default sends paste input within `100 ms` of ASR response on local idle system. Restore cleanup never delays visible inserted-state feedback. Configured delays run only on applicable clipboard-paste paths.
 V40: Delay-UX invariant: UI names `paste_delay_ms` as pre-paste settling delay and `restore_delay_ms` as post-paste clipboard restoration delay, shows milliseconds and purpose, hides both under Advanced, validates `0..=2000`, and identifies platform defaults. Pre-paste default is `0` unless compatibility tests prove nonzero required; restore delay prevents asynchronous target apps reading restored old clipboard.
 V41: Daemon-recovery invariant: valid Settings Save with no reachable daemon starts one hidden, waits at most `5 s` for readiness, and succeeds using saved config; duplicate daemon remains forbidden. Reachable daemon rejection or failed bounded startup preserves prior config/runtime and returns visible sanitized error.
+V42: Deferred-save invariant: valid Settings Save when no daemon runtime exists—including incomplete onboarding—persists config without rollback, marks otherwise-live changed fields `restart-required` with reason, and applies them when daemon next starts. Only a reachable daemon's explicit rejection or OS lifecycle failure rejects Save.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -193,6 +194,7 @@ T75|x|Shrink recording overlay|Replace `420×88` default with at-most `260×52` 
 T76|x|Measure and reduce paste latency|Instrument three paste stages; benchmark Windows Notepad, browser text field, Office-class editor, and Linux supported tools; remove unconditional pre-paste wait where safe; emit inserted feedback before restoration cleanup; prove transcript/clipboard safety and `<=100 ms` default Windows paste-input target.|H:src-tauri/src/clipboard.rs|C15,V3,V6,V7,V9,V12,V39
 T77|x|Clarify paste delay controls|Rename/help pre-paste and clipboard-restore delays, show units/applicability, move under Advanced, validate bounds, disable when irrelevant, choose measured platform defaults, migrate existing values unchanged, and document why restoration needs settling time.|H:src/components/settings/debug/DebugSettings.tsx; H:src-tauri/src/clipboard.rs|C15,V7,V8,V15,V22,V39,V40
 T78|x|Recover missing daemon on Save|Distinguish unreachable daemon from reload rejection; start resident daemon hidden when absent, poll readiness with bounded timeout, reuse startup path for onboarding, preserve rollback for true rejection/startup failure, and test missing/reachable paths.|H:src-tauri/src/lib.rs; H:src-tauri/src/settings.rs|V8,V16,V17,V26,V34,V41
+T79|x|Defer Save without daemon runtime|Treat incomplete-onboarding or failed absent-daemon startup as deferred runtime application, preserve valid config, convert applied field results to restart-required with visible reason, and retain rollback only for reachable rejection or OS lifecycle failure.|H:src-tauri/src/settings.rs|V8,V16,V17,V26,V34,V42
 
 §B
 id|date|cause|fix
@@ -227,3 +229,4 @@ B28|2026-07-15|Custom-word cleanup removed vocabulary-oriented discoverability e
 B29|2026-07-15|Save feedback lived only in a passive status line while button appearance/state never changed, so activation looked ignored|V37
 B30|2026-07-15|Default clipboard path serialized `25 ms` pre-paste and `250 ms` restore waits into completion, making insertion appear to take about `0.3 s` without stage diagnostics or clear delay purpose|V39,V40
 B31|2026-07-15|Settings Save treated absent daemon pipe as runtime rejection and rolled back valid config instead of starting resident daemon or accepting startup-loaded settings|V41
+B32|2026-07-16|Missing-daemon recovery required successful daemon startup even during incomplete onboarding, where no runtime is expected, so valid Save still rolled back after readiness timeout|V42

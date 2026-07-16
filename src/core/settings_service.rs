@@ -64,6 +64,15 @@ pub struct SaveSettingsResult {
     pub fields: Vec<FieldApplyResult>,
 }
 
+pub fn mark_runtime_deferred(result: &mut SaveSettingsResult) {
+    for field in &mut result.fields {
+        if field.status == ApplyStatus::Applied {
+            field.status = ApplyStatus::RestartRequired;
+            field.reason = Some("Saved; applies when resident daemon starts".to_string());
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SettingsService {
     path: PathBuf,

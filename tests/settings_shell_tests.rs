@@ -81,6 +81,16 @@ fn test_v41_save_recovers_missing_daemon_with_bounded_hidden_startup() {
 }
 
 #[test]
+fn test_v42_save_defers_runtime_when_onboarding_or_daemon_is_absent() {
+    assert!(SHELL_RS.contains("enum DaemonApplyOutcome"));
+    assert!(SHELL_RS.contains("candidate.onboarding.completed"));
+    assert!(SHELL_RS.contains("DaemonApplyOutcome::Deferred"));
+    assert!(SHELL_RS.contains("mark_runtime_deferred(&mut result)"));
+    assert!(SETTINGS_JS.contains("const runtimeReasons"));
+    assert!(SETTINGS_JS.contains("runtimeReasons.join"));
+}
+
+#[test]
 fn test_v37_save_button_has_busy_success_error_and_duplicate_guard() {
     assert!(SETTINGS_HTML.contains("id=\"save-result\""));
     assert!(SETTINGS_HTML.contains("aria-live=\"polite\""));

@@ -4,7 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::settings_inventory::{InventoryKind, SETTINGS_INVENTORY};
 use openvoice_desktop::core::settings_service::{
-    complete_onboarding, validate_config, ApplyStatus, SaveSettingsRequest, SettingsService,
+    complete_onboarding, mark_runtime_deferred, validate_config, ApplyStatus, FieldApplyResult,
+    SaveSettingsRequest, SaveSettingsResult, SettingsService,
 };
 
 static DEVICE_ENUMERATION_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -104,6 +105,32 @@ fn test_v40_paste_delays_are_bounded_to_two_seconds() {
         .unwrap_err()
         .to_string()
         .contains("output.restore_delay_ms must be between 0 and 2000"));
+}
+
+#[test]
+fn test_v42_deferred_runtime_marks_applied_fields_restart_required() {
+    let mut result = SaveSettingsResult {
+        fields: vec![
+            FieldApplyResult {
+                field: "asr.prompt".to_string(),
+                status: ApplyStatus::Applied,
+                reason: None,
+            },
+            FieldApplyResult {
+                field: "portable.enabled".to_string(),
+                status: ApplyStatus::RestartRequired,
+                reason: Some("existing".to_string()),
+            },
+        ],
+    };
+
+    mark_runtime_deferred(&mut result);
+    assert_eq!(result.fields[0].status, ApplyStatus::RestartRequired);
+    assert_eq!(
+        result.fields[0].reason.as_deref(),
+        Some("Saved; applies when resident daemon starts")
+    );
+    assert_eq!(result.fields[1].reason.as_deref(), Some("existing"));
 }
 
 #[test]

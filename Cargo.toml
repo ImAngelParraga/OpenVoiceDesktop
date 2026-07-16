@@ -1,6 +1,6 @@
 [package]
 name = "openvoice-desktop"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 description = "Resident desktop dictation client for OpenVoice-compatible ASR services"
 license = "MIT"

@@ -97,11 +97,18 @@ async fn save_settings(
     let socket_path = Config::load_from(&path)
         .and_then(|loaded| loaded.config.socket_path())
         .map_err(safe_error)?;
-    SettingsService::new(path)
+    let runtime_deferred = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let deferred_for_apply = runtime_deferred.clone();
+    let mut result = SettingsService::new(path)
         .save_with_async(request, move |candidate| {
             let socket_path = socket_path.clone();
+            let runtime_deferred = deferred_for_apply.clone();
             async move {
-                reload_or_start_daemon(&candidate, &socket_path).await?;
+                if reload_or_start_daemon(&candidate, &socket_path).await?
+                    == DaemonApplyOutcome::Deferred
+                {
+                    runtime_deferred.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 let autostart = candidate.app.autostart;
                 tauri::async_runtime::spawn_blocking(move || {
                     crate::core::lifecycle::apply_autostart(autostart)
@@ -112,16 +119,26 @@ async fn save_settings(
             }
         })
         .await
-        .map_err(safe_error)
+        .map_err(safe_error)?;
+    if runtime_deferred.load(std::sync::atomic::Ordering::SeqCst) {
+        crate::core::settings_service::mark_runtime_deferred(&mut result);
+    }
+    Ok(result)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DaemonApplyOutcome {
+    Applied,
+    Deferred,
 }
 
 #[cfg(feature = "desktop-shell")]
 async fn reload_or_start_daemon(
-    _candidate: &crate::core::config::Config,
+    candidate: &crate::core::config::Config,
     socket_path: &std::path::Path,
-) -> anyhow::Result<()> {
-    use anyhow::Context;
-    use std::time::{Duration, Instant};
+) -> anyhow::Result<DaemonApplyOutcome> {
+    use std::time::Duration;
 
     match tokio::time::timeout(
         Duration::from_secs(5),
@@ -129,23 +146,19 @@ async fn reload_or_start_daemon(
     )
     .await
     {
-        Ok(Ok(response)) if response.trim() == "Reloaded" => return Ok(()),
+        Ok(Ok(response)) if response.trim() == "Reloaded" => {
+            return Ok(DaemonApplyOutcome::Applied)
+        }
         Ok(Ok(response)) => anyhow::bail!(response.trim().to_string()),
         Err(_) => anyhow::bail!("timed out waiting for daemon config reload"),
         Ok(Err(_unreachable)) => {}
     }
 
-    spawn_resident_daemon().context("starting resident daemon")?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if crate::ipc::send_status(socket_path).await.is_ok() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            anyhow::bail!("resident daemon did not become ready within 5 seconds");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+    if !candidate.onboarding.completed {
+        return Ok(DaemonApplyOutcome::Deferred);
     }
+    let _ = spawn_resident_daemon();
+    Ok(DaemonApplyOutcome::Deferred)
 }
 
 #[cfg(feature = "desktop-shell")]

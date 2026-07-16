@@ -452,8 +452,10 @@ saveButton.addEventListener("click", async () => {
     const result = await invoke("save_settings", { request: { config: documentModel.config } });
     const applied = result.fields.filter((field) => field.status === "applied").length;
     const restart = result.fields.filter((field) => field.status === "restart-required").length;
+    const runtimeReasons = [...new Set(result.fields.map((field) => field.reason).filter(Boolean))];
+    const reasonText = runtimeReasons.length > 0 ? ` ${runtimeReasons.join(" ")}` : "";
     status.textContent = `Saved. ${applied} applied; ${restart} restart-required.`;
-    saveResult.textContent = `Saved. ${applied} changes applied; ${restart} require restart.`;
+    saveResult.textContent = `Saved. ${applied} changes applied; ${restart} require restart.${reasonText}`;
     saveResult.dataset.state = "success";
   } catch (error) {
     status.textContent = `Save failed: ${error}`;
