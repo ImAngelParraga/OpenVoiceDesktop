@@ -134,6 +134,13 @@ fn test_v36_prompt_editor_maps_blank_to_absent_without_rewriting_text() {
 }
 
 #[test]
+fn test_v44_textarea_render_avoids_input_only_type_assignment() {
+    assert!(SETTINGS_JS.contains("const isTextArea = control.kind === \"text-area\""));
+    assert!(SETTINGS_JS.contains("document.createElement(isTextArea ? \"textarea\" : \"input\")"));
+    assert!(SETTINGS_JS.contains("if (!isTextArea) input.type = \"text\""));
+}
+
+#[test]
 fn onboarding_completion_starts_windows_daemon() {
     assert!(SHELL_RS.contains("async fn complete_onboarding"));
     assert!(SHELL_RS.contains("apply_autostart(config.app.autostart)"));

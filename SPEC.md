@@ -113,6 +113,7 @@ V40: Delay-UX invariant: UI names `paste_delay_ms` as pre-paste settling delay a
 V41: Daemon-recovery invariant: valid Settings Save with no reachable daemon starts one hidden, waits at most `5 s` for readiness, and succeeds using saved config; duplicate daemon remains forbidden. Reachable daemon rejection or failed bounded startup preserves prior config/runtime and returns visible sanitized error.
 V42: Deferred-save invariant: valid Settings Save when no daemon runtime exists—including incomplete onboarding—persists config without rollback, marks otherwise-live changed fields `restart-required` with reason, and applies them when daemon next starts. Only a reachable daemon's explicit rejection or OS lifecycle failure rejects Save.
 V43: Settings-reopen invariant: closing Settings hides rather than destroys its webview while shell/overlay process remains; tray Settings or `settings` command subsequently shows, unminimizes, and focuses same window without duplicate shell or daemon.
+V44: Settings-render invariant: every declared control kind renders without JavaScript exception; textarea controls accept multiline value without assigning input-only properties, and one control failure never truncates later controls/actions silently.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -197,6 +198,7 @@ T77|x|Clarify paste delay controls|Rename/help pre-paste and clipboard-restore d
 T78|x|Recover missing daemon on Save|Distinguish unreachable daemon from reload rejection; start resident daemon hidden when absent, poll readiness with bounded timeout, reuse startup path for onboarding, preserve rollback for true rejection/startup failure, and test missing/reachable paths.|H:src-tauri/src/lib.rs; H:src-tauri/src/settings.rs|V8,V16,V17,V26,V34,V41
 T79|x|Defer Save without daemon runtime|Treat incomplete-onboarding or failed absent-daemon startup as deferred runtime application, preserve valid config, convert applied field results to restart-required with visible reason, and retain rollback only for reachable rejection or OS lifecycle failure.|H:src-tauri/src/settings.rs|V8,V16,V17,V26,V34,V42
 T80|x|Reopen closed Settings window|Intercept Settings close request, prevent destruction, hide reusable webview, and prove tray/single-instance activation shows/unminimizes/focuses it while overlay window remains alive.|H:src-tauri/src/lib.rs|V14,V16,V26,V43
+T81|x|Render prompt textarea safely|Separate textarea initialization from input type assignment, render multiline prompt plus all later ASR controls/actions, and add regression proof that textarea path cannot throw before append.|H:src/components/settings/general/ModelSettingsCard.tsx|V14,V15,V22,V36,V44
 
 §B
 id|date|cause|fix
@@ -233,3 +235,4 @@ B30|2026-07-15|Default clipboard path serialized `25 ms` pre-paste and `250 ms` 
 B31|2026-07-15|Settings Save treated absent daemon pipe as runtime rejection and rolled back valid config instead of starting resident daemon or accepting startup-loaded settings|V41
 B32|2026-07-16|Missing-daemon recovery required successful daemon startup even during incomplete onboarding, where no runtime is expected, so valid Save still rolled back after readiness timeout|V42
 B33|2026-07-16|Closing Settings destroyed its webview while hidden overlay kept single-instance shell alive; later tray activation found no `settings` window to show|V43
+B34|2026-07-16|Generic control renderer assigned read-only `HTMLTextAreaElement.type`, throwing at first textarea and silently truncating prompt plus every later ASR control/action|V44

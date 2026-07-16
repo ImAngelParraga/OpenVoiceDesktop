@@ -170,7 +170,8 @@ function render() {
         : recordingOutputDependent(path)
           ? "Select reduced output mode to set recording volume."
           : outputDelayUnavailable(path);
-    const input = document.createElement(control.kind === "text-area" ? "textarea" : "input");
+    const isTextArea = control.kind === "text-area";
+    const input = document.createElement(isTextArea ? "textarea" : "input");
     input.name = path;
     input.disabled = unavailableReason !== null;
     if (path === "audio.selected_microphone" || path === "audio.selected_output_device") {
@@ -233,7 +234,10 @@ function render() {
       form.append(row);
       continue;
     }
-    if (typeof displayValue === "boolean") {
+    if (!isTextArea) input.type = "text";
+    if (isTextArea) {
+      input.value = displayValue ?? "";
+    } else if (typeof displayValue === "boolean") {
       input.type = "checkbox";
       input.checked = displayValue;
     } else if (typeof displayValue === "number") {
