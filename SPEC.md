@@ -116,6 +116,7 @@ V42: Deferred-save invariant: valid Settings Save when no daemon runtime exists�
 V43: Settings-reopen invariant: closing Settings hides rather than destroys its webview while shell/overlay process remains; tray Settings or `settings` command subsequently shows, unminimizes, and focuses same window without duplicate shell or daemon.
 V44: Settings-render invariant: every declared control kind renders without JavaScript exception; textarea controls accept multiline value without assigning input-only properties, and one control failure never truncates later controls/actions silently.
 V45: Runtime-language invariant: language changes only while idle or recording, updates status/overlay immediately, and remains selected for later recordings in current daemon session. Stop snapshots selected language for one ASR request without splitting audio; `auto` omits multipart `language`. Writing/uploading/inserting rejects changes. Shortcut and overlay invoke same action.
+V46: Overlay-cursor invariant: hovering Windows native or Tauri recording overlay always shows normal arrow over non-actions and pointer over clickable language/cancel actions; missing/inherited wait cursor forbidden.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -202,6 +203,7 @@ T79|x|Defer Save without daemon runtime|Treat incomplete-onboarding or failed ab
 T80|x|Reopen closed Settings window|Intercept Settings close request, prevent destruction, hide reusable webview, and prove tray/single-instance activation shows/unminimizes/focuses it while overlay window remains alive.|H:src-tauri/src/lib.rs|V14,V16,V26,V43
 T81|x|Render prompt textarea safely|Separate textarea initialization from input type assignment, render multiline prompt plus all later ASR controls/actions, and add regression proof that textarea path cannot throw before append.|H:src/components/settings/general/ModelSettingsCard.tsx|V14,V15,V22,V36,V44
 T82|x|Runtime transcription language switching|Add configurable EN/ES cycle, runtime shortcut, CLI/IPC action, clickable overlay badge, ASR language snapshot, validation, docs, and cross-platform tests. Support `auto` as explicit option that omits multipart language.|—|I.config,I.asr,I.controller,I.runtime-language,I.shell,V1,V3,V4,V8,V12,V15,V18,V22,V24,V45
+T83|x|Fix cursor and shrink recording overlay|Assign explicit Windows arrow cursor, explicit Tauri overlay cursors, shrink compact Tauri overlay to at most `210×44`, shrink Windows native popup to at most `180×34`, reduce waveform chrome, and preserve language/cancel click targets.|H:src/overlay/RecordingOverlay.tsx; H:src/overlay/RecordingOverlay.css|V3,V5,V12,V38,V45,V46
 
 §B
 id|date|cause|fix
@@ -242,3 +244,4 @@ B34|2026-07-16|Generic control renderer assigned read-only `HTMLTextAreaElement.
 B35|2026-07-17|New inventory expectation inserted `behavior.language_shortcut` out of lexical order while comparison sorts actual fields|V22
 B36|2026-07-17|Exact settings-control fixtures omitted new language options and shortcut controls|V22
 B37|2026-07-17|Windows tray test banned `WM_LBUTTONUP` globally, blocking unrelated clickable recording popup control|V3
+B38|2026-07-17|Windows recording popup class used `hCursor: 0`, so hover inherited stale wait cursor and appeared busy|V46

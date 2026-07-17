@@ -1,8 +1,8 @@
 :root { font-family: system-ui, sans-serif; }
 * { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; }
-body { margin: 0; padding: 4px; background: transparent; }
-#overlay { --overlay-bg: rgba(247, 248, 250, .96); --overlay-border: #cbd5e1; --overlay-wave: #2563eb; display: flex; align-items: center; gap: .45rem; width: 100%; max-width: 260px; min-height: 42px; padding: .3rem .45rem .3rem .6rem; border: 1px solid var(--overlay-border); border-radius: .7rem; background: var(--overlay-bg); box-shadow: 0 .2rem .65rem rgba(0, 0, 0, .24); font-size: .78rem; }
+body { margin: 0; padding: 3px; background: transparent; }
+#overlay { --overlay-bg: rgba(247, 248, 250, .96); --overlay-border: #cbd5e1; --overlay-wave: #2563eb; display: flex; align-items: center; gap: .32rem; width: 100%; max-width: 210px; min-height: 34px; padding: .2rem .32rem .2rem .45rem; border: 1px solid var(--overlay-border); border-radius: .6rem; background: var(--overlay-bg); box-shadow: 0 .15rem .5rem rgba(0, 0, 0, .22); font-size: .72rem; cursor: default; }
 #overlay[data-theme="light"] { color: #20242a; }
 #overlay[data-theme="dark"] { color: #f4f7fa; --overlay-bg: rgba(17, 20, 24, .94); --overlay-border: #303842; --overlay-wave: #8ed1ff; }
 #overlay[data-theme="system"] { color: #20242a; }
@@ -11,9 +11,9 @@ body { margin: 0; padding: 4px; background: transparent; }
 }
 #overlay[hidden] { display: none; }
 #message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-#waveform { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .13rem; height: 1rem; }
-#waveform i { width: .18rem; border-radius: .15rem; background: var(--overlay-wave); }
-#language { flex: 0 0 auto; margin-left: auto; min-width: 2rem; height: 1.45rem; border: 1px solid var(--overlay-border); border-radius: .45rem; padding: 0 .3rem; color: inherit; background: transparent; font-size: .68rem; font-weight: 700; line-height: 1; }
-#cancel { flex: 0 0 auto; width: 1.65rem; height: 1.65rem; border: 1px solid #596674; border-radius: 50%; padding: 0; color: inherit; background: transparent; font-size: 1rem; line-height: 1; }
+#waveform { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .1rem; height: .85rem; }
+#waveform i { width: .16rem; border-radius: .15rem; background: var(--overlay-wave); }
+#language { flex: 0 0 auto; margin-left: auto; min-width: 1.8rem; height: 1.25rem; border: 1px solid var(--overlay-border); border-radius: .4rem; padding: 0 .22rem; color: inherit; background: transparent; font-size: .62rem; font-weight: 700; line-height: 1; cursor: pointer; }
+#cancel { flex: 0 0 auto; width: 1.4rem; height: 1.4rem; border: 1px solid #596674; border-radius: 50%; padding: 0; color: inherit; background: transparent; font-size: .9rem; line-height: 1; cursor: pointer; }
 #overlay.expanded { max-width: 420px; min-height: 62px; padding: .55rem .75rem; font-size: .9rem; }
 #overlay.bottom { border-color: var(--overlay-wave); }

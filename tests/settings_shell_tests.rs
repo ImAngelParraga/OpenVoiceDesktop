@@ -189,13 +189,15 @@ fn test_v38_compact_overlay_is_tiny_accessible_and_dpi_logical() {
         .iter()
         .find(|window| window["label"] == "overlay")
         .unwrap();
-    assert!(overlay["width"].as_u64().unwrap() <= 260);
-    assert!(overlay["height"].as_u64().unwrap() <= 52);
+    assert!(overlay["width"].as_u64().unwrap() <= 210);
+    assert!(overlay["height"].as_u64().unwrap() <= 44);
     assert_eq!(overlay["focus"], false);
     assert!(OVERLAY_HTML.contains("aria-label=\"Cancel recording\""));
-    assert!(OVERLAY_CSS.contains("max-width: 260px"));
-    assert!(OVERLAY_CSS.contains("min-height: 42px"));
-    assert!(OVERLAY_JS.contains("index < 5"));
+    assert!(OVERLAY_CSS.contains("max-width: 210px"));
+    assert!(OVERLAY_CSS.contains("min-height: 34px"));
+    assert!(OVERLAY_CSS.contains("cursor: default"));
+    assert!(OVERLAY_CSS.contains("cursor: pointer"));
+    assert!(OVERLAY_JS.contains("index < 4"));
 }
 
 #[test]

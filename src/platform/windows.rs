@@ -33,13 +33,13 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
-    LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
-    SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
-    CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN,
-    SM_CYSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN,
-    TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP,
-    WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW,
-    WS_POPUP,
+    LoadCursorW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage,
+    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION,
+    MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
+    SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY,
+    WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
@@ -56,8 +56,8 @@ const WM_STATUS_POPUP: u32 = WM_APP + 2;
 const WM_STATUS_HIDE: u32 = WM_APP + 3;
 const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
 const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
-const STATUS_POPUP_WIDTH: i32 = 220;
-const STATUS_POPUP_HEIGHT: i32 = 40;
+const STATUS_POPUP_WIDTH: i32 = 180;
+const STATUS_POPUP_HEIGHT: i32 = 34;
 const MENU_SETTINGS: usize = 1001;
 const MENU_COPY_LAST_TRANSCRIPT: usize = 1002;
 const MENU_CANCEL: usize = 1003;
@@ -416,7 +416,7 @@ pub fn run_tray_loop_with_config(
             lpfnWndProc: Some(wnd_proc),
             hInstance: hinstance,
             lpszClassName: class_name.as_ptr(),
-            hCursor: 0,
+            hCursor: LoadCursorW(0, IDC_ARROW),
             ..std::mem::zeroed()
         };
         if RegisterClassW(&wnd) == 0 {
@@ -746,7 +746,7 @@ unsafe fn register_status_popup_class(hinstance: isize) -> Result<()> {
         lpfnWndProc: Some(status_popup_wnd_proc),
         hInstance: hinstance,
         lpszClassName: class_name.as_ptr(),
-        hCursor: 0,
+        hCursor: LoadCursorW(0, IDC_ARROW),
         ..std::mem::zeroed()
     };
     if RegisterClassW(&wnd) == 0 {
@@ -932,9 +932,9 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
         .get_or_init(|| Mutex::new(0))
         .lock()
         .unwrap();
-    let heights = [12, 18, 24, 28, 22, 16, 10, 14, 20, 26, 18, 12];
-    let bar_width = 7;
-    let gap = 4;
+    let heights = [10, 16, 22, 28, 20, 14, 9];
+    let bar_width = 6;
+    let gap = 3;
     SetBkMode(hdc, TRANSPARENT as i32);
     SetTextColor(hdc, foreground);
     let language = RECORDING_LANGUAGE
@@ -943,9 +943,9 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
         .unwrap()
         .clone();
     let mut language_rect = RECT {
-        left: 14,
+        left: 10,
         top: 0,
-        right: 64,
+        right: 52,
         bottom: STATUS_POPUP_HEIGHT,
     };
     DrawTextW(
@@ -956,7 +956,7 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
     let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
-    let mut x = 70 + (STATUS_POPUP_WIDTH - 70 - total_width) / 2;
+    let mut x = 56 + (STATUS_POPUP_WIDTH - 56 - total_width) / 2;
     let brush = CreateSolidBrush(foreground);
     for index in 0..heights.len() {
         let height = heights[((index as u32 + frame) as usize) % heights.len()];

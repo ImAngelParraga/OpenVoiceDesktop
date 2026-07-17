@@ -35,7 +35,8 @@ fn test_v4_tray_uses_logo_icon_and_no_notification_balloon() {
 #[test]
 fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
     assert!(
-        WINDOWS_RS.contains("const STATUS_POPUP_WIDTH: i32 = 220"),
+        WINDOWS_RS.contains("const STATUS_POPUP_WIDTH: i32 = 180")
+            && WINDOWS_RS.contains("const STATUS_POPUP_HEIGHT: i32 = 34"),
         "status popup should stay compact"
     );
     assert!(
@@ -54,6 +55,13 @@ fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
         !WINDOWS_RS.contains("Transcript inserted"),
         "successful paste should not show a transcript inserted popup"
     );
+}
+
+#[test]
+fn test_v46_windows_overlay_uses_arrow_cursor() {
+    assert!(WINDOWS_RS.contains("LoadCursorW"));
+    assert!(WINDOWS_RS.contains("IDC_ARROW"));
+    assert!(!WINDOWS_RS.contains("hCursor: 0"));
 }
 
 #[test]

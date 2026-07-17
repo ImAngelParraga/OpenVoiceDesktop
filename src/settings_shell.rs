@@ -467,7 +467,7 @@ fn apply_overlay_window(
     let (width, height) = if view.style == crate::core::config::OverlayStyle::Expanded {
         (420.0, 72.0)
     } else {
-        (260.0, 52.0)
+        (210.0, 44.0)
     };
     window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
     if let Some(monitor) = window.current_monitor()? {
