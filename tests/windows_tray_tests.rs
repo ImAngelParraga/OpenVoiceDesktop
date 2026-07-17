@@ -61,6 +61,7 @@ fn test_v5_status_popup_is_compact_and_quiet_after_insert() {
 fn test_v46_windows_overlay_uses_arrow_cursor() {
     assert!(WINDOWS_RS.contains("LoadCursorW"));
     assert!(WINDOWS_RS.contains("IDC_ARROW"));
+    assert!(WINDOWS_RS.contains("IDC_HAND"));
     assert!(!WINDOWS_RS.contains("hCursor: 0"));
 }
 

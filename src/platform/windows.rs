@@ -35,11 +35,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
     LoadCursorW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage,
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION,
-    MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
-    SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY,
-    WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
+    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_HAND,
+    IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE,
+    SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND,
+    WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
@@ -746,7 +746,7 @@ unsafe fn register_status_popup_class(hinstance: isize) -> Result<()> {
         lpfnWndProc: Some(status_popup_wnd_proc),
         hInstance: hinstance,
         lpszClassName: class_name.as_ptr(),
-        hCursor: LoadCursorW(0, IDC_ARROW),
+        hCursor: LoadCursorW(0, IDC_HAND),
         ..std::mem::zeroed()
     };
     if RegisterClassW(&wnd) == 0 {
