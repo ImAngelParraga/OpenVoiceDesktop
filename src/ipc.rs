@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const TOGGLE_COMMAND: &str = "toggle\n";
 pub const CANCEL_COMMAND: &str = "cancel\n";
+pub const CYCLE_LANGUAGE_COMMAND: &str = "cycle-language\n";
 pub const RELOAD_CONFIG_COMMAND: &str = "reload-config\n";
 pub const STATUS_COMMAND: &str = "status\n";
 pub const SHUTDOWN_COMMAND: &str = "shutdown\n";
@@ -10,6 +11,7 @@ pub const SHUTDOWN_COMMAND: &str = "shutdown\n";
 pub struct DaemonStatus {
     pub state: crate::core::state::RecordingState,
     pub mic_level_bucket: u8,
+    pub language: Option<String>,
 }
 
 #[cfg(target_os = "linux")]
@@ -26,6 +28,11 @@ pub async fn send_toggle(socket_path: &std::path::Path) -> anyhow::Result<String
 #[cfg(target_os = "linux")]
 pub async fn send_cancel(socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(socket_path, CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn send_cycle_language(socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(socket_path, CYCLE_LANGUAGE_COMMAND).await
 }
 
 #[cfg(target_os = "linux")]
@@ -68,6 +75,11 @@ pub async fn send_toggle(_socket_path: &std::path::Path) -> anyhow::Result<Strin
 #[cfg(target_os = "windows")]
 pub async fn send_cancel(_socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "windows")]
+pub async fn send_cycle_language(_socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(CYCLE_LANGUAGE_COMMAND).await
 }
 
 #[cfg(target_os = "windows")]

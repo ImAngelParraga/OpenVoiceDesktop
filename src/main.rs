@@ -43,6 +43,8 @@ enum Command {
     Toggle,
     /// Cancel active recording or pending transcription.
     Cancel,
+    /// Cycle configured transcription languages.
+    CycleLanguage,
     /// Print the default config path.
     ConfigPath,
     /// Open or focus the native settings window.
@@ -112,6 +114,13 @@ async fn main() -> Result<()> {
             let loaded = Config::load_default()?;
             let socket_path = loaded.config.socket_path()?;
             let response = ipc::send_cancel(&socket_path).await?;
+            print!("{response}");
+            Ok(())
+        }
+        Command::CycleLanguage => {
+            let loaded = Config::load_default()?;
+            let socket_path = loaded.config.socket_path()?;
+            let response = ipc::send_cycle_language(&socket_path).await?;
             print!("{response}");
             Ok(())
         }

@@ -24,6 +24,8 @@ Use it when:
 3. First press starts recording.
 4. Second press stops recording, writes a 16 kHz mono 16-bit PCM WAV, uploads it to `{base_url}/v1/audio/transcriptions`, and pastes the returned `text`.
 
+Press `Ctrl+Alt+L` while idle or recording to cycle configured transcription languages. Recording overlay shows current language and offers same action. Selection applies when recording stops; audio remains one clip.
+
 On Windows, the tray app shows a compact bottom-of-screen popup: animated bars while recording, `processing` while uploading/transcribing, and short feedback only for empty transcript, busy, or error states. Successful insertion stays quiet.
 
 WAV is the default because short desktop dictation clips are usually under 10 seconds. The payload is about 32 KB/sec, so a 10 second phrase is roughly 320 KB plus the WAV header. Opus can be added later if benchmarks show it improves end-to-end latency for long clips or slow networks.
@@ -81,6 +83,7 @@ Set your ASR endpoint:
 base_url = "http://127.0.0.1:9000"
 model = "whisper-1"
 language = "en"
+language_options = ["en", "es"]
 ```
 
 Store your token in Secret Service:
@@ -95,6 +98,12 @@ Finally, create a GNOME custom keyboard shortcut:
 - Name: `OpenVoiceDesktop Toggle`
 - Command: `/home/YOUR_USER/.local/bin/openvoice-desktop toggle`
 - Shortcut: `Ctrl+Space`
+
+Create second GNOME custom shortcut for language switching:
+
+- Name: `OpenVoiceDesktop Language`
+- Command: `/home/YOUR_USER/.local/bin/openvoice-desktop cycle-language`
+- Shortcut: `Ctrl+Alt+L`
 
 Replace `YOUR_USER` with your Linux username, or run `which openvoice-desktop` and use that path.
 

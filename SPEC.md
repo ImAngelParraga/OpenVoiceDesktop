@@ -31,6 +31,7 @@ I.cli: Existing CLI: `openvoice-desktop daemon|toggle|config-path`. Add Handy-li
 I.config: Existing TOML config. Add schema version and settings UI backing store. Current fields: `[asr]`, `[audio]`, `[behavior]`.
 I.asr: Remote ASR client in `src/core/asr.rs`. Must keep multipart `file`, `model`, `temperature`, optional `language`, optional `prompt`, bearer auth.
 I.controller: State machine in `src/core/controller.rs`. Extend with cancel/busy/error/feedback states, not local model states.
+I.runtime-language: `asr.language_options` configures runtime cycle; `behavior.language_shortcut`, overlay badge, and `openvoice-desktop cycle-language` invoke same daemon action.
 I.platform: Platform adapters in `src/platform/linux.rs` and `src/platform/windows.rs`. Extend paste, tray, notification, permission, autostart.
 I.handy.settings: `H:src-tauri/src/settings.rs` contains settings schema and defaults. Use as settings inventory reference.
 I.handy.sidebar: `H:src/components/Sidebar.tsx` defines sections: general, models, advanced, history, postprocessing, debug, about.
@@ -114,6 +115,7 @@ V41: Daemon-recovery invariant: valid Settings Save with no reachable daemon sta
 V42: Deferred-save invariant: valid Settings Save when no daemon runtime exists—including incomplete onboarding—persists config without rollback, marks otherwise-live changed fields `restart-required` with reason, and applies them when daemon next starts. Only a reachable daemon's explicit rejection or OS lifecycle failure rejects Save.
 V43: Settings-reopen invariant: closing Settings hides rather than destroys its webview while shell/overlay process remains; tray Settings or `settings` command subsequently shows, unminimizes, and focuses same window without duplicate shell or daemon.
 V44: Settings-render invariant: every declared control kind renders without JavaScript exception; textarea controls accept multiline value without assigning input-only properties, and one control failure never truncates later controls/actions silently.
+V45: Runtime-language invariant: language changes only while idle or recording, updates status/overlay immediately, and remains selected for later recordings in current daemon session. Stop snapshots selected language for one ASR request without splitting audio; `auto` omits multipart `language`. Writing/uploading/inserting rejects changes. Shortcut and overlay invoke same action.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -199,6 +201,7 @@ T78|x|Recover missing daemon on Save|Distinguish unreachable daemon from reload 
 T79|x|Defer Save without daemon runtime|Treat incomplete-onboarding or failed absent-daemon startup as deferred runtime application, preserve valid config, convert applied field results to restart-required with visible reason, and retain rollback only for reachable rejection or OS lifecycle failure.|H:src-tauri/src/settings.rs|V8,V16,V17,V26,V34,V42
 T80|x|Reopen closed Settings window|Intercept Settings close request, prevent destruction, hide reusable webview, and prove tray/single-instance activation shows/unminimizes/focuses it while overlay window remains alive.|H:src-tauri/src/lib.rs|V14,V16,V26,V43
 T81|x|Render prompt textarea safely|Separate textarea initialization from input type assignment, render multiline prompt plus all later ASR controls/actions, and add regression proof that textarea path cannot throw before append.|H:src/components/settings/general/ModelSettingsCard.tsx|V14,V15,V22,V36,V44
+T82|x|Runtime transcription language switching|Add configurable EN/ES cycle, runtime shortcut, CLI/IPC action, clickable overlay badge, ASR language snapshot, validation, docs, and cross-platform tests. Support `auto` as explicit option that omits multipart language.|—|I.config,I.asr,I.controller,I.runtime-language,I.shell,V1,V3,V4,V8,V12,V15,V18,V22,V24,V45
 
 §B
 id|date|cause|fix
@@ -236,3 +239,6 @@ B31|2026-07-15|Settings Save treated absent daemon pipe as runtime rejection and
 B32|2026-07-16|Missing-daemon recovery required successful daemon startup even during incomplete onboarding, where no runtime is expected, so valid Save still rolled back after readiness timeout|V42
 B33|2026-07-16|Closing Settings destroyed its webview while hidden overlay kept single-instance shell alive; later tray activation found no `settings` window to show|V43
 B34|2026-07-16|Generic control renderer assigned read-only `HTMLTextAreaElement.type`, throwing at first textarea and silently truncating prompt plus every later ASR control/action|V44
+B35|2026-07-17|New inventory expectation inserted `behavior.language_shortcut` out of lexical order while comparison sorts actual fields|V22
+B36|2026-07-17|Exact settings-control fixtures omitted new language options and shortcut controls|V22
+B37|2026-07-17|Windows tray test banned `WM_LBUTTONUP` globally, blocking unrelated clickable recording popup control|V3

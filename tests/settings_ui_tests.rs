@@ -129,6 +129,11 @@ fn asr_endpoint_settings_exposes_t5_endpoint_controls() {
             ("base-url", Some("asr.base_url"), SettingsControlKind::Text),
             ("model", Some("asr.model"), SettingsControlKind::Text),
             ("language", Some("asr.language"), SettingsControlKind::Text),
+            (
+                "language-options",
+                Some("asr.language_options"),
+                SettingsControlKind::Text
+            ),
             ("prompt", Some("asr.prompt"), SettingsControlKind::TextArea),
             (
                 "token-status",
@@ -366,6 +371,28 @@ fn overlay_live_state_uses_persisted_position_style_and_mic_level() {
 }
 
 #[test]
+fn overlay_exposes_active_language_control_while_recording() {
+    let config = Config::default();
+    let recording = OverlayView::from_recording_state(
+        &config,
+        openvoice_desktop::core::state::RecordingState::Recording,
+        Some(3),
+    )
+    .with_language(Some("es"));
+    assert!(recording.show_language_control);
+    assert_eq!(recording.language_label, "ES");
+
+    let processing = OverlayView::from_recording_state(
+        &config,
+        openvoice_desktop::core::state::RecordingState::Transcribing,
+        None,
+    )
+    .with_language(None);
+    assert!(!processing.show_language_control);
+    assert_eq!(processing.language_label, "AUTO");
+}
+
+#[test]
 fn tray_model_maps_states_and_menu_actions_without_models() {
     assert_eq!(
         TrayIconState::from_event(&AppShellEvent::Recording),
@@ -548,6 +575,7 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
             ("shortcut", Some("behavior.shortcut")),
             ("push-to-talk", Some("behavior.push_to_talk")),
             ("cancel-shortcut", Some("behavior.cancel_shortcut")),
+            ("language-shortcut", Some("behavior.language_shortcut")),
             ("microphone", Some("audio.selected_microphone")),
             ("recording-output-mode", Some("audio.recording_output_mode")),
             (

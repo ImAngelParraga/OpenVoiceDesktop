@@ -85,6 +85,11 @@ fn shortcuts_default_to_ctrl_space_and_map_press_release_events() {
         bindings.input_for(&primary, ShortcutEvent::Released),
         Some(CoordinatorInput::PushToTalkReleased)
     );
+    let language = ParsedShortcut::parse("Ctrl+Alt+L").unwrap();
+    assert_eq!(
+        bindings.input_for(&language, ShortcutEvent::Pressed),
+        Some(CoordinatorInput::LanguageShortcut)
+    );
 }
 
 #[test]
@@ -100,7 +105,7 @@ fn shortcut_runtime_rolls_back_previous_registration_on_conflict() {
         runtime.bindings().unwrap().bindings()[0].shortcut.as_str(),
         "Ctrl+Space"
     );
-    assert_eq!(runtime.into_registrar().registered.len(), 3);
+    assert_eq!(runtime.into_registrar().registered.len(), 4);
 }
 
 #[derive(Default, Debug)]

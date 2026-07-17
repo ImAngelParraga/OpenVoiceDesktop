@@ -17,6 +17,7 @@ pub enum CoordinatorInput {
     CancelCli,
     CancelTray,
     DebugShortcut,
+    LanguageShortcut,
     Signal,
 }
 
@@ -25,6 +26,7 @@ pub enum CoordinatorAction {
     Toggle,
     Cancel,
     Debug,
+    CycleLanguage,
     IgnoreDebounce,
     IgnoreReleaseGrace,
     Quit,
@@ -36,6 +38,7 @@ pub enum ShortcutAction {
     PushToTalk,
     Cancel,
     Debug,
+    CycleLanguage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +135,10 @@ impl ShortcutBindings {
                 shortcut: ParsedShortcut::parse(debug_shortcut)?,
                 action: ShortcutAction::Debug,
             },
+            ShortcutBinding {
+                shortcut: ParsedShortcut::parse(&behavior.language_shortcut)?,
+                action: ShortcutAction::CycleLanguage,
+            },
         ];
         let mut seen = HashSet::new();
         for binding in &bindings {
@@ -169,6 +176,9 @@ impl ShortcutBindings {
                 }
                 (ShortcutAction::Debug, ShortcutEvent::Pressed) => {
                     Some(CoordinatorInput::DebugShortcut)
+                }
+                (ShortcutAction::CycleLanguage, ShortcutEvent::Pressed) => {
+                    Some(CoordinatorInput::LanguageShortcut)
                 }
                 _ => None,
             })
@@ -329,6 +339,7 @@ impl ShortcutCoordinator {
             | CoordinatorInput::CancelCli
             | CoordinatorInput::CancelTray => CoordinatorAction::Cancel,
             CoordinatorInput::DebugShortcut => CoordinatorAction::Debug,
+            CoordinatorInput::LanguageShortcut => CoordinatorAction::CycleLanguage,
             CoordinatorInput::Signal => CoordinatorAction::Quit,
             CoordinatorInput::PushToTalkReleased => {
                 if state == RecordingState::Recording {

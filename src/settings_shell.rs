@@ -67,6 +67,7 @@ pub fn run() -> Result<()> {
             get_settings,
             save_settings,
             cancel_transcription,
+            cycle_transcription_language,
             open_recordings_folder,
             delete_transcript,
             retry_transcript,
@@ -198,6 +199,18 @@ async fn cancel_transcription() -> std::result::Result<String, String> {
         .and_then(|loaded| loaded.config.socket_path())
         .map_err(safe_error)?;
     crate::ipc::send_cancel(&socket_path)
+        .await
+        .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn cycle_transcription_language() -> std::result::Result<String, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let socket_path = crate::core::config::Config::load_from(&path)
+        .and_then(|loaded| loaded.config.socket_path())
+        .map_err(safe_error)?;
+    crate::ipc::send_cycle_language(&socket_path)
         .await
         .map_err(safe_error)
 }
@@ -430,6 +443,7 @@ async fn overlay_view_from_daemon() -> crate::core::settings_ui::OverlayView {
     match crate::ipc::send_status(&socket_path).await {
         Ok(status) => {
             OverlayView::from_recording_state(&config, status.state, Some(status.mic_level_bucket))
+                .with_language(status.language.as_deref())
         }
         Err(_) => OverlayView::from_recording_state(
             &config,

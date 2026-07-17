@@ -113,6 +113,8 @@ pub struct OverlayView {
     pub show_waveform: bool,
     pub show_timer: bool,
     pub show_cancel: bool,
+    pub show_language_control: bool,
+    pub language_label: String,
     pub level_bucket: Option<u8>,
     pub message: &'static str,
 }
@@ -347,6 +349,12 @@ impl SettingsWindowLayout {
                             "behavior.cancel_shortcut",
                         ),
                         SettingsControl::bound(
+                            "language-shortcut",
+                            "Switch language shortcut",
+                            SettingsControlKind::Text,
+                            "behavior.language_shortcut",
+                        ),
+                        SettingsControl::bound(
                             "microphone",
                             "Microphone",
                             SettingsControlKind::Select,
@@ -431,6 +439,12 @@ impl SettingsWindowLayout {
                             "Language",
                             SettingsControlKind::Text,
                             "asr.language",
+                        ),
+                        SettingsControl::bound(
+                            "language-options",
+                            "Switching languages",
+                            SettingsControlKind::Text,
+                            "asr.language_options",
                         ),
                         SettingsControl::bound(
                             "prompt",
@@ -869,6 +883,8 @@ impl OverlayView {
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
+                show_language_control: true,
+                language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
                 message: localized_overlay_message(config, "Recording"),
             },
@@ -881,6 +897,8 @@ impl OverlayView {
                 show_waveform: true,
                 show_timer: true,
                 show_cancel: true,
+                show_language_control: true,
+                language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: Some((*bucket).min(10)),
                 message: localized_overlay_message(config, "Recording"),
             },
@@ -899,6 +917,8 @@ impl OverlayView {
                     show_waveform: false,
                     show_timer: false,
                     show_cancel: true,
+                    show_language_control: false,
+                    language_label: language_label(config.asr.language.as_deref()),
                     level_bucket: None,
                     message: localized_overlay_message(config, message),
                 }
@@ -912,6 +932,8 @@ impl OverlayView {
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: false,
+                show_language_control: false,
+                language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
                 message: localized_overlay_message(config, "Error"),
             },
@@ -928,6 +950,8 @@ impl OverlayView {
                 show_waveform: false,
                 show_timer: false,
                 show_cancel: true,
+                show_language_control: false,
+                language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
                 message: localized_overlay_message(config, "Busy"),
             },
@@ -944,10 +968,21 @@ impl OverlayView {
             show_waveform: false,
             show_timer: false,
             show_cancel: false,
+            show_language_control: false,
+            language_label: language_label(config.asr.language.as_deref()),
             level_bucket: None,
             message: "",
         }
     }
+
+    pub fn with_language(mut self, language: Option<&str>) -> Self {
+        self.language_label = language_label(language);
+        self
+    }
+}
+
+fn language_label(language: Option<&str>) -> String {
+    language.unwrap_or("auto").to_ascii_uppercase()
 }
 
 impl LiveOverlayCapability {
@@ -1240,6 +1275,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "behavior.shortcut" => "Global shortcut that starts or stops recording, for example Ctrl+Space.",
         "behavior.push_to_talk" => "Record only while the main shortcut is held; release it to stop.",
         "behavior.cancel_shortcut" => "Global shortcut that discards active recording or pending transcription.",
+        "behavior.language_shortcut" => "Cycle transcription language while idle or recording. On GNOME, bind this key to openvoice-desktop cycle-language.",
         "audio.selected_microphone" => "Microphone used for dictation. System default follows OS selection.",
         "audio.recording_output_mode" => "Leave output unchanged, reduce its volume, or mute it while recording; prior state is restored afterward.",
         "audio.recording_output_volume" => "Output volume used while recording when reduced mode is selected.",
@@ -1253,6 +1289,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "asr.base_url" => "Server root URL. Transcriptions are sent to /v1/audio/transcriptions.",
         "asr.model" => "Model name accepted by the configured ASR server.",
         "asr.language" => "Optional spoken-language code such as en, de, es, fr, or ja. Leave empty for auto-detection.",
+        "asr.language_options" => "Comma-separated languages available from shortcut and recording overlay. Use auto to omit the ASR language hint.",
         "asr.prompt" => "Optional context sent to the ASR service for spelling and style. Use natural text, or separate distinct names and terms with commas, for example: OpenVoiceDesktop, Whisper, Acme Corp.",
         "asr.bearer_token" => "Authentication token source and storage status. Token value is never displayed.",
         "asr.timeout_seconds" => "Maximum time to wait for one ASR request before reporting failure.",

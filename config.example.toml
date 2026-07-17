@@ -5,6 +5,7 @@ base_url = "http://127.0.0.1:9000"
 model = "whisper-1"
 timeout_seconds = 30
 # language = "en"
+language_options = ["en", "es"]
 # prompt = "Optional vocabulary or formatting hint"
 # Prefer OPENVOICE_DESKTOP_TOKEN or Secret Service instead of plaintext.
 # bearer_token = "replace-with-dev-token-only"
@@ -39,6 +40,7 @@ clipboard_restore_delay_ms = 250
 shortcut = "Ctrl+Alt+Space"
 push_to_talk = false
 cancel_shortcut = "Escape"
+language_shortcut = "Ctrl+Alt+L"
 
 [output]
 paste_method = "clipboard-paste"

@@ -19,7 +19,8 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
     use crate::ipc::{
-        CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND,
+        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
+        STATUS_COMMAND, TOGGLE_COMMAND,
     };
     use crate::platform::linux::LinuxPlatformAdapter;
 
@@ -58,7 +59,13 @@ pub async fn run(config: Config) -> Result<()> {
                     serde_json::to_string(&crate::ipc::DaemonStatus {
                         state: controller.state(),
                         mic_level_bucket: controller.mic_level_bucket(),
+                        language: controller.selected_language().map(str::to_string),
                     })? + "\n"
+                } else if command == CYCLE_LANGUAGE_COMMAND {
+                    match controller.cycle_language() {
+                        Ok(language) => format!("Language: {}\n", language.as_deref().unwrap_or("auto")),
+                        Err(error) => format!("error: {error}\n"),
+                    }
                 } else if command == RELOAD_CONFIG_COMMAND && controller.state() != crate::core::state::RecordingState::Idle {
                     format!("error: rejected config: controller busy in {:?}\n", controller.state())
                 } else if command == RELOAD_CONFIG_COMMAND {
@@ -136,12 +143,13 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
     use crate::ipc::{
-        CANCEL_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND,
-        WINDOWS_PIPE_NAME,
+        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
+        STATUS_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME,
     };
     use crate::platform::windows::{
-        handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_tray_state,
-        show_recording_popup, show_status_popup, TrayCommand, WindowsPlatformAdapter,
+        handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_recording_language,
+        set_tray_state, show_recording_popup, show_status_popup, TrayCommand,
+        WindowsPlatformAdapter,
     };
 
     let (controller_tx, controller_rx) = std_mpsc::channel::<ControllerRequest>();
@@ -177,6 +185,7 @@ pub async fn run(config: Config) -> Result<()> {
                     let response = serde_json::to_string(&crate::ipc::DaemonStatus {
                         state: controller.state(),
                         mic_level_bucket: controller.mic_level_bucket(),
+                        language: controller.selected_language().map(str::to_string),
                     })
                     .unwrap_or_else(|error| format!("error: {error}"));
                     let _ = request.reply_tx.send(format!("{response}\n"));
@@ -185,6 +194,16 @@ pub async fn run(config: Config) -> Result<()> {
                 let result = match request.command {
                     ControllerCommand::Toggle => controller.toggle().await,
                     ControllerCommand::Cancel => controller.cancel().await,
+                    ControllerCommand::CycleLanguage => {
+                        let response = match controller.cycle_language() {
+                            Ok(language) => {
+                                format!("Language: {}\n", language.as_deref().unwrap_or("auto"))
+                            }
+                            Err(error) => format!("error: {error}\n"),
+                        };
+                        let _ = request.reply_tx.send(response);
+                        continue;
+                    }
                     ControllerCommand::Reload(updated) => {
                         if controller.state() != crate::core::state::RecordingState::Idle {
                             let _ = request.reply_tx.send(format!(
@@ -221,6 +240,7 @@ pub async fn run(config: Config) -> Result<()> {
                         let response = serde_json::to_string(&crate::ipc::DaemonStatus {
                             state: controller.state(),
                             mic_level_bucket: controller.mic_level_bucket(),
+                            language: controller.selected_language().map(str::to_string),
                         })
                         .unwrap_or_else(|error| format!("error: {error}"));
                         let _ = request.reply_tx.send(format!("{response}\n"));
@@ -254,6 +274,8 @@ pub async fn run(config: Config) -> Result<()> {
                     request_controller(&pipe_controller_tx, ControllerCommand::Toggle).await
                 } else if command == CANCEL_COMMAND {
                     request_controller(&pipe_controller_tx, ControllerCommand::Cancel).await
+                } else if command == CYCLE_LANGUAGE_COMMAND {
+                    request_controller(&pipe_controller_tx, ControllerCommand::CycleLanguage).await
                 } else if command == STATUS_COMMAND {
                     request_controller(&pipe_controller_tx, ControllerCommand::Status).await
                 } else if command == RELOAD_CONFIG_COMMAND {
@@ -312,6 +334,14 @@ pub async fn run(config: Config) -> Result<()> {
                             show_status_popup(text, timeout_ms).ok();
                         }
                         ToggleStatusPopup::ShowRecording => {
+                            let status =
+                                request_controller(&tray_controller_tx, ControllerCommand::Status)
+                                    .await;
+                            if let Ok(status) =
+                                serde_json::from_str::<crate::ipc::DaemonStatus>(status.trim())
+                            {
+                                set_recording_language(status.language.as_deref());
+                            }
                             show_recording_popup().ok();
                         }
                         ToggleStatusPopup::Hide => {
@@ -329,6 +359,36 @@ pub async fn run(config: Config) -> Result<()> {
                     set_tray_state(tray_state_from_response(&response));
                     eprint!("{response}");
                     hide_status_popup().ok();
+                }
+                Ok(false) if matches!(command, TrayCommand::CycleLanguage) => {
+                    let response =
+                        request_controller(&tray_controller_tx, ControllerCommand::CycleLanguage)
+                            .await;
+                    if let Some(language) = response.trim().strip_prefix("Language: ") {
+                        set_recording_language(
+                            (!language.eq_ignore_ascii_case("auto")).then_some(language),
+                        );
+                        let status =
+                            request_controller(&tray_controller_tx, ControllerCommand::Status)
+                                .await;
+                        let recording =
+                            serde_json::from_str::<crate::ipc::DaemonStatus>(status.trim())
+                                .is_ok_and(|status| {
+                                    status.state == crate::core::state::RecordingState::Recording
+                                });
+                        if recording {
+                            show_recording_popup().ok();
+                        } else {
+                            show_status_popup(
+                                &format!("Language: {}", language.to_ascii_uppercase()),
+                                Some(1_500),
+                            )
+                            .ok();
+                        }
+                    } else if response.starts_with("error: ") {
+                        show_status_popup("Language cannot change while processing", Some(2_500))
+                            .ok();
+                    }
                 }
                 Ok(false) => {
                     if matches!(command, TrayCommand::Quit) {
@@ -349,6 +409,7 @@ pub async fn run(config: Config) -> Result<()> {
         config.app.show_tray_icon,
         config.app.start_hidden,
         config.ui.theme,
+        &config.behavior.language_shortcut,
     )
 }
 
@@ -419,6 +480,7 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
 enum ControllerCommand {
     Toggle,
     Cancel,
+    CycleLanguage,
     Reload(Config),
     Status,
     Shutdown,

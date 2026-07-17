@@ -24,8 +24,8 @@ use windows_sys::Win32::System::Com::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOD_CONTROL, MOD_NOREPEAT, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RETURN,
-    VK_SHIFT, VK_SPACE, VK_V,
+    KEYEVENTF_KEYUP, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_ESCAPE,
+    VK_LEFT, VK_RETURN, VK_SHIFT, VK_SPACE, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -37,8 +37,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
     CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN,
     SM_CYSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN,
-    TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_PAINT, WM_RBUTTONUP, WM_TIMER,
-    WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
+    TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP,
+    WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW,
+    WS_POPUP,
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
@@ -48,6 +49,7 @@ use crate::core::platform::{reduced_output_volume, AudioOutputState, PlatformAda
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
 const CANCEL_HOTKEY_ID: i32 = 2;
+const LANGUAGE_HOTKEY_ID: i32 = 3;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_STATUS_POPUP: u32 = WM_APP + 2;
@@ -73,6 +75,7 @@ static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static STATUS_POPUP_MODE: OnceLock<Mutex<StatusPopupMode>> = OnceLock::new();
 static STATUS_POPUP_FRAME: OnceLock<Mutex<u32>> = OnceLock::new();
+static RECORDING_LANGUAGE: OnceLock<Mutex<String>> = OnceLock::new();
 static TRAY_THEME: OnceLock<Mutex<Theme>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +87,7 @@ enum StatusPopupMode {
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
     Toggle,
+    CycleLanguage,
     Settings,
     CopyLastTranscript,
     Cancel,
@@ -386,7 +390,7 @@ fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
 }
 
 pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
-    run_tray_loop_with_config(tx, true, false, Theme::System)
+    run_tray_loop_with_config(tx, true, false, Theme::System, "Ctrl+Alt+L")
 }
 
 pub fn run_tray_loop_with_config(
@@ -394,6 +398,7 @@ pub fn run_tray_loop_with_config(
     show_tray_icon: bool,
     start_hidden: bool,
     theme: Theme,
+    language_shortcut: &str,
 ) -> Result<()> {
     *TRAY_THEME
         .get_or_init(|| Mutex::new(Theme::System))
@@ -462,6 +467,13 @@ pub fn run_tray_loop_with_config(
                 "Escape is already registered by another application.",
             )?;
         }
+        let (language_modifiers, language_key) = windows_hotkey(language_shortcut)?;
+        if RegisterHotKey(hwnd, LANGUAGE_HOTKEY_ID, language_modifiers, language_key) == 0 {
+            message_box(
+                "OpenVoiceDesktop language shortcut unavailable",
+                &format!("{language_shortcut} is already registered by another application."),
+            )?;
+        }
 
         if show_tray_icon {
             add_tray_icon(hwnd)?;
@@ -482,6 +494,7 @@ pub fn run_tray_loop_with_config(
         }
         UnregisterHotKey(hwnd, HOTKEY_ID);
         UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
+        UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
         Ok(())
     }
 }
@@ -504,6 +517,33 @@ fn send_ctrl_v() -> Result<()> {
         return Err(anyhow!("SendInput failed while sending Ctrl+V"));
     }
     Ok(())
+}
+
+fn windows_hotkey(shortcut: &str) -> Result<(u32, u32)> {
+    let parsed = crate::core::shortcut::ParsedShortcut::parse(shortcut)?;
+    let mut parts = parsed.as_str().split('+').collect::<Vec<_>>();
+    let key = parts.pop().ok_or_else(|| anyhow!("shortcut has no key"))?;
+    let mut modifiers = MOD_NOREPEAT as u32;
+    for modifier in parts {
+        modifiers |= match modifier {
+            "Ctrl" => MOD_CONTROL as u32,
+            "Alt" => MOD_ALT as u32,
+            "Shift" => MOD_SHIFT as u32,
+            "Win" => MOD_WIN as u32,
+            _ => {
+                return Err(anyhow!(
+                    "unsupported Windows shortcut modifier {modifier:?}"
+                ))
+            }
+        };
+    }
+    let virtual_key = match key {
+        "Space" => VK_SPACE as u32,
+        "Escape" => VK_ESCAPE as u32,
+        value if value.len() == 1 => value.as_bytes()[0].to_ascii_uppercase() as u32,
+        _ => return Err(anyhow!("unsupported Windows shortcut key {key:?}")),
+    };
+    Ok((modifiers, virtual_key))
 }
 
 fn send_enter() -> Result<()> {
@@ -574,6 +614,7 @@ unsafe extern "system" fn wnd_proc(
             match wparam as i32 {
                 HOTKEY_ID => send_command(TrayCommand::Toggle),
                 CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel),
+                LANGUAGE_HOTKEY_ID => send_command(TrayCommand::CycleLanguage),
                 _ => {}
             }
             0
@@ -679,6 +720,13 @@ pub fn show_recording_popup() -> Result<()> {
     Ok(())
 }
 
+pub fn set_recording_language(language: Option<&str>) {
+    *RECORDING_LANGUAGE
+        .get_or_init(|| Mutex::new("AUTO".to_string()))
+        .lock()
+        .unwrap() = language.unwrap_or("auto").to_ascii_uppercase();
+}
+
 pub fn hide_status_popup() -> Result<()> {
     let hwnd = *STATUS_POPUP_HWND
         .get()
@@ -781,6 +829,16 @@ unsafe extern "system" fn status_popup_wnd_proc(
             paint_status_popup(hwnd);
             0
         }
+        WM_LBUTTONUP => {
+            let mode = *STATUS_POPUP_MODE
+                .get_or_init(|| Mutex::new(StatusPopupMode::Text))
+                .lock()
+                .unwrap();
+            if mode == StatusPopupMode::RecordingBars {
+                send_command(TrayCommand::CycleLanguage);
+            }
+            0
+        }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
@@ -877,8 +935,28 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
     let heights = [12, 18, 24, 28, 22, 16, 10, 14, 20, 26, 18, 12];
     let bar_width = 7;
     let gap = 4;
+    SetBkMode(hdc, TRANSPARENT as i32);
+    SetTextColor(hdc, foreground);
+    let language = RECORDING_LANGUAGE
+        .get_or_init(|| Mutex::new("AUTO".to_string()))
+        .lock()
+        .unwrap()
+        .clone();
+    let mut language_rect = RECT {
+        left: 14,
+        top: 0,
+        right: 64,
+        bottom: STATUS_POPUP_HEIGHT,
+    };
+    DrawTextW(
+        hdc,
+        wide(&language).as_ptr(),
+        -1,
+        &mut language_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
     let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
-    let mut x = (STATUS_POPUP_WIDTH - total_width) / 2;
+    let mut x = 70 + (STATUS_POPUP_WIDTH - 70 - total_width) / 2;
     let brush = CreateSolidBrush(foreground);
     for index in 0..heights.len() {
         let height = heights[((index as u32 + frame) as usize) % heights.len()];
@@ -1025,6 +1103,7 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
     match command {
         TrayCommand::Toggle => Ok(true),
         TrayCommand::Cancel => Ok(false),
+        TrayCommand::CycleLanguage => Ok(false),
         TrayCommand::Settings => {
             tokio::task::spawn_blocking(open_settings_panel).await??;
             Ok(false)

@@ -32,7 +32,7 @@ pub struct AsrDiagnostic {
 
 #[async_trait]
 pub trait AsrClient: Send + Sync {
-    async fn transcribe_file(&self, path: &Path) -> Result<Transcription>;
+    async fn transcribe_file(&self, path: &Path, language: Option<&str>) -> Result<Transcription>;
 }
 
 pub struct ReqwestAsrClient {
@@ -51,8 +51,8 @@ impl ReqwestAsrClient {
 
 #[async_trait]
 impl AsrClient for ReqwestAsrClient {
-    async fn transcribe_file(&self, path: &Path) -> Result<Transcription> {
-        let fields = request_fields(&self.config);
+    async fn transcribe_file(&self, path: &Path, language: Option<&str>) -> Result<Transcription> {
+        let fields = request_fields_for_language(&self.config, language);
         let file_bytes = tokio::fs::read(path)
             .await
             .with_context(|| format!("reading {}", path.display()))?;
@@ -106,13 +106,19 @@ impl AsrClient for ReqwestAsrClient {
 }
 
 pub fn request_fields(config: &Config) -> AsrRequestFields {
+    request_fields_for_language(config, config.asr.language.as_deref())
+}
+
+pub fn request_fields_for_language(config: &Config, language: Option<&str>) -> AsrRequestFields {
     AsrRequestFields {
         url: format!(
             "{}/v1/audio/transcriptions",
             config.asr.base_url.trim_end_matches('/')
         ),
         model: config.asr.model.clone(),
-        language: config.asr.language.clone(),
+        language: language
+            .filter(|language| !language.eq_ignore_ascii_case("auto"))
+            .map(str::to_string),
         prompt: config.asr.prompt.clone(),
         temperature: 0.0,
         timeout: Duration::from_secs(config.asr.timeout_seconds),

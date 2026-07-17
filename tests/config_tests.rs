@@ -16,6 +16,7 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.schema_version, CURRENT_SCHEMA_VERSION);
     assert_eq!(loaded.config.asr.model, "whisper-1");
     assert_eq!(loaded.config.asr.timeout_seconds, 30);
+    assert_eq!(loaded.config.asr.language_options, vec!["en", "es"]);
     assert_eq!(loaded.config.audio.sample_rate_hz, 16_000);
     assert_eq!(loaded.config.audio.channels, 1);
     assert_eq!(loaded.config.audio.selected_microphone, None);
@@ -33,6 +34,7 @@ fn missing_config_uses_defaults() {
     assert_eq!(loaded.config.behavior.shortcut, "Ctrl+Space");
     assert!(!loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
+    assert_eq!(loaded.config.behavior.language_shortcut, "Ctrl+Alt+L");
     assert!(!loaded.config.app.start_hidden);
     assert!(!loaded.config.app.autostart);
     assert!(loaded.config.app.show_tray_icon);
@@ -66,6 +68,31 @@ fn missing_config_uses_defaults() {
     assert!(!loaded.config.updates.check_for_updates);
     assert!(!loaded.config.portable.enabled);
     assert!(!loaded.config.onboarding.completed);
+}
+
+#[test]
+fn language_options_round_trip_and_validate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let mut config = Config::default();
+    config.asr.language = Some("en".to_string());
+    config.asr.language_options = vec!["en".to_string(), "es".to_string(), "auto".to_string()];
+    config.behavior.language_shortcut = "Ctrl+Alt+L".to_string();
+    config.save_to(&path).unwrap();
+
+    let loaded = Config::load_from(&path).unwrap().config;
+    assert_eq!(loaded.asr.language_options, vec!["en", "es", "auto"]);
+    assert_eq!(loaded.behavior.language_shortcut, "Ctrl+Alt+L");
+    openvoice_desktop::core::settings_service::validate_config(&loaded).unwrap();
+
+    let mut invalid = loaded;
+    invalid.asr.language_options = vec!["en".to_string(), "EN".to_string()];
+    assert!(
+        openvoice_desktop::core::settings_service::validate_config(&invalid)
+            .unwrap_err()
+            .to_string()
+            .contains("asr.language_options")
+    );
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use openvoice_desktop::core::asr::{
-    asr_diagnostic, parse_transcription_text, request_fields, sanitize_error_body, test_endpoint,
+    asr_diagnostic, parse_transcription_text, request_fields, request_fields_for_language,
+    sanitize_error_body, test_endpoint,
 };
 use openvoice_desktop::core::config::Config;
 use std::time::Duration;
@@ -22,6 +23,24 @@ fn builds_openai_compatible_request_fields() {
     assert_eq!(fields.prompt.as_deref(), Some("project vocabulary"));
     assert_eq!(fields.temperature, 0.0);
     assert_eq!(fields.timeout.as_secs(), 30);
+}
+
+#[test]
+fn asr_runtime_override_controls_multipart_language() {
+    let mut config = Config::default();
+    config.asr.language = Some("en".to_string());
+
+    assert_eq!(
+        request_fields_for_language(&config, Some("es"))
+            .language
+            .as_deref(),
+        Some("es")
+    );
+    assert_eq!(request_fields_for_language(&config, None).language, None);
+    assert_eq!(
+        request_fields_for_language(&config, Some("auto")).language,
+        None
+    );
 }
 
 #[test]

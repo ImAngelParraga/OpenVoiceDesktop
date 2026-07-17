@@ -12,6 +12,7 @@ fn cli_parity_aliases_preserve_existing_subcommands() {
         "Daemon",
         "Toggle",
         "Cancel",
+        "CycleLanguage",
         "ConfigPath",
         "Settings",
         "Shutdown",
@@ -32,6 +33,8 @@ fn ipc_supports_toggle_and_cancel_commands() {
     assert!(IPC_RS.contains("CANCEL_COMMAND"));
     assert!(IPC_RS.contains("send_toggle"));
     assert!(IPC_RS.contains("send_cancel"));
+    assert!(IPC_RS.contains("CYCLE_LANGUAGE_COMMAND"));
+    assert!(IPC_RS.contains("send_cycle_language"));
     assert!(IPC_RS.contains("send_reload_config"));
     assert!(IPC_RS.contains("SHUTDOWN_COMMAND"));
     assert!(IPC_RS.contains("send_shutdown"));

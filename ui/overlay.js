@@ -3,6 +3,7 @@ const { listen } = window.__TAURI__.event;
 const root = document.querySelector("#overlay");
 const message = document.querySelector("#message");
 const waveform = document.querySelector("#waveform");
+const language = document.querySelector("#language");
 const cancel = document.querySelector("#cancel");
 
 function render(view) {
@@ -12,6 +13,8 @@ function render(view) {
   root.classList.toggle("bottom", view.position === "bottom");
   message.textContent = view.message;
   cancel.hidden = !view.show_cancel;
+  language.hidden = !view.show_language_control;
+  language.textContent = view.language_label ?? "AUTO";
   waveform.replaceChildren();
   if (!view.show_waveform) return;
   const level = view.level_bucket ?? 0;
@@ -23,4 +26,5 @@ function render(view) {
 }
 
 cancel.addEventListener("click", () => invoke("cancel_transcription"));
+language.addEventListener("click", () => invoke("cycle_transcription_language"));
 await listen("overlay-state", (event) => render(event.payload));

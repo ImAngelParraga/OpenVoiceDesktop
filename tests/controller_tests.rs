@@ -12,6 +12,33 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[tokio::test]
+async fn runtime_language_cycles_while_recording_and_snapshots_for_upload() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let mut config = Config::default();
+    config.asr.language = Some("en".to_string());
+    config.asr.language_options = vec!["en".to_string(), "es".to_string()];
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hola".to_string(),
+            observations: observations.clone(),
+        },
+        FakePlatform::new(None),
+        config,
+    );
+
+    controller.toggle().await.unwrap();
+    assert_eq!(controller.cycle_language().unwrap().as_deref(), Some("es"));
+    controller.toggle().await.unwrap();
+
+    assert!(observations
+        .lock()
+        .unwrap()
+        .contains(&"asr:transcribe:es".to_string()));
+    assert_eq!(controller.selected_language(), Some("es"));
+}
+
+#[tokio::test]
 async fn toggle_runs_record_transcribe_insert_and_restore_clipboard() {
     let recorder = FakeRecorder::default();
     let asr = FakeAsr {
@@ -337,7 +364,7 @@ async fn app_shell_events_precede_upload_and_paste() {
     assert_before(
         &observations,
         "event:Processing { stage: Uploading }",
-        "asr:transcribe",
+        "asr:transcribe:auto",
     );
     assert_before(
         &observations,
@@ -645,11 +672,11 @@ struct FakeAsr {
 
 #[async_trait]
 impl AsrClient for FakeAsr {
-    async fn transcribe_file(&self, _path: &Path) -> Result<Transcription> {
+    async fn transcribe_file(&self, _path: &Path, language: Option<&str>) -> Result<Transcription> {
         self.observations
             .lock()
             .unwrap()
-            .push("asr:transcribe".to_string());
+            .push(format!("asr:transcribe:{}", language.unwrap_or("auto")));
         Ok(Transcription {
             text: self.text.clone(),
             elapsed: Duration::from_millis(12),
@@ -664,7 +691,11 @@ struct CancelingAsr {
 
 #[async_trait]
 impl AsrClient for CancelingAsr {
-    async fn transcribe_file(&self, _path: &Path) -> Result<Transcription> {
+    async fn transcribe_file(
+        &self,
+        _path: &Path,
+        _language: Option<&str>,
+    ) -> Result<Transcription> {
         self.observations
             .lock()
             .unwrap()

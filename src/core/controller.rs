@@ -28,6 +28,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     output_state: Option<AudioOutputState>,
     history: Option<HistoryStore>,
     logger: Option<FileLogger>,
+    selected_language: Option<String>,
 }
 
 impl<R, A, P> VoiceController<R, A, P, NoopEventSink>
@@ -49,6 +50,11 @@ where
     E: AppEventSink,
 {
     pub fn with_event_sink(recorder: R, asr: A, platform: P, config: Config, events: E) -> Self {
+        let selected_language = config
+            .asr
+            .language
+            .clone()
+            .filter(|language| !language.eq_ignore_ascii_case("auto"));
         Self {
             recorder,
             asr,
@@ -61,6 +67,7 @@ where
             output_state: None,
             history: None,
             logger: None,
+            selected_language,
         }
     }
 
@@ -80,6 +87,29 @@ where
 
     pub fn mic_level_bucket(&self) -> u8 {
         self.recorder.level_bucket().min(10)
+    }
+
+    pub fn selected_language(&self) -> Option<&str> {
+        self.selected_language.as_deref()
+    }
+
+    pub fn cycle_language(&mut self) -> Result<Option<String>> {
+        if !matches!(self.state, RecordingState::Idle | RecordingState::Recording) {
+            anyhow::bail!(
+                "language cannot change while controller is in {:?}",
+                self.state
+            );
+        }
+        let options = &self.config.asr.language_options;
+        let current = self.selected_language.as_deref().unwrap_or("auto");
+        let next_index = options
+            .iter()
+            .position(|language| language.eq_ignore_ascii_case(current))
+            .map(|index| (index + 1) % options.len())
+            .unwrap_or(0);
+        let next = options[next_index].trim();
+        self.selected_language = (!next.eq_ignore_ascii_case("auto")).then(|| next.to_string());
+        Ok(self.selected_language.clone())
     }
 
     pub fn cancel_handle(&self) -> CancelHandle {
@@ -188,6 +218,7 @@ where
     }
 
     async fn finish_recording(&mut self) -> Result<ToggleOutcome> {
+        let request_language = self.selected_language.clone();
         self.state = RecordingState::WritingAudio;
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::WritingAudio,
@@ -221,7 +252,11 @@ where
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::Uploading,
         });
-        let mut transcription = match self.asr.transcribe_file(temp_file.path()).await {
+        let mut transcription = match self
+            .asr
+            .transcribe_file(temp_file.path(), request_language.as_deref())
+            .await
+        {
             Ok(transcription) => transcription,
             Err(error) => {
                 self.update_diagnostics(None, Some(&error.to_string()));

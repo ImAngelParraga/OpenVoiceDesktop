@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
@@ -284,7 +285,29 @@ pub fn validate_config(config: &Config) -> Result<()> {
     )?;
     non_empty("behavior.shortcut", &config.behavior.shortcut)?;
     non_empty("behavior.cancel_shortcut", &config.behavior.cancel_shortcut)?;
+    non_empty(
+        "behavior.language_shortcut",
+        &config.behavior.language_shortcut,
+    )?;
     ShortcutBindings::from_config(config).context("invalid shortcut configuration")?;
+    if config.asr.language_options.is_empty() {
+        bail!("asr.language_options must contain at least one language");
+    }
+    let mut languages = HashSet::new();
+    for language in &config.asr.language_options {
+        let normalized = language.trim().to_ascii_lowercase();
+        if normalized.is_empty()
+            || (!normalized.eq("auto")
+                && !normalized
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-'))
+        {
+            bail!("asr.language_options contains invalid language {language:?}");
+        }
+        if !languages.insert(normalized) {
+            bail!("asr.language_options must not contain duplicates");
+        }
+    }
     if !(8_000..=192_000).contains(&config.audio.sample_rate_hz) {
         bail!("audio.sample_rate_hz must be between 8000 and 192000");
     }
@@ -437,7 +460,10 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
         if changed
             && matches!(
                 entry.id,
-                "portable.enabled" | "portable.data_dir" | "ipc.socket_path"
+                "portable.enabled"
+                    | "portable.data_dir"
+                    | "ipc.socket_path"
+                    | "behavior.language_shortcut"
             )
         {
             results.push(FieldApplyResult {

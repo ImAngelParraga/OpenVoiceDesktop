@@ -3,7 +3,7 @@ const WINDOWS_RS: &str = include_str!("../src/platform/windows.rs");
 #[test]
 fn test_v3_tray_left_click_does_not_toggle_recording() {
     assert!(
-        !WINDOWS_RS.contains("WM_LBUTTONUP"),
+        !WINDOWS_RS.contains("WM_TRAYICON if lparam as u32 == WM_LBUTTONUP"),
         "tray left-click must not toggle recording; Ctrl+Space is the recording trigger"
     );
     assert!(
@@ -77,6 +77,17 @@ fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
         WINDOWS_RS.contains("UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID)"),
         "cancel hotkey must be released when tray loop exits"
     );
+}
+
+#[test]
+fn language_shortcut_registers_and_routes_to_shared_action() {
+    assert!(WINDOWS_RS.contains("const LANGUAGE_HOTKEY_ID: i32 = 3"));
+    assert!(WINDOWS_RS.contains("windows_hotkey(language_shortcut)"));
+    assert!(WINDOWS_RS.contains("LANGUAGE_HOTKEY_ID => send_command(TrayCommand::CycleLanguage)"));
+    assert!(WINDOWS_RS.contains("UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID)"));
+    assert!(WINDOWS_RS.contains("WM_LBUTTONUP"));
+    assert!(WINDOWS_RS.contains("set_recording_language"));
+    assert!(WINDOWS_RS.contains("send_command(TrayCommand::CycleLanguage)"));
 }
 
 #[test]

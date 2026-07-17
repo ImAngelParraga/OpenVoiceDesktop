@@ -390,3 +390,25 @@ fn portable_changes_report_restart_required_without_being_disabled() {
         assert!(result.reason.as_deref().unwrap().contains("restart"));
     }
 }
+
+#[test]
+fn language_shortcut_change_reports_restart_required() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let previous = Config::default();
+    previous.save_to(&path).unwrap();
+    let mut candidate = previous;
+    candidate.behavior.language_shortcut = "Ctrl+Shift+L".to_string();
+    let result = SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+    let language = result
+        .fields
+        .iter()
+        .find(|field| field.field == "behavior.language_shortcut")
+        .unwrap();
+    assert_eq!(
+        language.status,
+        openvoice_desktop::core::settings_service::ApplyStatus::RestartRequired
+    );
+}

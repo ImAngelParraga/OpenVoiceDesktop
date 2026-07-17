@@ -45,6 +45,7 @@ pub struct AsrConfig {
     pub base_url: String,
     pub model: String,
     pub language: Option<String>,
+    pub language_options: Vec<String>,
     pub prompt: Option<String>,
     pub bearer_token: Option<String>,
     pub timeout_seconds: u64,
@@ -76,6 +77,7 @@ pub struct BehaviorConfig {
     pub shortcut: String,
     pub push_to_talk: bool,
     pub cancel_shortcut: String,
+    pub language_shortcut: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -295,6 +297,7 @@ impl Default for AsrConfig {
             base_url: "http://127.0.0.1:9000".to_string(),
             model: "whisper-1".to_string(),
             language: None,
+            language_options: vec!["en".to_string(), "es".to_string()],
             prompt: None,
             bearer_token: None,
             timeout_seconds: 30,
@@ -330,6 +333,7 @@ impl Default for BehaviorConfig {
             shortcut: "Ctrl+Space".to_string(),
             push_to_talk: false,
             cancel_shortcut: "Escape".to_string(),
+            language_shortcut: "Ctrl+Alt+L".to_string(),
         }
     }
 }
