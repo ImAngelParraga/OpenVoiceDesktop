@@ -26,8 +26,8 @@ fn test_v1_installer_starts_windows_daemon_hidden() {
         "-Start should not leave a blocking foreground console window"
     );
     assert!(
-        INSTALL_PS1.contains("-NoProfile -WindowStyle Hidden -Command"),
-        "Startup shortcut should launch the daemon hidden"
+        INSTALL_PS1.contains("New-ItemProperty -Path $RunKey"),
+        "installer should use current-user Run registration"
     );
 }
 
@@ -84,11 +84,14 @@ fn native_windows_installer_contract() {
         "taskkill.exe",
         "/TIMEOUT=5000",
         "schtasks.exe /Delete /TN OpenVoiceDesktop /F",
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
         "OpenVoiceDesktop.lnk",
     ] {
         assert!(INSTALLER_HOOKS.contains(required), "{required}");
     }
     assert!(!INSTALLER_HOOKS.contains("openvoice-desktop\\config.toml"));
+    assert!(INSTALLER_HOOKS.contains("!insertmacro RemoveLegacyWindowsAutostart"));
+    assert!(INSTALLER_HOOKS.contains("DeleteRegValue HKCU"));
     assert!(
         INSTALLER_HOOKS.find("/TIMEOUT=3000").unwrap()
             < INSTALLER_HOOKS.find("taskkill.exe").unwrap(),
@@ -100,6 +103,7 @@ fn native_windows_installer_contract() {
         "reinstall changed existing config",
         "uninstall removed user config",
         "uninstall left autostart task",
+        "uninstall left current-user autostart registration",
         "Windows installer smoke: PASS",
     ] {
         assert!(INSTALLER_SMOKE.contains(required), "{required}");

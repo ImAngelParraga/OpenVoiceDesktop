@@ -11,14 +11,24 @@
   Delete "$APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\OpenVoiceDesktop.lnk"
 !macroend
 
+!macro RemoveLegacyWindowsAutostart
+  nsExec::ExecToLog /TIMEOUT=5000 'schtasks.exe /Delete /TN OpenVoiceDesktop /F'
+  Pop $0
+  !insertmacro RemoveLegacyStartupShortcut
+!macroend
+
+
+!macro RemoveWindowsAutostart
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OpenVoiceDesktop"
+  !insertmacro RemoveLegacyWindowsAutostart
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro StopOpenVoiceDesktop
-  !insertmacro RemoveLegacyStartupShortcut
+  !insertmacro RemoveLegacyWindowsAutostart
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro StopOpenVoiceDesktop
-  nsExec::ExecToLog /TIMEOUT=5000 'schtasks.exe /Delete /TN OpenVoiceDesktop /F'
-  Pop $0
-  !insertmacro RemoveLegacyStartupShortcut
+  !insertmacro RemoveWindowsAutostart
 !macroend

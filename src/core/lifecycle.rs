@@ -84,26 +84,7 @@ pub fn apply_autostart(enabled: bool) -> Result<()> {
 
     #[cfg(target_os = "windows")]
     {
-        let task_name = "OpenVoiceDesktop";
-        if !enabled {
-            let status = std::process::Command::new("schtasks.exe")
-                .args(["/Delete", "/TN", task_name, "/F"])
-                .status()
-                .context("removing OpenVoiceDesktop Windows autostart")?;
-            // Deleting an absent task is safe recovery, not a failed setting.
-            anyhow::ensure!(
-                status.success() || status.code() == Some(1),
-                "schtasks delete failed"
-            );
-            return Ok(());
-        }
-        let exe = std::env::current_exe().context("locating OpenVoiceDesktop executable")?;
-        let status = std::process::Command::new("schtasks.exe")
-            .args(["/Create", "/F", "/SC", "ONLOGON", "/TN", task_name, "/TR"])
-            .arg(format!("\"{}\" daemon", exe.display()))
-            .status()
-            .context("creating OpenVoiceDesktop Windows autostart")?;
-        anyhow::ensure!(status.success(), "schtasks create failed");
+        apply_windows_autostart(enabled)?;
         return Ok(());
     }
 
@@ -111,6 +92,111 @@ pub fn apply_autostart(enabled: bool) -> Result<()> {
     {
         let _ = enabled;
         Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn apply_windows_autostart(enabled: bool) -> Result<()> {
+    use std::ffi::{OsStr, OsString};
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegSetValueExW, HKEY_CURRENT_USER,
+        KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    };
+
+    const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const VALUE_NAME: &str = "OpenVoiceDesktop";
+
+    let run_key: Vec<u16> = OsStr::new(RUN_KEY).encode_wide().chain(Some(0)).collect();
+    let value_name: Vec<u16> = OsStr::new(VALUE_NAME)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let command = if enabled {
+        let exe = std::env::current_exe().context("locating OpenVoiceDesktop executable")?;
+        let mut command = OsString::from("\"");
+        command.push(exe.as_os_str());
+        command.push("\" daemon");
+        let command: Vec<u16> = command.encode_wide().chain(Some(0)).collect();
+        anyhow::ensure!(
+            command.len() <= 260,
+            "OpenVoiceDesktop autostart command exceeds Windows Run limit"
+        );
+        Some(command)
+    } else {
+        None
+    };
+    let mut key = 0;
+    let open_status = unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            run_key.as_ptr(),
+            0,
+            null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            null(),
+            &mut key,
+            null_mut(),
+        )
+    };
+    win32_result(open_status, "opening current-user autostart registry key")?;
+
+    let update_status = if let Some(command) = command {
+        let byte_len = u32::try_from(command.len() * std::mem::size_of::<u16>())
+            .context("autostart command is too long")?;
+        unsafe {
+            RegSetValueExW(
+                key,
+                value_name.as_ptr(),
+                0,
+                REG_SZ,
+                command.as_ptr().cast(),
+                byte_len,
+            )
+        }
+    } else {
+        unsafe { RegDeleteValueW(key, value_name.as_ptr()) }
+    };
+    let close_status = unsafe { RegCloseKey(key) };
+
+    if !enabled && update_status == ERROR_FILE_NOT_FOUND {
+        win32_result(close_status, "closing current-user autostart registry key")?;
+    } else {
+        win32_result(
+            update_status,
+            "updating current-user autostart registration",
+        )?;
+        win32_result(close_status, "closing current-user autostart registry key")?;
+    }
+
+    remove_legacy_startup_shortcut()?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn win32_result(status: u32, action: &str) -> Result<()> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+
+    if status == ERROR_SUCCESS {
+        return Ok(());
+    }
+    Err(std::io::Error::from_raw_os_error(status as i32)).with_context(|| action.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn remove_legacy_startup_shortcut() -> Result<()> {
+    let Some(data_dir) = dirs::data_dir() else {
+        return Ok(());
+    };
+    let shortcut =
+        data_dir.join("Microsoft\\Windows\\Start Menu\\Programs\\Startup\\OpenVoiceDesktop.lnk");
+    match std::fs::remove_file(shortcut) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("removing legacy OpenVoiceDesktop startup shortcut"),
     }
 }
 

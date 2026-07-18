@@ -8,6 +8,8 @@ $ProductName = "OpenVoiceDesktop"
 $ConfigDir = Join-Path $env:APPDATA "openvoice-desktop"
 $ConfigPath = Join-Path $ConfigDir "config.toml"
 $StartMenuShortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\OpenVoiceDesktop\OpenVoiceDesktop.lnk"
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$RunValueName = "OpenVoiceDesktop"
 
 function Get-UninstallEntry {
     Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
@@ -42,6 +44,8 @@ if ((Get-FileHash $ConfigPath -Algorithm SHA256).Hash -ne $ConfigHash) {
 
 schtasks.exe /Create /F /SC ONLOGON /TN OpenVoiceDesktop /TR 'cmd.exe /c exit 0' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "could not create autostart smoke-test task" }
+New-Item -Path $RunKey -Force | Out-Null
+New-ItemProperty -Path $RunKey -Name $RunValueName -PropertyType String -Value 'cmd.exe /c exit 0' -Force | Out-Null
 
 $entry = Get-UninstallEntry
 $Uninstaller = $entry.UninstallString.Trim('"')
@@ -53,6 +57,9 @@ if (-not (Test-Path $ConfigPath)) { throw "uninstall removed user config" }
 
 schtasks.exe /Query /TN OpenVoiceDesktop *> $null
 if ($LASTEXITCODE -eq 0) { throw "uninstall left autostart task" }
+if (Get-ItemProperty -Path $RunKey -Name $RunValueName -ErrorAction SilentlyContinue) {
+    throw "uninstall left current-user autostart registration"
+}
 
 Write-Host "Windows installer smoke: PASS"
 exit 0

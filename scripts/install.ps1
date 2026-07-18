@@ -14,6 +14,8 @@ $ConfigDir = Join-Path $env:APPDATA "openvoice-desktop"
 $ConfigPath = Join-Path $ConfigDir "config.toml"
 $StartupDir = [Environment]::GetFolderPath("Startup")
 $ShortcutPath = Join-Path $StartupDir "OpenVoiceDesktop.lnk"
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$RunValueName = "OpenVoiceDesktop"
 $AssetName = "openvoice-desktop-windows-x86_64.zip"
 
 function Test-Command {
@@ -187,28 +189,36 @@ clipboard_restore_delay_ms = 250
     Write-Host "Created config: $ConfigPath"
 }
 
-function New-StartupShortcut {
+function Remove-LegacyAutostart {
+    if (Test-Path $ShortcutPath) {
+        Remove-Item -Path $ShortcutPath -Force
+        Write-Host "Removed legacy OpenVoiceDesktop startup shortcut"
+    }
+
+    $Task = Start-Process -FilePath "schtasks.exe" -ArgumentList "/Delete", "/TN", "OpenVoiceDesktop", "/F" -WindowStyle Hidden -PassThru
+    if (-not $Task.WaitForExit(5000)) {
+        Stop-Process -Id $Task.Id -Force -ErrorAction SilentlyContinue
+        Write-Warning "Timed out removing legacy OpenVoiceDesktop scheduled task"
+    }
+}
+
+function Set-Autostart {
     $Autostart = $false
     if (Test-Path $ConfigPath) {
         $Autostart = Select-String -Path $ConfigPath -Pattern '^\s*autostart\s*=\s*true\s*$' -Quiet
     }
+
+    Remove-LegacyAutostart
     if ($NoStartup -or -not $Autostart) {
-        if (Test-Path $ShortcutPath) {
-            Remove-Item -Path $ShortcutPath -Force
-            Write-Host "Removed disabled OpenVoiceDesktop startup shortcut"
-        }
+        Remove-ItemProperty -Path $RunKey -Name $RunValueName -ErrorAction SilentlyContinue
         return
     }
 
-    $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
     $ExePath = Join-Path $InstallDir $ExeName
-    $Shortcut.TargetPath = "powershell.exe"
-    $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -Command `"Start-Process -FilePath '$ExePath' -ArgumentList 'daemon' -WindowStyle Hidden`""
-    $Shortcut.WorkingDirectory = $InstallDir
-    $Shortcut.Description = "OpenVoiceDesktop tray app"
-    $Shortcut.Save()
-    Write-Host "Created startup shortcut: $ShortcutPath"
+    $Command = "`"$ExePath`" daemon"
+    New-Item -Path $RunKey -Force | Out-Null
+    New-ItemProperty -Path $RunKey -Name $RunValueName -PropertyType String -Value $Command -Force | Out-Null
+    Write-Host "Registered current-user autostart: $Command"
 }
 
 Ensure-WebView2Runtime
@@ -232,7 +242,7 @@ if ($BuildFromSource) {
 }
 
 Write-Config
-New-StartupShortcut
+Set-Autostart
 
 if ($Start) {
     Start-Process -FilePath (Join-Path $InstallDir $ExeName) -ArgumentList "daemon" -WindowStyle Hidden

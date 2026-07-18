@@ -29,6 +29,25 @@ fn installers_follow_persisted_autostart_setting() {
 }
 
 #[test]
+fn test_v48_windows_autostart_is_current_user_and_passwordless() {
+    let lifecycle = include_str!("../src/core/lifecycle.rs");
+    let powershell = include_str!("../scripts/install.ps1");
+    let hooks = include_str!("../nsis/installer-hooks.nsh");
+    let cargo = include_str!("../Cargo.toml");
+
+    assert!(lifecycle.contains("Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"));
+    assert!(powershell.contains("Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
+    assert!(hooks.contains("Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
+    assert!(lifecycle.contains("RegSetValueExW"));
+    assert!(lifecycle.contains("RegDeleteValueW"));
+    assert!(lifecycle.contains("command.push(\"\\\" daemon\")"));
+    assert!(!lifecycle.contains("/Create"));
+    assert!(powershell.contains("Remove-LegacyAutostart"));
+    assert!(hooks.contains("RemoveLegacyWindowsAutostart"));
+    assert!(cargo.contains("\"Win32_System_Registry\""));
+}
+
+#[test]
 fn daemon_and_settings_have_single_instance_guards() {
     let daemon = include_str!("../src/daemon.rs");
     let lifecycle = include_str!("../src/core/lifecycle.rs");
