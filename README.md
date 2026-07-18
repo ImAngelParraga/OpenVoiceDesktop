@@ -122,6 +122,18 @@ cargo build --release --features desktop-shell
 
 The binary is `target/release/openvoice-desktop`.
 
+Build the Windows NSIS installer locally from Ubuntu without GitHub Actions:
+
+```bash
+./scripts/setup-windows-cross.sh  # one-time Docker image setup
+./scripts/build-windows-local.sh
+```
+
+The installer and SHA-256 file are written under
+`target/x86_64-pc-windows-msvc/release/bundle/nsis/`. GitHub Actions runs only
+for an explicit manual dispatch or a `v*` release tag. Docker is the default,
+so host package installation and administrator access are not required.
+
 ## Config
 
 Default path:

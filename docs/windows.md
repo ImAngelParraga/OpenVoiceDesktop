@@ -18,6 +18,44 @@ Running a newer setup upgrades the installed app. Config, history, logs, and Win
 
 V1 binaries are unsigned. Windows SmartScreen may show a warning until the project has a code-signing certificate.
 
+## Build on Ubuntu
+
+Normal pushes do not start GitHub Actions. Ubuntu can cross-build the Windows
+MSVC executable and NSIS setup locally using Tauri's `cargo-xwin` path.
+
+One-time setup:
+
+```bash
+./scripts/setup-windows-cross.sh
+```
+
+Default setup builds a reusable Docker image and needs no `sudo`. To install
+the same pinned toolchain directly on an Ubuntu host instead, use
+`./scripts/setup-windows-cross.sh --native`.
+
+Build, including the local Rust test suite:
+
+```bash
+./scripts/build-windows-local.sh
+```
+
+For a rebuild after tests already passed:
+
+```bash
+./scripts/build-windows-local.sh --skip-tests
+```
+
+Output:
+
+```text
+target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sha256
+```
+
+Linux cross-compilation does not execute or smoke-test the Windows application.
+Before a release, run `scripts/test-installer.ps1` on Windows or manually
+dispatch the `CI` workflow for native Windows test/install coverage.
+
 ## Configure
 
 Use **OpenVoiceDesktop** from the Start menu to open first-run setup. Advanced users can edit:
@@ -63,7 +101,7 @@ Paste errors are surfaced as user-facing error feedback while the transcript rem
 
 ## Uninstall
 
-Open **Settings → Apps → Installed apps**, select **OpenVoiceDesktop**, then choose **Uninstall**. App binaries, Start menu shortcut, and autostart task are removed. Config, history, logs, and stored token remain for later reinstall.
+Open **Settings → Apps → Installed apps**, select **OpenVoiceDesktop**, then choose **Uninstall**. App binaries, Start menu shortcut, and autostart registration are removed. Config, history, logs, and stored token remain for later reinstall.
 
 To remove the retained token too:
 

@@ -51,6 +51,7 @@ I.handy.updates: `H:src/components/update-checker/UpdateChecker.tsx`, `H:src/com
 I.handy.i18n: `H:src/i18n/*`, `H:src-tauri/src/tray_i18n.rs`, locale JSON files implement app language and tray translations.
 I.handy.portable: `H:src-tauri/src/portable.rs`, `H:src-tauri/src/cli.rs` implement portable mode and extra CLI. Optional.
 I.shell: Tauri 2 owns single-instance lifecycle, settings window, tray, overlays, global shortcuts, native dialogs/openers, autostart, and app events. Existing Rust core remains library/backend.
+I.build: Ubuntu local Windows packaging uses Tauri 2 `cargo-xwin` MSVC cross-compilation plus NSIS; GitHub Actions remains explicit manual/release validation, not per-push build infrastructure.
 I.settings.status: `W` = runtime-effective after daemon restart, `P` = partial/model-only, `D` = dead/misleading. Audit baseline 2026-07-10 follows.
 I.settings.general: `D behavior.shortcut`, `D behavior.push_to_talk`, `D behavior.cancel_shortcut`, `D audio.selected_microphone`, `W audio.recording_output_mode`, `W audio.recording_output_volume`, `D audio.audio_feedback`, `D audio.selected_output_device`, `D audio.always_on_microphone`, `D audio.audio_feedback_volume`, `D audio.sound_theme`, `D audio.sample_rate_hz`, `D audio.channels`. Windows hotkey is hardcoded `Ctrl+Space`; recorder always uses default input and fixed 16 kHz mono output; sound/always-on paths are not invoked.
 I.settings.asr: `W asr.base_url`, `W asr.model`, `W asr.language`, `W asr.prompt`, `W asr.timeout_seconds` after restart; `asr.prompt` is a visible multiline `Prompt / vocabulary hints` control with examples and empty=`None`; `W asr.bearer_token` with environment/secret-store/plaintext-fallback source status; `W test-endpoint` authenticated silent-WAV diagnostic action.
@@ -69,6 +70,7 @@ I.tray.audit: Working: Settings, Copy Last Transcript, state-gated Cancel, Test 
 R1: Tauri 2 Windows uses Microsoft Edge WebView2; Windows 10/11 normally provide runtime. `https://v2.tauri.app/start/prerequisites/`; `https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution`
 R2: Tauri 2 global-shortcut plugin supports Windows/Linux registration plus pressed/released events, fitting toggle and push-to-talk. `https://v2.tauri.app/plugin/global-shortcut/`
 R3: Tauri 2 official desktop surfaces cover system tray, autostart, logging, opener, single-instance, updater, window state. `https://v2.tauri.app/plugin/`
+R4: Tauri 2 documents Linux→Windows NSIS cross-compilation with `nsis`, LLVM/LLD/Clang, `cargo-xwin`, and `x86_64-pc-windows-msvc`; output lives under the target-specific `release/bundle/nsis` directory. Cross-build is less tested than native Windows and does not replace Windows runtime smoke. `https://v2.tauri.app/distribute/windows-installer/`
 
 §V
 V1: Remote ASR invariant: every transcription request goes to `{base_url.trim_end_matches('/')}/v1/audio/transcriptions`; no local model inference path used by default.
@@ -119,6 +121,7 @@ V45: Runtime-language invariant: language changes only while idle or recording, 
 V46: Overlay-cursor invariant: hovering Windows native or Tauri recording overlay always shows normal arrow over non-actions and pointer over clickable language/cancel actions; missing/inherited wait cursor forbidden.
 V47: CI-action-runtime invariant: repository-owned workflows use supported GitHub JavaScript action majors targeting Node 24; explicit Node 20 action majors forbidden.
 V48: Windows-autostart invariant: autostart uses idempotent current-user registration requiring no administrator rights or password; runtime and installers use one `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` value with exact quoted daemon command, remove legacy task/shortcut registrations, and surface sanitized OS rejection.
+V49: Build-budget invariant: ordinary pushes and pull requests start no GitHub Actions jobs; explicit workflow dispatch and version tags retain Linux/Windows tests plus Windows installer smoke. Ubuntu setup/build scripts verify prerequisites, run local tests, cross-build the MSVC desktop shell into NSIS setup, and emit SHA-256 beside artifact.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -208,6 +211,7 @@ T82|x|Runtime transcription language switching|Add configurable EN/ES cycle, run
 T83|x|Fix cursor and shrink recording overlay|Assign explicit Windows arrow cursor, explicit Tauri overlay cursors, shrink compact Tauri overlay to at most `210×44`, shrink Windows native popup to at most `180×34`, reduce waveform chrome, and preserve language/cancel click targets.|H:src/overlay/RecordingOverlay.tsx; H:src/overlay/RecordingOverlay.css|V3,V5,V12,V38,V45,V46
 T84|x|Migrate artifact upload to Node 24|Replace deprecated `actions/upload-artifact@v4` with supported Node 24 major and add workflow regression coverage.|—|V12,V23,V30,V47
 T85|x|Fix Windows autostart Save|Replace runtime `schtasks` creation with `HKCU` Run registration; align PowerShell/NSIS installers; migrate legacy registrations; add regression tests.|—|V17,V30,V34,V48
+T86|x|Build Windows installer locally|Add Ubuntu `cargo-xwin`/NSIS setup and repeatable test-build-checksum scripts; disable ordinary push/PR Actions; document local output and native Windows smoke boundary; add regression tests and produce installer locally.|—|I.build,R4,V12,V23,V30,V32,V49
 
 §B
 id|date|cause|fix
