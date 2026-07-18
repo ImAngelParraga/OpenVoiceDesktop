@@ -117,6 +117,7 @@ V43: Settings-reopen invariant: closing Settings hides rather than destroys its 
 V44: Settings-render invariant: every declared control kind renders without JavaScript exception; textarea controls accept multiline value without assigning input-only properties, and one control failure never truncates later controls/actions silently.
 V45: Runtime-language invariant: language changes only while idle or recording, updates status/overlay immediately, and remains selected for later recordings in current daemon session. Stop snapshots selected language for one ASR request without splitting audio; `auto` omits multipart `language`. Writing/uploading/inserting rejects changes. Shortcut and overlay invoke same action.
 V46: Overlay-cursor invariant: hovering Windows native or Tauri recording overlay always shows normal arrow over non-actions and pointer over clickable language/cancel actions; missing/inherited wait cursor forbidden.
+V47: CI-action-runtime invariant: repository-owned workflows use supported GitHub JavaScript action majors targeting Node 24; explicit Node 20 action majors forbidden.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -204,6 +205,7 @@ T80|x|Reopen closed Settings window|Intercept Settings close request, prevent de
 T81|x|Render prompt textarea safely|Separate textarea initialization from input type assignment, render multiline prompt plus all later ASR controls/actions, and add regression proof that textarea path cannot throw before append.|H:src/components/settings/general/ModelSettingsCard.tsx|V14,V15,V22,V36,V44
 T82|x|Runtime transcription language switching|Add configurable EN/ES cycle, runtime shortcut, CLI/IPC action, clickable overlay badge, ASR language snapshot, validation, docs, and cross-platform tests. Support `auto` as explicit option that omits multipart language.|—|I.config,I.asr,I.controller,I.runtime-language,I.shell,V1,V3,V4,V8,V12,V15,V18,V22,V24,V45
 T83|x|Fix cursor and shrink recording overlay|Assign explicit Windows arrow cursor, explicit Tauri overlay cursors, shrink compact Tauri overlay to at most `210×44`, shrink Windows native popup to at most `180×34`, reduce waveform chrome, and preserve language/cancel click targets.|H:src/overlay/RecordingOverlay.tsx; H:src/overlay/RecordingOverlay.css|V3,V5,V12,V38,V45,V46
+T84|x|Migrate artifact upload to Node 24|Replace deprecated `actions/upload-artifact@v4` with supported Node 24 major and add workflow regression coverage.|—|V12,V23,V30,V47
 
 §B
 id|date|cause|fix
@@ -245,3 +247,4 @@ B35|2026-07-17|New inventory expectation inserted `behavior.language_shortcut` o
 B36|2026-07-17|Exact settings-control fixtures omitted new language options and shortcut controls|V22
 B37|2026-07-17|Windows tray test banned `WM_LBUTTONUP` globally, blocking unrelated clickable recording popup control|V3
 B38|2026-07-17|Windows recording popup class used `hCursor: 0`, so hover inherited stale wait cursor and appeared busy|V46
+B39|2026-07-18|Installer workflow pinned `actions/upload-artifact@v4`, producing Node 20 deprecation warning after runner migration|V47

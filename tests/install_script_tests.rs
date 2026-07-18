@@ -132,3 +132,9 @@ fn tag_release_builds_versioned_setup_and_checksum_after_smoke() {
         assert!(CI_WORKFLOW.contains(required), "{required}");
     }
 }
+
+#[test]
+fn test_v47_ci_actions_use_node24() {
+    assert!(CI_WORKFLOW.contains("actions/upload-artifact@v7"));
+    assert!(!CI_WORKFLOW.contains("actions/upload-artifact@v4"));
+}
