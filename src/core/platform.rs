@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::core::audio::{
     audio_feedback_plan, enumerate_output_devices, AudioFeedbackPlan, OutputDeviceInfo,
@@ -26,6 +27,21 @@ pub struct PasteTimings {
 pub struct PasteReport {
     pub result: PasteResult,
     pub timings: PasteTimings,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SelectionPlan {
+    pub cursor_left: usize,
+    pub select_left: usize,
+}
+
+pub fn post_paste_selection_plan(text: &str) -> SelectionPlan {
+    let inserted_graphemes = text.graphemes(true).count();
+    let cursor_left = usize::from(text.ends_with(' '));
+    SelectionPlan {
+        cursor_left,
+        select_left: inserted_graphemes.saturating_sub(cursor_left),
+    }
 }
 
 /// Exact output state captured before recording adjustment.

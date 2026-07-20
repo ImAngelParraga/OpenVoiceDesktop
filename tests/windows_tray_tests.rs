@@ -66,6 +66,14 @@ fn test_v46_windows_overlay_uses_arrow_cursor() {
 }
 
 #[test]
+fn test_v50_windows_selection_waits_for_paste_and_preserves_suffix() {
+    assert!(WINDOWS_RS.contains("const POST_PASTE_SELECTION_DELAY_MS: u64 = 50"));
+    assert!(WINDOWS_RS.contains("post_paste_selection_plan(text)"));
+    assert!(WINDOWS_RS.contains("Duration::from_millis(POST_PASTE_SELECTION_DELAY_MS)"));
+    assert!(WINDOWS_RS.contains("send_left_selection(plan.cursor_left, plan.select_left)"));
+}
+
+#[test]
 fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
     assert!(
         WINDOWS_RS.contains("const CANCEL_HOTKEY_ID: i32 = 2"),

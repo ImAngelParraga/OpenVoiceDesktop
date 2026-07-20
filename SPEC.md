@@ -122,6 +122,7 @@ V46: Overlay-cursor invariant: hovering Windows native or Tauri recording overla
 V47: CI-action-runtime invariant: repository-owned workflows use supported GitHub JavaScript action majors targeting Node 24; explicit Node 20 action majors forbidden.
 V48: Windows-autostart invariant: autostart uses idempotent current-user registration requiring no administrator rights or password; runtime and installers use one `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` value with exact quoted daemon command, remove legacy task/shortcut registrations, and surface sanitized OS rejection.
 V49: Build-budget invariant: ordinary pushes and pull requests start no GitHub Actions jobs; explicit workflow dispatch and version tags retain Linux/Windows tests plus Windows installer smoke. Ubuntu setup/build scripts verify prerequisites, run local tests, cross-build the MSVC desktop shell into NSIS setup, and emit SHA-256 beside artifact.
+V50: Selection-suffix invariant: when post-paste selection and trailing-space presentation are both enabled, selection covers dictated text but leaves exactly one presentation-only trailing ASCII space unselected. Windows waits for paste processing before caret movement; selection input starts from pasted-text end and never consumes preceding text. Unsupported targets preserve inserted text and suffix and report sanitized failure.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -212,6 +213,7 @@ T83|x|Fix cursor and shrink recording overlay|Assign explicit Windows arrow curs
 T84|x|Migrate artifact upload to Node 24|Replace deprecated `actions/upload-artifact@v4` with supported Node 24 major and add workflow regression coverage.|—|V12,V23,V30,V47
 T85|x|Fix Windows autostart Save|Replace runtime `schtasks` creation with `HKCU` Run registration; align PowerShell/NSIS installers; migrate legacy registrations; add regression tests.|—|V17,V30,V34,V48
 T86|x|Build Windows installer locally|Add Ubuntu `cargo-xwin`/NSIS setup and repeatable test-build-checksum scripts; disable ordinary push/PR Actions; document local output and native Windows smoke boundary; add regression tests and produce installer locally.|—|I.build,R4,V12,V23,V30,V32,V49
+T87|x|Keep trailing space outside post-paste selection|Plan selection from inserted graphemes, leave one presentation suffix unselected, settle Windows paste before caret input, test Unicode/multiline/no-suffix paths, bump release version, and publish installer.|H:src/components/settings/AppendTrailingSpace.tsx; H:src-tauri/src/clipboard.rs|I.platform,I.settings.output,I.settings.text,V6,V9,V12,V24,V25,V39,V50
 
 §B
 id|date|cause|fix
@@ -256,3 +258,4 @@ B38|2026-07-17|Windows recording popup class used `hCursor: 0`, so hover inherit
 B39|2026-07-18|Installer workflow pinned `actions/upload-artifact@v4`, producing Node 20 deprecation warning after runner migration|V47
 B40|2026-07-18|Runtime Save used password/permission-sensitive `schtasks` creation while installer used Startup shortcut, causing autostart-enabled settings rejection|V48
 B41|2026-07-18|New V48 static test required Rust-escaped registry-path spelling from PowerShell and NSIS source text|—
+B42|2026-07-20|Post-paste selection counted appended presentation space and sent Windows caret input before asynchronous targets such as Notepad finished paste processing|V50

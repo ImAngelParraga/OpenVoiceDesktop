@@ -8,8 +8,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
     Mutex, OnceLock,
 };
+use std::time::Duration;
 use tokio::sync::mpsc;
-use unicode_segmentation::UnicodeSegmentation;
 use windows_sys::core::{GUID, HRESULT};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -44,7 +44,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
 use crate::core::config::{RecordingOutputMode, Theme, TypingTool};
-use crate::core::platform::{reduced_output_volume, AudioOutputState, PlatformAdapter};
+use crate::core::platform::{
+    post_paste_selection_plan, reduced_output_volume, AudioOutputState, PlatformAdapter,
+};
 
 const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
@@ -58,6 +60,7 @@ const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
 const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
 const STATUS_POPUP_WIDTH: i32 = 180;
 const STATUS_POPUP_HEIGHT: i32 = 34;
+const POST_PASTE_SELECTION_DELAY_MS: u64 = 50;
 const MENU_SETTINGS: usize = 1001;
 const MENU_COPY_LAST_TRANSCRIPT: usize = 1002;
 const MENU_CANCEL: usize = 1003;
@@ -168,7 +171,9 @@ impl PlatformAdapter for WindowsPlatformAdapter {
     async fn select_inserted_text(&self, text: &str, tool: TypingTool) -> Result<()> {
         match tool {
             TypingTool::Auto | TypingTool::SendInput => {
-                send_shift_left(text.graphemes(true).count())
+                tokio::time::sleep(Duration::from_millis(POST_PASTE_SELECTION_DELAY_MS)).await;
+                let plan = post_paste_selection_plan(text);
+                send_left_selection(plan.cursor_left, plan.select_left)
             }
             _ => Err(anyhow!(
                 "typing tool {tool:?} cannot select text on Windows"
@@ -564,17 +569,25 @@ fn send_enter() -> Result<()> {
     Ok(())
 }
 
-fn send_shift_left(character_count: usize) -> Result<()> {
-    if character_count == 0 {
+fn send_left_selection(cursor_left: usize, select_left: usize) -> Result<()> {
+    if cursor_left == 0 && select_left == 0 {
         return Ok(());
     }
-    let mut inputs = Vec::with_capacity(character_count * 2 + 2);
-    inputs.push(keyboard_input(VK_SHIFT as u16, 0));
-    for _ in 0..character_count {
+    let mut inputs = Vec::with_capacity((cursor_left + select_left) * 2 + 2);
+    for _ in 0..cursor_left {
         inputs.push(keyboard_input(VK_LEFT as u16, 0));
         inputs.push(keyboard_input(VK_LEFT as u16, KEYEVENTF_KEYUP));
     }
-    inputs.push(keyboard_input(VK_SHIFT as u16, KEYEVENTF_KEYUP));
+    if select_left > 0 {
+        inputs.push(keyboard_input(VK_SHIFT as u16, 0));
+    }
+    for _ in 0..select_left {
+        inputs.push(keyboard_input(VK_LEFT as u16, 0));
+        inputs.push(keyboard_input(VK_LEFT as u16, KEYEVENTF_KEYUP));
+    }
+    if select_left > 0 {
+        inputs.push(keyboard_input(VK_SHIFT as u16, KEYEVENTF_KEYUP));
+    }
     let sent = unsafe {
         SendInput(
             inputs.len() as u32,

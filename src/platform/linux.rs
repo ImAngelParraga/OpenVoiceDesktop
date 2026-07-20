@@ -3,12 +3,13 @@ use async_trait::async_trait;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
 use crate::core::config::RecordingOutputMode;
 use crate::core::config::TypingTool;
-use crate::core::platform::{reduced_output_volume, AudioOutputState, PlatformAdapter};
+use crate::core::platform::{
+    post_paste_selection_plan, reduced_output_volume, AudioOutputState, PlatformAdapter,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct LinuxPlatformAdapter;
@@ -83,7 +84,8 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn select_inserted_text(&self, text: &str, tool: TypingTool) -> Result<()> {
-        for command in linux_select_command_candidates(tool, text.graphemes(true).count()) {
+        let plan = post_paste_selection_plan(text);
+        for command in linux_select_command_candidates(tool, plan.cursor_left, plan.select_left) {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }
@@ -337,18 +339,27 @@ pub fn linux_submit_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
 
 pub fn linux_select_command_candidates(
     tool: TypingTool,
-    character_count: usize,
+    cursor_left: usize,
+    select_left: usize,
 ) -> Vec<LinuxCommand> {
-    if character_count == 0 {
+    if cursor_left == 0 && select_left == 0 {
         return Vec::new();
     }
-    let count = character_count.to_string();
+    let count = select_left.to_string();
     let wtype = || {
-        let mut args = vec!["-M".to_string(), "shift".to_string()];
-        for _ in 0..character_count {
+        let mut args = Vec::new();
+        for _ in 0..cursor_left {
             args.extend(["-k".to_string(), "Left".to_string()]);
         }
-        args.extend(["-m".to_string(), "shift".to_string()]);
+        if select_left > 0 {
+            args.extend(["-M".to_string(), "shift".to_string()]);
+        }
+        for _ in 0..select_left {
+            args.extend(["-k".to_string(), "Left".to_string()]);
+        }
+        if select_left > 0 {
+            args.extend(["-m".to_string(), "shift".to_string()]);
+        }
         LinuxCommand {
             program: "wtype",
             args,
@@ -356,24 +367,48 @@ pub fn linux_select_command_candidates(
     };
     let dotool = || {
         let mut args = vec!["key".to_string()];
-        args.extend(std::iter::repeat("shift+left".to_string()).take(character_count));
+        args.extend(std::iter::repeat("left".to_string()).take(cursor_left));
+        args.extend(std::iter::repeat("shift+left".to_string()).take(select_left));
         LinuxCommand {
             program: "dotool",
             args,
         }
     };
     let ydotool = || {
-        let mut args = vec!["key".to_string(), "42:1".to_string()];
-        for _ in 0..character_count {
+        let mut args = vec!["key".to_string()];
+        for _ in 0..cursor_left {
             args.extend(["105:1".to_string(), "105:0".to_string()]);
         }
-        args.push("42:0".to_string());
+        if select_left > 0 {
+            args.push("42:1".to_string());
+        }
+        for _ in 0..select_left {
+            args.extend(["105:1".to_string(), "105:0".to_string()]);
+        }
+        if select_left > 0 {
+            args.push("42:0".to_string());
+        }
         LinuxCommand {
             program: "ydotool",
             args,
         }
     };
-    let xdotool = || LinuxCommand::new("xdotool", &["key", "--repeat", &count, "shift+Left"]);
+    let xdotool = || {
+        let mut args = vec!["key".to_string()];
+        args.extend(std::iter::repeat("Left".to_string()).take(cursor_left));
+        if select_left > 0 {
+            args.extend([
+                "key".to_string(),
+                "--repeat".to_string(),
+                count.clone(),
+                "shift+Left".to_string(),
+            ]);
+        }
+        LinuxCommand {
+            program: "xdotool",
+            args,
+        }
+    };
     match tool {
         TypingTool::Auto => vec![wtype(), dotool(), ydotool(), xdotool()],
         TypingTool::Wtype => vec![wtype()],

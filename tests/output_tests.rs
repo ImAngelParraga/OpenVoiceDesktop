@@ -2,12 +2,37 @@ use anyhow::Result;
 use async_trait::async_trait;
 use openvoice_desktop::core::config::{Config, TypingTool};
 use openvoice_desktop::core::platform::{
-    paste_with_output_config, run_external_script, validate_external_script, PasteResult,
-    PlatformAdapter,
+    paste_with_output_config, post_paste_selection_plan, run_external_script,
+    validate_external_script, PasteResult, PlatformAdapter, SelectionPlan,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+#[test]
+fn test_v50_selection_leaves_one_presentation_space_unselected() {
+    assert_eq!(
+        post_paste_selection_plan("hello "),
+        SelectionPlan {
+            cursor_left: 1,
+            select_left: 5,
+        }
+    );
+    assert_eq!(
+        post_paste_selection_plan("a🦀\n "),
+        SelectionPlan {
+            cursor_left: 1,
+            select_left: 3,
+        }
+    );
+    assert_eq!(
+        post_paste_selection_plan("hello"),
+        SelectionPlan {
+            cursor_left: 0,
+            select_left: 5,
+        }
+    );
+}
 
 #[cfg(unix)]
 #[tokio::test]
