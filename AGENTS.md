@@ -10,10 +10,12 @@ OpenVoiceDesktop is a Rust desktop dictation client. Shared logic lives in `src/
 - `cargo build --release`: build optimized binary at `target/release/openvoice-desktop`.
 - `cargo run -- config-path`: print default config path for local validation.
 - `cargo run -- daemon`: run resident daemon locally after creating config.
-- `./scripts/install.sh --install-deps --install-rust --start`: Linux installer flow.
+- `./scripts/install.sh --install-deps --install-rust --start`: Linux source installer flow.
+- `./scripts/setup-linux-build.sh` then `./scripts/build-linux-local.sh`: build, verify, and checksum the release `.deb` under `target/release/bundle/deb/`.
+- `./scripts/test-deb-install.sh <deb>`: root-only Linux install/upgrade/remove smoke.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start`: Windows installer flow.
 
-Linux builds need ALSA/pkg-config dependencies, for example `sudo apt install libasound2-dev pkg-config`.
+Linux builds need ALSA/pkg-config dependencies, for example `sudo apt install libasound2-dev pkg-config`. Packaging the `.deb` additionally needs the WebKitGTK/appindicator/rsvg development headers and the pinned `cargo-tauri`; `scripts/setup-linux-build.sh` installs both sets. Platform packaging notes live in `docs/linux.md` and `docs/windows.md`.
 
 ## Coding Style & Naming Conventions
 

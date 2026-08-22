@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+Comment=Resident desktop dictation client for OpenVoice-compatible ASR services
+Exec={{exec}} settings
+Icon={{icon}}
+Categories=Utility;AudioVideo;
+Keywords=dictation;speech;transcription;whisper;asr;
+Terminal=false
+StartupNotify=true

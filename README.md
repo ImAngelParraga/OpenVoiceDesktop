@@ -60,23 +60,34 @@ Windows usage and uninstall notes are in [docs/windows.md](docs/windows.md).
 
 ## Linux Easy Install
 
-On your Linux laptop:
+No terminal build or source checkout required on Ubuntu/Debian:
+
+1. Sign in to GitHub and open this repository's **Releases** page.
+2. Download `OpenVoiceDesktop_<version>_amd64.deb`.
+3. Install it:
 
 ```bash
-git clone https://github.com/ImAngelParraga/OpenVoiceDesktop.git
-cd OpenVoiceDesktop
-./scripts/install.sh --install-deps --install-rust --start
+sudo apt install ./OpenVoiceDesktop_<version>_amd64.deb
 ```
 
-That command installs required Linux packages, installs Rust with rustup if needed, builds the release binary, installs it to `~/.local/bin/openvoice-desktop`, creates `~/.config/openvoice-desktop/config.toml`, installs the user systemd service, and starts the daemon.
-
-Then edit the config:
+That installs `/usr/bin/openvoice-desktop`, a launcher that opens the settings
+window, and a systemd **user** unit at
+`/usr/lib/systemd/user/openvoice-desktop.service`. The unit is not enabled until you
+turn on autostart in Settings or run:
 
 ```bash
-nano ~/.config/openvoice-desktop/config.toml
+systemctl --user enable --now openvoice-desktop.service
 ```
 
-Set your ASR endpoint:
+Reinstalling a newer release upgrades in place and preserves config, history, logs,
+and the Secret Service token. Each release ships a `.sha256` beside the package.
+
+Open **OpenVoiceDesktop** from the app grid to configure the ASR endpoint, token,
+shortcut, and autostart, or edit the config directly:
+
+```bash
+"${EDITOR:-nano}" "$(openvoice-desktop config-path)"
+```
 
 ```toml
 [asr]
@@ -93,25 +104,37 @@ secret-tool store --label="OpenVoiceDesktop ASR token" service openvoice-desktop
 systemctl --user restart openvoice-desktop.service
 ```
 
-Finally, create a GNOME custom keyboard shortcut:
+GNOME owns global hotkeys, so add two custom keyboard shortcuts in
+**Settings → Keyboard**:
 
-- Name: `OpenVoiceDesktop Toggle`
-- Command: `/home/YOUR_USER/.local/bin/openvoice-desktop toggle`
-- Shortcut: `Ctrl+Space`
-
-Create second GNOME custom shortcut for language switching:
-
-- Name: `OpenVoiceDesktop Language`
-- Command: `/home/YOUR_USER/.local/bin/openvoice-desktop cycle-language`
-- Shortcut: `Ctrl+Alt+L`
-
-Replace `YOUR_USER` with your Linux username, or run `which openvoice-desktop` and use that path.
+- `OpenVoiceDesktop Toggle` → `/usr/bin/openvoice-desktop toggle` → `Ctrl+Space`
+- `OpenVoiceDesktop Language` → `/usr/bin/openvoice-desktop cycle-language` → `Ctrl+Alt+L`
 
 Check daemon logs:
 
 ```bash
 journalctl --user -u openvoice-desktop.service -f
 ```
+
+Full Linux install, update, uninstall, and packaging notes are in
+[docs/linux.md](docs/linux.md).
+
+### Linux Source Install
+
+For development, the source flow installs to `~/.local/bin` and writes its own user
+unit:
+
+```bash
+git clone https://github.com/ImAngelParraga/OpenVoiceDesktop.git
+cd OpenVoiceDesktop
+./scripts/install.sh --install-deps --install-rust --start
+```
+
+That command installs required Linux packages, installs Rust with rustup if needed,
+builds the release binary, installs it to `~/.local/bin/openvoice-desktop`, creates
+`~/.config/openvoice-desktop/config.toml`, installs the user systemd service, and
+starts the daemon. A unit in `~/.config/systemd/user/` takes precedence over the
+packaged one, so remove it if you later switch to the `.deb`.
 
 ## Build Manually
 
@@ -121,6 +144,15 @@ cargo build --release --features desktop-shell
 ```
 
 The binary is `target/release/openvoice-desktop`.
+
+Build the Linux release `.deb` locally:
+
+```bash
+./scripts/setup-linux-build.sh  # one-time apt deps + pinned cargo-tauri
+./scripts/build-linux-local.sh
+```
+
+The package and SHA-256 file are written under `target/release/bundle/deb/`.
 
 Build the Windows NSIS installer locally from Ubuntu without GitHub Actions:
 
