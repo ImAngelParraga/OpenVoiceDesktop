@@ -82,17 +82,21 @@ jobs:
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           $asset = "OpenVoiceDesktop_${version}_x64-setup.exe"
           Copy-Item $installer.FullName $asset
+          # The Linux job runs in parallel, so tolerate losing the create race.
           gh release view "${{ github.ref_name }}" *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create "${{ github.ref_name }}" --title "OpenVoiceDesktop ${{ github.ref_name }}" --generate-notes --notes "Windows: download $asset and double-click it. This personal-use build is unsigned, so Windows SmartScreen may require confirmation. Ubuntu/Debian: download the .deb asset and install it with ``sudo apt install ./OpenVoiceDesktop_${version}_amd64.deb``."
+            gh release create "${{ github.ref_name }}" --title "OpenVoiceDesktop ${{ github.ref_name }}" --generate-notes --notes "Windows: download the x64 setup executable and double-click it. This personal-use build is unsigned, so Windows SmartScreen may require confirmation. Ubuntu/Debian: download the .deb asset and install it with ``sudo apt install ./<asset>``."
+            if ($LASTEXITCODE -ne 0) {
+              gh release view "${{ github.ref_name }}" *> $null
+              if ($LASTEXITCODE -ne 0) { throw "could not create or find release ${{ github.ref_name }}" }
+            }
           }
           gh release upload "${{ github.ref_name }}" $asset "${{ steps.checksum.outputs.path }}" --clobber
 
   linux-package:
     name: Build Linux package
     runs-on: ubuntu-latest
-    # Serialized after the Windows job so only one job creates the release.
-    needs: [test, windows-installer]
+    needs: test
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v5
@@ -146,7 +150,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # The Windows job runs in parallel, so tolerate losing the create race.
           if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            gh release create "${{ github.ref_name }}" --title "OpenVoiceDesktop ${{ github.ref_name }}" --generate-notes
+            gh release create "${{ github.ref_name }}" --title "OpenVoiceDesktop ${{ github.ref_name }}" --generate-notes \
+              --notes 'Windows: download the x64 setup executable and double-click it. This personal-use build is unsigned, so Windows SmartScreen may require confirmation. Ubuntu/Debian: download the .deb asset and install it with `sudo apt install ./<asset>`.' \
+              || gh release view "${{ github.ref_name }}" >/dev/null
           fi
           gh release upload "${{ github.ref_name }}" "${{ steps.checksum.outputs.asset }}" "${{ steps.checksum.outputs.path }}" --clobber

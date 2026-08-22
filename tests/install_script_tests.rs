@@ -5,12 +5,18 @@ const INSTALLER_SMOKE: &str = include_str!("../scripts/test-installer.ps1");
 const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
 const MAIN_RS: &str = include_str!("../src/main.rs");
 
+/// A Windows checkout may materialize repository text with CRLF, so multi-line
+/// assertions compare against a normalized copy instead of passing vacuously.
+fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 #[test]
 fn test_v1_installer_does_not_cleanup_undefined_tempdir() {
     let final_cleanup = "\nRemove-Item -Path $TempDir -Recurse -Force";
 
     assert!(
-        !INSTALL_PS1.contains(final_cleanup),
+        !lf(INSTALL_PS1).contains(final_cleanup),
         "installer must not remove function-local $TempDir from top-level scope"
     );
     assert!(

@@ -4,13 +4,26 @@ const BUILD: &str = include_str!("../scripts/build-windows-local.sh");
 const README: &str = include_str!("../README.md");
 const WINDOWS_DOCS: &str = include_str!("../docs/windows.md");
 
+/// A Windows checkout may materialize repository text with CRLF, so every
+/// multi-line assertion compares against a normalized copy. `checkouts` yields
+/// both endings so a Linux-only run still proves the Windows behavior.
+fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
+fn checkouts(text: &str) -> [String; 2] {
+    [lf(text), lf(&text.replace('\n', "\r\n"))]
+}
+
 #[test]
 fn test_v49_github_actions_run_only_when_explicit_or_releasing() {
-    let triggers = WORKFLOW.split("permissions:").next().unwrap();
-    assert!(triggers.contains("push:\n    tags: ['v*']"));
-    assert!(triggers.contains("workflow_dispatch:"));
-    assert!(!triggers.contains("branches:"));
-    assert!(!triggers.contains("pull_request:"));
+    for workflow in checkouts(WORKFLOW) {
+        let triggers = workflow.split("permissions:").next().unwrap();
+        assert!(triggers.contains("push:\n    tags: ['v*']"));
+        assert!(triggers.contains("workflow_dispatch:"));
+        assert!(!triggers.contains("branches:"));
+        assert!(!triggers.contains("pull_request:"));
+    }
 }
 
 #[test]
@@ -164,20 +177,38 @@ fn test_v51_deb_smoke_preserves_config_and_removes_packaged_files() {
 
 #[test]
 fn test_v51_tag_release_verifies_and_smokes_package_before_upload() {
-    let verify = WORKFLOW.find("Verify package payload").unwrap();
-    let smoke = WORKFLOW
-        .find("Smoke test install, reinstall, and uninstall\n        run: ./scripts/test-deb-install.sh")
-        .unwrap();
-    let upload = WORKFLOW.find("Upload package to release").unwrap();
-    assert!(verify < smoke);
-    assert!(smoke < upload);
-    for required in [
-        "linux-package:",
-        "needs: [test, windows-installer]",
-        "--bundles deb",
-        "OpenVoiceDesktop_${version}_amd64.deb",
-        "release tag ${{ github.ref_name }} does not match Cargo version",
-    ] {
-        assert!(WORKFLOW.contains(required), "{required}");
+    for workflow in checkouts(WORKFLOW) {
+        let verify = workflow.find("Verify package payload").unwrap();
+        let smoke = workflow.find("run: ./scripts/test-deb-install.sh").unwrap();
+        let upload = workflow.find("Upload package to release").unwrap();
+        assert!(verify < smoke);
+        assert!(smoke < upload);
+        for required in [
+            "linux-package:",
+            "--bundles deb",
+            "OpenVoiceDesktop_${version}_amd64.deb",
+            "release tag ${{ github.ref_name }} does not match Cargo version",
+        ] {
+            assert!(workflow.contains(required), "{required}");
+        }
+    }
+}
+
+/// One platform's artifact job must never gate the other's release upload, so a
+/// platform-specific failure cannot block the whole release.
+#[test]
+fn test_v51_platform_package_jobs_do_not_gate_each_other() {
+    for workflow in checkouts(WORKFLOW) {
+        assert!(!workflow.contains("needs: [test, windows-installer]"));
+        assert_eq!(
+            workflow.matches("needs: test").count(),
+            2,
+            "windows-installer and linux-package both depend on tests only"
+        );
+        assert_eq!(
+            workflow.matches("gh release create").count(),
+            2,
+            "each artifact job creates the release when it wins the race"
+        );
     }
 }
