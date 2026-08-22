@@ -13,6 +13,7 @@ OpenVoiceDesktop is a Rust desktop dictation client. Shared logic lives in `src/
 - `./scripts/install.sh --install-deps --install-rust --start`: Linux source installer flow.
 - `./scripts/setup-linux-build.sh` then `./scripts/build-linux-local.sh`: build, verify, and checksum the release `.deb` under `target/release/bundle/deb/`.
 - `./scripts/test-deb-install.sh <deb>`: root-only Linux install/upgrade/remove smoke.
+- `./scripts/release-local.sh [--dry-run|--linux-only|--windows-only]`: build every release artifact on this host and upload it to the tagged GitHub release.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Start`: Windows installer flow.
 
 Linux builds need ALSA/pkg-config dependencies, for example `sudo apt install libasound2-dev pkg-config`. Packaging the `.deb` additionally needs the WebKitGTK/appindicator/rsvg development headers and the pinned `cargo-tauri`; `scripts/setup-linux-build.sh` installs both sets. Platform packaging notes live in `docs/linux.md` and `docs/windows.md`.
@@ -31,9 +32,11 @@ History mostly uses Conventional Commit prefixes such as `feat:`, `fix:`, and `c
 
 Always commit and push after each change.
 
-## Remote CI Waiting
+## No CI
 
-After triggering a long-running remote CI job or build, confirm it started, then detach instead of polling until completion. Provide the run link, exact commands or UI steps for checking status, expected success/failure signals, and instructions for waking the agent after completion. Resume inspection or fixes when the user reports completion or explicitly asks for another status check. Only keep waiting in the same turn when the user explicitly asks to babysit or wait for the remote job.
+This repository defines no CI workflows, and a push starts no remote build. Do not add GitHub Actions, GitLab CI, or any other remote pipeline. Every release artifact is compiled on the maintainer's Ubuntu host and uploaded from it by `scripts/release-local.sh`, so local `cargo test` and the packaging verification scripts are the only gates that exist. Windows-only regressions cannot be caught by a runner: keep tests over repository text ending-agnostic, and treat the cross-compiled Windows setup as unsmoked until someone runs `scripts/test-installer.ps1` on Windows.
+
+Long local builds still deserve the detach discipline: confirm the build started, then report progress instead of blocking, and say which verification actually ran.
 
 ## Security & Configuration Tips
 

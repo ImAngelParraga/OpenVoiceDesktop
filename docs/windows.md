@@ -20,8 +20,9 @@ V1 binaries are unsigned. Windows SmartScreen may show a warning until the proje
 
 ## Build on Ubuntu
 
-Normal pushes do not start GitHub Actions. Ubuntu can cross-build the Windows
-MSVC executable and NSIS setup locally using Tauri's `cargo-xwin` path.
+This repository runs no CI. Ubuntu cross-builds the Windows MSVC executable and
+NSIS setup locally using Tauri's `cargo-xwin` path, and the release assets are
+uploaded from that same host by `scripts/release-local.sh`.
 
 One-time setup:
 
@@ -52,9 +53,10 @@ target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
 target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sha256
 ```
 
-Linux cross-compilation does not execute or smoke-test the Windows application.
-Before a release, run `scripts/test-installer.ps1` on Windows or manually
-dispatch the `CI` workflow for native Windows test/install coverage.
+Linux cross-compilation does not execute or smoke-test the Windows application,
+and there is no CI runner to do it either. Native coverage means copying the
+setup file to a Windows machine and running `scripts/test-installer.ps1` there.
+Release notes state that the Windows asset is unsmoked for this reason.
 
 ## Configure
 

@@ -97,7 +97,7 @@ journalctl --user -u openvoice-desktop.service -f
 
 ## Build the package locally
 
-Ordinary pushes start no GitHub Actions jobs. Build the release `.deb` on this host:
+This repository runs no CI, so the published package is the one built here:
 
 ```bash
 ./scripts/setup-linux-build.sh   # one-time: apt build deps + pinned cargo-tauri
@@ -124,18 +124,18 @@ deliberately:
 
 ## Release
 
-Same flow as Windows: the tag drives it.
+Releases are built and published from this host; nothing runs remotely.
 
 ```bash
-# bump `version` in Cargo.toml first; the workflow rejects a mismatched tag
-git tag v<version>
-git push origin v<version>
+# bump `version` in Cargo.toml and the package stanza in Cargo.lock, then commit
+./scripts/release-local.sh --linux-only   # or omit the flag for both platforms
 ```
 
-The `CI` workflow then runs Linux/Windows tests, builds the Windows NSIS setup, and
-builds, verifies, and smoke-installs the Debian package before uploading
-`OpenVoiceDesktop_<version>_amd64.deb` and its `.sha256` to the GitHub release. The
-Linux job runs after the Windows job so only one of them creates the release.
+The script runs the test suite, bundles and verifies the package, checksums it,
+tags `v<version>`, and uploads `OpenVoiceDesktop_<version>_amd64.deb` plus its
+`.sha256` to the GitHub release. It refuses to publish from a dirty tree or a
+commit that is not on the remote, so a published asset always maps to a pushed
+commit. Add `--dry-run` to build and verify without publishing.
 
 ## Uninstall
 

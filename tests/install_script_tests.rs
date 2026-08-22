@@ -2,7 +2,7 @@ const INSTALL_PS1: &str = include_str!("../scripts/install.ps1");
 const INSTALL_SH: &str = include_str!("../scripts/install.sh");
 const INSTALLER_HOOKS: &str = include_str!("../nsis/installer-hooks.nsh");
 const INSTALLER_SMOKE: &str = include_str!("../scripts/test-installer.ps1");
-const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
+const RELEASE: &str = include_str!("../scripts/release-local.sh");
 const MAIN_RS: &str = include_str!("../src/main.rs");
 
 /// A Windows checkout may materialize repository text with CRLF, so multi-line
@@ -126,25 +126,19 @@ fn test_v33_windows_release_uses_gui_subsystem() {
 }
 
 #[test]
-fn tag_release_builds_versioned_setup_and_checksum_after_smoke() {
-    let smoke = CI_WORKFLOW
-        .find("Smoke test install, reinstall, and uninstall")
-        .unwrap();
-    let release = CI_WORKFLOW.find("Upload checksum to release").unwrap();
-    assert!(smoke < release);
+fn release_publishes_versioned_setup_and_checksum_from_local_build() {
     for required in [
-        "tauri-apps/tauri-action@v1",
-        "--bundles nsis",
-        "release tag ${{ github.ref_name }} does not match Cargo version",
-        "OpenVoiceDesktop_${version}_x64-setup.exe",
-        "Get-FileHash",
+        "./scripts/build-windows-local.sh --skip-tests",
+        "OpenVoiceDesktop_${VERSION}_x64-setup.exe",
+        "sha256sum",
+        "not smoke-tested on Windows",
     ] {
-        assert!(CI_WORKFLOW.contains(required), "{required}");
+        assert!(RELEASE.contains(required), "{required}");
     }
-}
-
-#[test]
-fn test_v47_ci_actions_use_node24() {
-    assert!(CI_WORKFLOW.contains("actions/upload-artifact@v7"));
-    assert!(!CI_WORKFLOW.contains("actions/upload-artifact@v4"));
+    // The tag is derived from the Cargo version, never typed by hand.
+    assert!(RELEASE.contains("TAG=\"v$VERSION\""));
+    assert!(
+        RELEASE.find("stage_asset").unwrap() < RELEASE.find("gh release upload").unwrap(),
+        "assets are staged and checksummed before publishing"
+    );
 }

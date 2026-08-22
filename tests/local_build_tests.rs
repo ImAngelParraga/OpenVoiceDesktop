@@ -1,28 +1,75 @@
-const WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
+const RELEASE: &str = include_str!("../scripts/release-local.sh");
 const SETUP: &str = include_str!("../scripts/setup-windows-cross.sh");
 const BUILD: &str = include_str!("../scripts/build-windows-local.sh");
 const README: &str = include_str!("../README.md");
 const WINDOWS_DOCS: &str = include_str!("../docs/windows.md");
 
-/// A Windows checkout may materialize repository text with CRLF, so every
-/// multi-line assertion compares against a normalized copy. `checkouts` yields
-/// both endings so a Linux-only run still proves the Windows behavior.
+/// A Windows checkout may materialize repository text with CRLF, so multi-line
+/// assertions normalize first. `checkouts` feeds an assertion both raw endings,
+/// which is what a Linux-only run needs to prove the Windows behavior; build the
+/// CRLF copy from the normalized text, never from the raw file, or an already
+/// CRLF checkout turns into a stray `\r` that no normalization removes.
 fn lf(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
 fn checkouts(text: &str) -> [String; 2] {
-    [lf(text), lf(&text.replace('\n', "\r\n"))]
+    let normalized = lf(text);
+    let crlf = normalized.replace('\n', "\r\n");
+    [normalized, crlf]
 }
 
 #[test]
-fn test_v49_github_actions_run_only_when_explicit_or_releasing() {
-    for workflow in checkouts(WORKFLOW) {
-        let triggers = workflow.split("permissions:").next().unwrap();
-        assert!(triggers.contains("push:\n    tags: ['v*']"));
-        assert!(triggers.contains("workflow_dispatch:"));
-        assert!(!triggers.contains("branches:"));
-        assert!(!triggers.contains("pull_request:"));
+fn test_v49_repository_runs_no_github_actions() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for path in [
+        ".github/workflows",
+        ".github",
+        ".gitlab-ci.yml",
+        "azure-pipelines.yml",
+    ] {
+        assert!(
+            !root.join(path).exists(),
+            "{path} exists; releases are built and published from the local host"
+        );
+    }
+}
+
+#[test]
+fn test_v49_release_script_publishes_locally_built_assets() {
+    for required in [
+        "./scripts/build-linux-local.sh",
+        "./scripts/build-windows-local.sh",
+        "OpenVoiceDesktop_${VERSION}_amd64.deb",
+        "OpenVoiceDesktop_${VERSION}_x64-setup.exe",
+        "sha256sum -c",
+        "gh release create",
+        "gh release upload",
+        "--dry-run",
+    ] {
+        assert!(RELEASE.contains(required), "{required}");
+    }
+    // A published asset must be traceable to a pushed commit.
+    assert!(RELEASE.contains("Working tree is dirty"));
+    assert!(RELEASE.contains("HEAD is not on any remote branch"));
+    assert!(
+        RELEASE.find("git status --porcelain").unwrap()
+            < RELEASE.find("gh release upload").unwrap()
+    );
+    assert!(
+        RELEASE.find("Dry run: nothing published").unwrap()
+            < RELEASE.find("gh release create").unwrap(),
+        "--dry-run must return before any publishing step"
+    );
+}
+
+#[test]
+fn test_v49_checkout_variants_round_trip_both_endings() {
+    for source in ["a\nb", "a\r\nb"] {
+        let [normalized, crlf] = checkouts(source);
+        assert_eq!(normalized, "a\nb");
+        assert_eq!(crlf, "a\r\nb");
+        assert_eq!(lf(&crlf), "a\nb");
     }
 }
 
@@ -176,39 +223,15 @@ fn test_v51_deb_smoke_preserves_config_and_removes_packaged_files() {
 }
 
 #[test]
-fn test_v51_tag_release_verifies_and_smokes_package_before_upload() {
-    for workflow in checkouts(WORKFLOW) {
-        let verify = workflow.find("Verify package payload").unwrap();
-        let smoke = workflow.find("run: ./scripts/test-deb-install.sh").unwrap();
-        let upload = workflow.find("Upload package to release").unwrap();
-        assert!(verify < smoke);
-        assert!(smoke < upload);
-        for required in [
-            "linux-package:",
-            "--bundles deb",
-            "OpenVoiceDesktop_${version}_amd64.deb",
-            "release tag ${{ github.ref_name }} does not match Cargo version",
-        ] {
-            assert!(workflow.contains(required), "{required}");
-        }
-    }
-}
-
-/// One platform's artifact job must never gate the other's release upload, so a
-/// platform-specific failure cannot block the whole release.
-#[test]
-fn test_v51_platform_package_jobs_do_not_gate_each_other() {
-    for workflow in checkouts(WORKFLOW) {
-        assert!(!workflow.contains("needs: [test, windows-installer]"));
-        assert_eq!(
-            workflow.matches("needs: test").count(),
-            2,
-            "windows-installer and linux-package both depend on tests only"
-        );
-        assert_eq!(
-            workflow.matches("gh release create").count(),
-            2,
-            "each artifact job creates the release when it wins the race"
-        );
-    }
+fn test_v51_release_publishes_package_and_checksum_together() {
+    assert!(RELEASE.contains("stage_asset"));
+    assert!(
+        RELEASE.find("scripts/build-linux-local.sh").unwrap()
+            < RELEASE.find("gh release upload").unwrap(),
+        "verify and checksum the package before publishing it"
+    );
+    assert!(
+        RELEASE.contains("--linux-only") && RELEASE.contains("--windows-only"),
+        "one platform failing to build must not block the other's release"
+    );
 }

@@ -154,7 +154,7 @@ Build the Linux release `.deb` locally:
 
 The package and SHA-256 file are written under `target/release/bundle/deb/`.
 
-Build the Windows NSIS installer locally from Ubuntu without GitHub Actions:
+Build the Windows NSIS installer from Ubuntu by cross-compiling:
 
 ```bash
 ./scripts/setup-windows-cross.sh  # one-time Docker image setup
@@ -162,9 +162,24 @@ Build the Windows NSIS installer locally from Ubuntu without GitHub Actions:
 ```
 
 The installer and SHA-256 file are written under
-`target/x86_64-pc-windows-msvc/release/bundle/nsis/`. GitHub Actions runs only
-for an explicit manual dispatch or a `v*` release tag. Docker is the default,
-so host package installation and administrator access are not required.
+`target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Docker is the default, so
+host package installation and administrator access are not required.
+
+## Release
+
+This repository runs **no CI**. Every published binary is compiled on the
+maintainer's Ubuntu host and uploaded from it, so bump `version` in `Cargo.toml`
+(and the package stanza in `Cargo.lock`), commit, push, then:
+
+```bash
+./scripts/release-local.sh            # both platforms
+./scripts/release-local.sh --dry-run  # build and verify, publish nothing
+```
+
+The script refuses to publish from a dirty tree or a commit that is not on the
+remote, runs the test suite, bundles the Debian package and the Windows setup,
+checksums both, tags `v<version>`, and uploads the four assets to the GitHub
+release. `--linux-only` and `--windows-only` release one platform at a time.
 
 ## Config
 
