@@ -51,7 +51,8 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn trigger_paste_with_tool(&self, tool: TypingTool) -> Result<()> {
-        for command in linux_paste_command_candidates(tool) {
+        let syntax = detect_ydotool_key_syntax().await;
+        for command in linux_paste_command_candidates(tool, syntax) {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }
@@ -77,7 +78,8 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn trigger_submit_with_tool(&self, tool: TypingTool) -> Result<()> {
-        for command in linux_submit_command_candidates(tool) {
+        let syntax = detect_ydotool_key_syntax().await;
+        for command in linux_submit_command_candidates(tool, syntax) {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }
@@ -89,7 +91,10 @@ impl PlatformAdapter for LinuxPlatformAdapter {
 
     async fn select_inserted_text(&self, text: &str, tool: TypingTool) -> Result<()> {
         let plan = post_paste_selection_plan(text);
-        for command in linux_select_command_candidates(tool, plan.cursor_left, plan.select_left) {
+        let syntax = detect_ydotool_key_syntax().await;
+        for command in
+            linux_select_command_candidates(tool, syntax, plan.cursor_left, plan.select_left)
+        {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }
@@ -290,17 +295,74 @@ impl LinuxCommand {
     }
 }
 
-pub fn linux_paste_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
+/// ydotool changed its `key` syntax between the 0.x line Debian and Ubuntu still
+/// package and the 1.x line upstream maintains.
+///
+/// This matters more than a version bump usually would, because the mismatch is
+/// silent and destructive. 0.x parses each argument as key *names* joined by
+/// `+`, so the 1.x pair `29:1` is read as the key name `2` — it types `2442`
+/// into whatever the user is writing in, then exits `0`. The caller sees
+/// success and reports the transcript as pasted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum YdotoolKeySyntax {
+    /// ydotool 1.x: `key 29:1 47:1 47:0 29:0`
+    Keycodes,
+    /// ydotool 0.x: `key ctrl+v`
+    KeyNames,
+}
+
+/// Classify a binary from its own `key --help` output. 1.x documents
+/// `<keycode>:<pressed>`; 0.x documents key sequences joined by `+`.
+pub fn ydotool_key_syntax_from_help(help: &str) -> YdotoolKeySyntax {
+    let help = help.to_ascii_lowercase();
+    if help.contains("keycode") {
+        YdotoolKeySyntax::Keycodes
+    } else {
+        YdotoolKeySyntax::KeyNames
+    }
+}
+
+/// Ask the installed binary once per process which syntax it speaks. `--help`
+/// emits no input events, so probing is safe even though every other `key`
+/// invocation types into the focused window.
+pub async fn detect_ydotool_key_syntax() -> YdotoolKeySyntax {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<YdotoolKeySyntax> = OnceLock::new();
+    if let Some(syntax) = CACHE.get() {
+        return *syntax;
+    }
+    let help = match Command::new("ydotool")
+        .args(["key", "--help"])
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            text
+        }
+        // No ydotool at all: the candidate simply fails like any missing tool.
+        Err(_) => String::new(),
+    };
+    let syntax = ydotool_key_syntax_from_help(&help);
+    let _ = CACHE.set(syntax);
+    syntax
+}
+
+pub fn linux_paste_command_candidates(
+    tool: TypingTool,
+    syntax: YdotoolKeySyntax,
+) -> Vec<LinuxCommand> {
     match tool {
         TypingTool::Auto => vec![
             wtype_paste(),
             dotool_paste(),
-            ydotool_paste(),
+            ydotool_paste(syntax),
             xdotool_paste(),
         ],
         TypingTool::Wtype => vec![wtype_paste()],
         TypingTool::Dotool => vec![dotool_paste()],
-        TypingTool::Ydotool => vec![ydotool_paste()],
+        TypingTool::Ydotool => vec![ydotool_paste(syntax)],
         TypingTool::Xdotool => vec![xdotool_paste()],
         TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
     }
@@ -325,17 +387,20 @@ pub fn linux_type_command_candidates(tool: TypingTool, text: &str) -> Vec<LinuxC
     }
 }
 
-pub fn linux_submit_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
+pub fn linux_submit_command_candidates(
+    tool: TypingTool,
+    syntax: YdotoolKeySyntax,
+) -> Vec<LinuxCommand> {
     match tool {
         TypingTool::Auto => vec![
             LinuxCommand::new("wtype", &["-k", "Return"]),
             LinuxCommand::new("dotool", &["key", "enter"]),
-            LinuxCommand::new("ydotool", &["key", "28:1", "28:0"]),
+            ydotool_submit(syntax),
             LinuxCommand::new("xdotool", &["key", "Return"]),
         ],
         TypingTool::Wtype => vec![LinuxCommand::new("wtype", &["-k", "Return"])],
         TypingTool::Dotool => vec![LinuxCommand::new("dotool", &["key", "enter"])],
-        TypingTool::Ydotool => vec![LinuxCommand::new("ydotool", &["key", "28:1", "28:0"])],
+        TypingTool::Ydotool => vec![ydotool_submit(syntax)],
         TypingTool::Xdotool => vec![LinuxCommand::new("xdotool", &["key", "Return"])],
         TypingTool::SendInput | TypingTool::ExternalScript => Vec::new(),
     }
@@ -343,6 +408,7 @@ pub fn linux_submit_command_candidates(tool: TypingTool) -> Vec<LinuxCommand> {
 
 pub fn linux_select_command_candidates(
     tool: TypingTool,
+    syntax: YdotoolKeySyntax,
     cursor_left: usize,
     select_left: usize,
 ) -> Vec<LinuxCommand> {
@@ -380,17 +446,25 @@ pub fn linux_select_command_candidates(
     };
     let ydotool = || {
         let mut args = vec!["key".to_string()];
-        for _ in 0..cursor_left {
-            args.extend(["105:1".to_string(), "105:0".to_string()]);
-        }
-        if select_left > 0 {
-            args.push("42:1".to_string());
-        }
-        for _ in 0..select_left {
-            args.extend(["105:1".to_string(), "105:0".to_string()]);
-        }
-        if select_left > 0 {
-            args.push("42:0".to_string());
+        match syntax {
+            YdotoolKeySyntax::Keycodes => {
+                for _ in 0..cursor_left {
+                    args.extend(["105:1".to_string(), "105:0".to_string()]);
+                }
+                if select_left > 0 {
+                    args.push("42:1".to_string());
+                }
+                for _ in 0..select_left {
+                    args.extend(["105:1".to_string(), "105:0".to_string()]);
+                }
+                if select_left > 0 {
+                    args.push("42:0".to_string());
+                }
+            }
+            YdotoolKeySyntax::KeyNames => {
+                args.extend(std::iter::repeat_n("left".to_string(), cursor_left));
+                args.extend(std::iter::repeat_n("shift+left".to_string(), select_left));
+            }
         }
         LinuxCommand {
             program: "ydotool",
@@ -431,10 +505,22 @@ fn dotool_paste() -> LinuxCommand {
     LinuxCommand::new("dotool", &["key", "ctrl+v"])
 }
 
-fn ydotool_paste() -> LinuxCommand {
-    LinuxCommand::new("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"])
+fn ydotool_paste(syntax: YdotoolKeySyntax) -> LinuxCommand {
+    match syntax {
+        YdotoolKeySyntax::Keycodes => {
+            LinuxCommand::new("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"])
+        }
+        YdotoolKeySyntax::KeyNames => LinuxCommand::new("ydotool", &["key", "ctrl+v"]),
+    }
 }
 
 fn xdotool_paste() -> LinuxCommand {
     LinuxCommand::new("xdotool", &["key", "ctrl+v"])
+}
+
+fn ydotool_submit(syntax: YdotoolKeySyntax) -> LinuxCommand {
+    match syntax {
+        YdotoolKeySyntax::Keycodes => LinuxCommand::new("ydotool", &["key", "28:1", "28:0"]),
+        YdotoolKeySyntax::KeyNames => LinuxCommand::new("ydotool", &["key", "enter"]),
+    }
 }

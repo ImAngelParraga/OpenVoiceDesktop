@@ -143,6 +143,19 @@ wtype -M ctrl -P v -p v -m ctrl   # prints the error above on GNOME
 systemctl --user enable --now ydotoold
 ```
 
+**ydotool 0.x and 1.x are not interchangeable.** Ubuntu packages `ydotool` 0.1.8,
+whose `key` takes key names joined by `+` (`ctrl+v`); upstream 1.x takes
+`<keycode>:<state>` pairs (`29:1 47:1 47:0 29:0`). Sending 1.x pairs to 0.x is not
+an error it reports — it reads `29:1` as the key name `2` and *types* `2442` into
+whatever you are writing in, then exits `0`. The adapter now asks the installed
+binary which syntax it speaks, but if you have both, note that a systemd user unit
+does not see `~/.local/bin`:
+
+```bash
+ydotool key --help | head -1        # your shell's ydotool
+systemctl --user show-environment | grep ^PATH   # what the daemon resolves against
+```
+
 If none can type into the focused app, the transcript stays in the clipboard and a
 notification is shown.
 

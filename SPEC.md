@@ -131,6 +131,7 @@ V55: Endpoint-check invariant: the endpoint test uploads a silent clip and never
 V56: Test-hermeticity invariant: the suite gives the same result on a machine that already holds a real ASR token and on a fresh checkout. Machine-owned token sources - `OPENVOICE_DESKTOP_TOKEN` and the OS secret store - outrank config at runtime and must be switchable off, and every test asserting token resolution, token source, or onboarding token gating turns them off before building its fixture.
 V57: Paste-tool invariant: `output.typing_tool` selects the tool for the paste as well as for typing, submitting, and selection. Auto-detection tries each candidate and treats a non-zero exit as a failure, so a tool the compositor cannot support - `wtype` under Mutter, which lacks `zwp_virtual_keyboard_v1` - falls through instead of silently dropping the transcript.
 V58: Hotkey-claim invariant: the daemon reports every other desktop component that claims a registered accelerator, matching each component's own spelling, and never edits settings it does not own.
+V59: Input-tool-syntax invariant: ydotool 0.x takes key names joined by `+` and 1.x takes `<keycode>:<state>` pairs, and 0.x answers the wrong syntax by typing digits into the focused window and exiting zero. The adapter classifies the installed binary from its own `key --help` once per process and emits that syntax for paste, submit, and selection. An unclassifiable or absent binary must never be sent keycode pairs.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -230,6 +231,7 @@ T92|x|Register the configured shortcut with GNOME|Translate canonical shortcuts 
 T93|x|Stop the endpoint check reading as a transcript|Label the tray notification and the Settings result as a connection check that does not use the microphone, and test both surfaces.|—|V15,V55
 T94|x|Make token tests machine-independent|Add a process switch that disables `OPENVOICE_DESKTOP_TOKEN` and the OS secret store, use it in the endpoint-request and onboarding-gating tests, and cover the switch itself.|—|V56
 T95|x|Honor the configured tool for pasting|Add a tool-aware paste to the platform trait, route both paste call sites through `output.typing_tool`, report IBus and GNOME input-source claims on a registered accelerator, and document that `wtype` cannot work under Mutter.|—|I.platform,V57,V58
+T96|x|Speak the installed ydotool's key syntax|Detect ydotool 0.x versus 1.x from `key --help`, emit key names or keycode pairs accordingly for paste, submit, and selection, and test both syntaxes and the classifier.|—|I.platform,V57,V59
 
 §B
 id|date|cause|fix
@@ -286,3 +288,4 @@ B50|2026-08-24|The endpoint check reported a bare HTTP/latency/body string, so i
 B51|2026-08-24|Token resolution read the OS secret store before config, so on any machine holding a real stored token the endpoint-request and onboarding-gating tests failed against their own fixtures and looked like regressions|V56
 B52|2026-08-24|`trigger_paste` hardcoded `TypingTool::Auto`, so `output.typing_tool` changed typing and submitting but never the paste, leaving no way to route around a paste tool the compositor rejects|V57
 B53|2026-08-24|Conflict reporting covered custom keybindings only, so IBus holding the same `Control+space` trigger as the dictation shortcut went unreported|V58
+B54|2026-08-24|The paste sent ydotool 1.x keycode pairs to whatever `ydotool` was on the daemon's PATH; Ubuntu's packaged 0.1.8 read `29:1` as the key name `2` and typed `2442` into the user's document, exiting zero so the transcript was logged as pasted|V59
