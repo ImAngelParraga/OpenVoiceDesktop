@@ -1,8 +1,10 @@
 # Ubuntu / Debian (GNOME Wayland)
 
 OpenVoiceDesktop on Linux runs as a resident user daemon (`openvoice-desktop daemon`)
-plus a Tauri settings window (`openvoice-desktop settings`). The daemon is managed by
-systemd and shows a tray indicator while it runs; the desktop entry opens Settings.
+plus a Tauri shell (`openvoice-desktop settings`) that owns the settings window and the
+recording overlay. The daemon is managed by systemd, shows a tray indicator while it
+runs, and starts the shell with its window hidden so the overlay is available; the
+desktop entry brings that same window up.
 
 ## Install
 
@@ -33,6 +35,18 @@ when idle, red while recording, amber while transcribing, and white with a red
 badge after a failed dictation. Left click toggles recording; right click opens
 Settings, Copy Last Transcript, Cancel, Test Endpoint, Open Logs, Open Config,
 and Quit.
+
+## Recording overlay
+
+While a dictation is in flight a small panel appears near the top of the screen with
+the state (`Recording` / `Transcribing`), a level meter, the transcription language,
+and a cancel button. Clicking the language badge cycles it, same as `Ctrl+Alt+L`.
+
+The panel belongs to the shell process the daemon starts, so it only appears while
+`openvoice-desktop daemon` is running with `app.show_overlay = true`. On a Wayland
+session the shell asks for the X11 backend, because Mutter ignores client window
+placement and a native Wayland panel could not stay centered and above other windows.
+Set `GDK_BACKEND` yourself to override that choice.
 
 GNOME needs the AppIndicator extension for any tray at all — on Ubuntu it ships
 enabled as `ubuntu-appindicators@ubuntu.com`:
@@ -99,12 +113,22 @@ Token lookup order is `OPENVOICE_DESKTOP_TOKEN`, Secret Service, then
 
 ## Shortcuts
 
-GNOME owns global hotkeys, so bind them in **Settings → Keyboard → Custom Shortcuts**:
+GNOME owns global hotkeys — nothing in this process can grab a key the way Windows
+does — so the shortcut you save in Settings is written into a GNOME custom keybinding.
+The daemon reconciles them at startup and after every accepted save, so changing the
+shortcut in Settings is enough and the old one stops working:
 
-| Name | Command | Shortcut |
+| dconf entry | Command | From |
 | --- | --- | --- |
-| OpenVoiceDesktop Toggle | `/usr/bin/openvoice-desktop toggle` | `Ctrl+Space` |
-| OpenVoiceDesktop Language | `/usr/bin/openvoice-desktop cycle-language` | `Ctrl+Alt+L` |
+| `openvoice-toggle` | `openvoice-desktop toggle` | `behavior.shortcut` |
+| `openvoice-language` | `openvoice-desktop cycle-language` | `behavior.language_shortcut` |
+
+Each action keeps one entry, so a rebind edits it instead of adding another, and
+custom shortcuts owned by other applications are left alone.
+
+One consequence of GNOME's design is worth knowing: a custom keybinding runs a
+**command**, not "notify the running app". A leftover binding pointing at another
+dictation app therefore launches that app on every press even when it is not running.
 
 Paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`. If none can
 type into the focused app, the transcript stays in the clipboard and a notification

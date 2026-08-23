@@ -19,10 +19,17 @@ If none can paste into the focused app, OpenVoiceDesktop leaves the transcript i
 
 ## Shortcut
 
-Configure GNOME Settings > Keyboard > View and Customize Shortcuts > Custom Shortcuts:
-
-- Name: `OpenVoiceDesktop Toggle`
-- Command: `openvoice-desktop toggle`
-- Shortcut: `Ctrl+Space`
+The daemon writes the GNOME custom keybinding itself from `behavior.shortcut`, at
+startup and after every accepted save, so changing the shortcut in Settings is enough.
+It appears under GNOME Settings > Keyboard > View and Customize Shortcuts > Custom
+Shortcuts as `OpenVoiceDesktop Toggle` running `openvoice-desktop toggle`.
 
 The first press starts recording. The second press stops, transcribes, and pastes.
+
+A GNOME custom keybinding runs a command; it does not message an already-running app.
+A stale entry left behind by another dictation tool will therefore start that tool on
+every press. Check who owns a combination with:
+
+```bash
+dconf dump /org/gnome/settings-daemon/plugins/media-keys/
+```

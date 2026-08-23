@@ -25,21 +25,56 @@ impl Default for SettingsShellContract {
     }
 }
 
+/// Flag the daemon passes when it starts the shell only to own the recording
+/// overlay. A later activation without it is a real user request for Settings.
+pub const START_HIDDEN_FLAG: &str = "--start-hidden";
+
+/// GNOME's Wayland compositor ignores client window placement, so a native
+/// Wayland overlay lands wherever Mutter decides and cannot stay above other
+/// windows. Under XWayland the same window honors position, always-on-top, and
+/// skip-taskbar, so the shell asks for the X11 backend when the session is
+/// Wayland and Xwayland is reachable. An explicit `GDK_BACKEND` always wins.
+#[cfg(all(target_os = "linux", feature = "desktop-shell"))]
+fn prefer_x11_backend_for_overlay() {
+    if std::env::var_os("GDK_BACKEND").is_some() {
+        return;
+    }
+    let wayland = std::env::var("XDG_SESSION_TYPE")
+        .map(|value| value.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false);
+    if wayland && std::env::var_os("DISPLAY").is_some() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+}
+
 #[cfg(feature = "desktop-shell")]
-pub fn run() -> Result<()> {
+pub fn run(start_hidden: bool) -> Result<()> {
     use tauri::{Emitter, Manager};
+
+    #[cfg(target_os = "linux")]
+    prefer_x11_backend_for_overlay();
 
     tauri::Builder::default()
         // Must be first: `H:src-tauri/src/lib.rs` lifecycle adapted to Tauri's
         // desktop single-instance plugin ordering requirement.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // The daemon re-launches the shell to keep the overlay alive; that
+            // must not pop the Settings window in the user's face.
+            if args.iter().any(|argument| argument == START_HIDDEN_FLAG) {
+                return;
+            }
             if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
         }))
-        .setup(|app| {
+        .setup(move |app| {
+            if start_hidden {
+                if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+                    let _ = window.hide();
+                }
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -119,11 +154,21 @@ async fn save_settings(
                     runtime_deferred.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
                 let autostart = candidate.app.autostart;
+                let shortcut_config = candidate.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     crate::core::lifecycle::apply_autostart(autostart)
                 })
                 .await
                 .context("joining autostart synchronization")??;
+                // A rejected shortcut registration must not roll back an
+                // otherwise valid Save; the CLI and tray still drive recording.
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error) = crate::core::lifecycle::apply_shortcuts(&shortcut_config) {
+                        eprintln!("openvoice-desktop shortcut registration failed: {error}");
+                    }
+                })
+                .await
+                .context("joining shortcut synchronization")?;
                 Ok(())
             }
         })
@@ -505,7 +550,7 @@ fn safe_error(error: impl std::fmt::Display) -> String {
 }
 
 #[cfg(not(feature = "desktop-shell"))]
-pub fn run() -> Result<()> {
+pub fn run(_start_hidden: bool) -> Result<()> {
     anyhow::bail!(
         "native settings shell is not included in this build; rebuild with --features desktop-shell"
     )

@@ -22,7 +22,7 @@ fn settings_cli_owns_one_native_window_without_browser_or_localhost() {
     assert!(!contract.external_browser);
     assert!(!contract.owns_daemon);
     assert_eq!(SETTINGS_WINDOW_LABEL, "settings");
-    assert!(MAIN_RS.contains("settings_shell::run()"));
+    assert!(MAIN_RS.contains("settings_shell::run(cli.start_hidden)"));
     assert!(!MAIN_RS.contains("run_settings_panel"));
 }
 

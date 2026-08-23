@@ -61,6 +61,26 @@ pub fn validate_lifecycle(config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Synchronize OS-level global shortcut registration with the saved config.
+///
+/// Windows registers hotkeys inside the running process, so nothing is needed
+/// here. Wayland gives the compositor sole ownership of global hotkeys, so on
+/// Linux the saved shortcut only means something once it is written into a
+/// GNOME custom keybinding — without this the shortcut fields in Settings are
+/// inert and whatever GNOME was configured with keeps firing.
+pub fn apply_shortcuts(config: &Config) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        return crate::platform::linux_shortcuts::apply(config);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = config;
+        Ok(())
+    }
+}
+
 /// Synchronize installer-level autostart with the saved setting. The command
 /// is idempotent and intentionally lives at the platform boundary so Save can
 /// roll the config back when the OS rejects the change.

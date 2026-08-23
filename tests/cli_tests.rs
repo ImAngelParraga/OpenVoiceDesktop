@@ -23,7 +23,9 @@ fn cli_parity_aliases_preserve_existing_subcommands() {
 
 #[test]
 fn cli_settings_command_opens_native_settings_shell() {
-    assert!(MAIN_RS.contains("settings_shell::run()"));
+    // The shell takes the start-hidden flag so the daemon can own the overlay
+    // without popping the window; see `linux_shell_tests`.
+    assert!(MAIN_RS.contains("settings_shell::run(cli.start_hidden)"));
     assert!(MAIN_RS.contains("Command::Settings"));
 }
 

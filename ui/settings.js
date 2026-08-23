@@ -370,7 +370,9 @@ function renderAsrActions() {
   test.addEventListener("click", async () => {
     try {
       const result = await invoke("test_endpoint");
-      status.textContent = `HTTP ${result.http_status}; ${result.latency_ms} ms; ${result.sanitized_body}`;
+      // A silent clip goes up, so `sanitized_body` carries whatever the model
+      // emits for silence. Label it, or the reading looks like a bad transcript.
+      status.textContent = `Endpoint check (silent test clip, not your microphone): HTTP ${result.http_status} in ${result.latency_ms} ms - server replied ${result.sanitized_body}`;
     } catch (error) {
       status.textContent = `Endpoint test failed: ${error}`;
     }

@@ -43,6 +43,8 @@ pub async fn run(config: Config) -> Result<()> {
     let history = crate::core::history::HistoryStore::from_config(&config).ok();
     let logger = logger_from_config(&config);
     let mut show_tray_icon = config.app.show_tray_icon;
+    let mut show_overlay = config.app.show_overlay;
+    let shortcut_config = config.clone();
     let mut controller = VoiceController::new(recorder, asr, platform, config);
     if let Some(history) = history {
         controller = controller.with_history_store(history);
@@ -50,6 +52,22 @@ pub async fn run(config: Config) -> Result<()> {
     if let Some(logger) = logger {
         controller = controller.with_logger(logger);
     }
+
+    // GNOME owns global hotkeys, so the saved shortcut only takes effect once it
+    // is written into a custom keybinding. Doing it at startup makes the daemon
+    // self-healing after a config edit that never went through Save.
+    if let Err(error) = crate::core::lifecycle::apply_shortcuts(&shortcut_config) {
+        eprintln!("openvoice-desktop shortcut registration failed: {error}");
+    }
+
+    // The recording overlay lives in the Tauri shell, which on Linux is a
+    // separate process from this daemon. Nothing else starts it, so without
+    // this the overlay could never appear.
+    let mut overlay_shell = if show_overlay {
+        spawn_overlay_shell()
+    } else {
+        None
+    };
 
     // The sender is kept alive for the whole daemon so the tray can be rebuilt
     // on config reload without touching the receiver the select loop borrows.
@@ -136,11 +154,29 @@ pub async fn run(config: Config) -> Result<()> {
                 };
                 stream.write_all(response.as_bytes()).await?;
                 if shutdown_requested {
+                    stop_overlay_shell(&mut overlay_shell).await;
                     shutdown_tray(&tray).await;
                     cleanup_socket(&socket_path);
                     return Ok(());
                 }
                 if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
+                    if let Ok(loaded) = Config::load_default() {
+                        if let Err(error) =
+                            crate::core::lifecycle::apply_shortcuts(&loaded.config)
+                        {
+                            eprintln!(
+                                "openvoice-desktop shortcut registration failed: {error}"
+                            );
+                        }
+                        let desired_overlay = loaded.config.app.show_overlay;
+                        if desired_overlay != show_overlay {
+                            show_overlay = desired_overlay;
+                            stop_overlay_shell(&mut overlay_shell).await;
+                            if desired_overlay {
+                                overlay_shell = spawn_overlay_shell();
+                            }
+                        }
+                    }
                     let desired = Config::load_default()
                         .map(|loaded| loaded.config.app.show_tray_icon)
                         .unwrap_or(show_tray_icon);
@@ -183,6 +219,7 @@ pub async fn run(config: Config) -> Result<()> {
                     }
                     LinuxTrayCommand::Menu(TrayMenuAction::Quit) => {
                         controller.shutdown().await?;
+                        stop_overlay_shell(&mut overlay_shell).await;
                         shutdown_tray(&tray).await;
                         cleanup_socket(&socket_path);
                         return Ok(());
@@ -204,12 +241,48 @@ pub async fn run(config: Config) -> Result<()> {
             signal = tokio::signal::ctrl_c() => {
                 signal?;
                 controller.shutdown().await?;
+                stop_overlay_shell(&mut overlay_shell).await;
                 shutdown_tray(&tray).await;
                 cleanup_socket(&socket_path);
                 return Ok(());
             }
         }
     }
+}
+
+/// Start the Tauri shell that owns the recording overlay, with the Settings
+/// window hidden. `kill_on_drop` keeps a restarted daemon from leaving an
+/// orphaned webview behind; the shell's own single-instance guard means a
+/// second copy exits immediately if the user already opened Settings.
+#[cfg(target_os = "linux")]
+fn spawn_overlay_shell() -> Option<tokio::process::Child> {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(error) => {
+            eprintln!("openvoice-desktop overlay shell not started: {error}");
+            return None;
+        }
+    };
+    match tokio::process::Command::new(exe)
+        .arg("settings")
+        .arg(crate::settings_shell::START_HIDDEN_FLAG)
+        .kill_on_drop(true)
+        .spawn()
+    {
+        Ok(child) => Some(child),
+        Err(error) => {
+            eprintln!("openvoice-desktop overlay shell not started: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn stop_overlay_shell(shell: &mut Option<tokio::process::Child>) {
+    let Some(mut child) = shell.take() else {
+        return;
+    };
+    let _ = child.kill().await;
 }
 
 /// Tray-visible slice of controller state. Comparing it lets the daemon skip a
@@ -303,11 +376,14 @@ async fn run_tray_menu_action(action: crate::core::settings_ui::TrayMenuAction) 
         TrayMenuAction::TestEndpoint => {
             let config = Config::load_default()?.config;
             let diagnostic = crate::core::asr::test_endpoint(&config).await?;
+            // This uploads a silent test clip, so its reply is a reachability
+            // reading, never a transcription of anything the user said. Say so:
+            // a bare latency number reads like a transcript that went wrong.
             LinuxPlatformAdapter
                 .notify(
                     "OpenVoiceDesktop",
                     &format!(
-                        "HTTP {} - {} ms",
+                        "Endpoint check: HTTP {} in {} ms. Connection only - it does not record your microphone.",
                         diagnostic.http_status, diagnostic.latency_ms
                     ),
                 )

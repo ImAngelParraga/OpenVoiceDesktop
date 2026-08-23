@@ -2,6 +2,9 @@
 pub mod linux;
 
 #[cfg(target_os = "linux")]
+pub mod linux_shortcuts;
+
+#[cfg(target_os = "linux")]
 pub mod linux_tray;
 
 #[cfg(target_os = "windows")]
