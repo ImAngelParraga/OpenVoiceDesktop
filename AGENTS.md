@@ -24,7 +24,7 @@ Use Rust 2021 idioms and keep platform-specific code behind `cfg` gates or platf
 
 ## Testing Guidelines
 
-Tests are standard Cargo integration tests in `tests/*_tests.rs`. Add focused tests near the behavior changed, especially for config parsing, ASR response handling, audio output, controller transitions, installer scripts, and Windows tray feedback. Run `cargo test` before opening a PR. When touching OS-specific behavior, note which platform was manually checked if local automation cannot cover it.
+Tests are standard Cargo integration tests in `tests/*_tests.rs`. They must be hermetic: anything the host owns rather than the fixture - notably `OPENVOICE_DESKTOP_TOKEN` and the OS secret store, which both outrank config in token resolution - has to be switched off with `set_ambient_token_lookup(false)` before the fixture is built, or the suite passes or fails depending on whose machine runs it. Add focused tests near the behavior changed, especially for config parsing, ASR response handling, audio output, controller transitions, installer scripts, and Windows tray feedback. Run `cargo test` before opening a PR. When touching OS-specific behavior, note which platform was manually checked if local automation cannot cover it.
 
 ## Commit & Pull Request Guidelines
 

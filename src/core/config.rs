@@ -672,20 +672,49 @@ fn write_config_file(path: &Path, contents: &str) -> Result<()> {
         .with_context(|| format!("committing atomic write to {}", path.display()))
 }
 
-pub fn resolve_bearer_token(config: &Config) -> Option<String> {
+/// `OPENVOICE_DESKTOP_TOKEN` and the OS secret store are properties of the
+/// machine, not of the `Config` a caller passes in. That is right at runtime and
+/// wrong under test: a developer with a real stored token would see it outrank
+/// every fixture, so tests that assert token handling turn ambient lookup off
+/// and keep the suite reproducible on any machine.
+static AMBIENT_TOKEN_LOOKUP: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// Enable or disable the machine-owned token sources for this process.
+pub fn set_ambient_token_lookup(enabled: bool) {
+    AMBIENT_TOKEN_LOOKUP.store(enabled, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn ambient_token_lookup_enabled() -> bool {
+    AMBIENT_TOKEN_LOOKUP.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn environment_token() -> Option<String> {
+    if !ambient_token_lookup_enabled() {
+        return None;
+    }
     std::env::var("OPENVOICE_DESKTOP_TOKEN")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(platform_secret_token)
+}
+
+fn ambient_secret_token() -> Option<String> {
+    if !ambient_token_lookup_enabled() {
+        return None;
+    }
+    platform_secret_token()
+}
+
+pub fn resolve_bearer_token(config: &Config) -> Option<String> {
+    environment_token()
+        .or_else(ambient_secret_token)
         .or_else(|| config.asr.bearer_token.clone())
 }
 
 pub fn bearer_token_source(config: &Config) -> Option<crate::core::settings_ui::AsrTokenSource> {
     token_source_from_availability(
-        std::env::var("OPENVOICE_DESKTOP_TOKEN")
-            .ok()
-            .is_some_and(|value| !value.trim().is_empty()),
-        platform_secret_token().is_some(),
+        environment_token().is_some(),
+        ambient_secret_token().is_some(),
         config.asr.bearer_token.is_some(),
     )
 }

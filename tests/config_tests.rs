@@ -1,7 +1,8 @@
 use openvoice_desktop::core::config::{
-    require_private_file, resolve_portable_path, token_source_from_availability, ClipboardHandling,
-    Config, LogLevel, OverlayPosition, OverlayStyle, PasteMethod, RecordingOutputMode,
-    RecordingRetention, SoundTheme, Theme, TypingTool, CURRENT_SCHEMA_VERSION,
+    bearer_token_source, require_private_file, resolve_bearer_token, resolve_portable_path,
+    set_ambient_token_lookup, token_source_from_availability, ClipboardHandling, Config, LogLevel,
+    OverlayPosition, OverlayStyle, PasteMethod, RecordingOutputMode, RecordingRetention,
+    SoundTheme, Theme, TypingTool, CURRENT_SCHEMA_VERSION,
 };
 use openvoice_desktop::core::settings_ui::AsrTokenSource;
 use std::fs;
@@ -114,6 +115,29 @@ mute_while_recording = true
         loaded.config.audio.recording_output_mode,
         RecordingOutputMode::Muted
     );
+}
+
+#[test]
+fn token_resolution_can_ignore_machine_owned_sources() {
+    // `OPENVOICE_DESKTOP_TOKEN` and the OS keyring both outrank the config, so
+    // without this switch a developer holding a real stored token gets a
+    // different answer from the same fixture than a fresh checkout does.
+    set_ambient_token_lookup(false);
+
+    let mut config = Config::default();
+    config.asr.bearer_token = Some("fixture-token".to_string());
+    assert_eq!(
+        resolve_bearer_token(&config).as_deref(),
+        Some("fixture-token")
+    );
+    assert_eq!(
+        bearer_token_source(&config),
+        Some(AsrTokenSource::PlaintextConfig)
+    );
+
+    config.asr.bearer_token = None;
+    assert_eq!(resolve_bearer_token(&config), None);
+    assert_eq!(bearer_token_source(&config), None);
 }
 
 #[test]

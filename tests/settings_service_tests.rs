@@ -191,6 +191,9 @@ fn test_v31_repeated_settings_loads_reuse_safe_device_inventory() {
 
 #[test]
 fn onboarding_requires_permissions_endpoint_token_and_shortcut() {
+    // Onboarding blocks on a *missing* token; a token in this machine's keyring
+    // would satisfy that check and the case under test would never happen.
+    openvoice_desktop::core::config::set_ambient_token_lookup(false);
     let mut config = Config::default();
     assert!(complete_onboarding(&mut config, false)
         .unwrap_err()

@@ -70,6 +70,10 @@ async fn endpoint_test_uses_configured_request_and_sanitizes_response() {
             .unwrap();
         request
     });
+    // A real token in this machine's keyring outranks the fixture, so the
+    // request would carry that instead and the assertion below would fail on
+    // any developer box that has one.
+    openvoice_desktop::core::config::set_ambient_token_lookup(false);
     let mut config = Config::default();
     config.asr.base_url = format!("http://{address}");
     config.asr.model = "configured-model".to_string();
