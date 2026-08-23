@@ -1,8 +1,8 @@
 # Ubuntu / Debian (GNOME Wayland)
 
 OpenVoiceDesktop on Linux runs as a resident user daemon (`openvoice-desktop daemon`)
-plus a Tauri settings window (`openvoice-desktop settings`). There is no tray icon on
-Linux, so the desktop entry opens Settings and the daemon is managed by systemd.
+plus a Tauri settings window (`openvoice-desktop settings`). The daemon is managed by
+systemd and shows a tray indicator while it runs; the desktop entry opens Settings.
 
 ## Install
 
@@ -24,6 +24,27 @@ The package installs:
 | `/usr/bin/openvoice-desktop` | binary |
 | `/usr/lib/systemd/user/openvoice-desktop.service` | systemd **user** unit |
 | `/usr/share/applications/OpenVoiceDesktop.desktop` | launcher that opens Settings |
+
+## Tray indicator
+
+While the daemon runs it publishes a microphone indicator over the
+StatusNotifierItem protocol. The icon is the answer to "is it running?": white
+when idle, red while recording, amber while transcribing, and white with a red
+badge after a failed dictation. Left click toggles recording; right click opens
+Settings, Copy Last Transcript, Cancel, Test Endpoint, Open Logs, Open Config,
+and Quit.
+
+GNOME needs the AppIndicator extension for any tray at all — on Ubuntu it ships
+enabled as `ubuntu-appindicators@ubuntu.com`:
+
+```bash
+gnome-extensions list --enabled | grep appindicator
+```
+
+If no StatusNotifier host is running, the daemon logs
+`openvoice-desktop tray unavailable: ...` and keeps dictating without an icon.
+Turn the indicator off with `app.show_tray_icon = false` in the config or
+**Settings → Advanced → Show tray icon**; the change applies without a restart.
 
 The unit is installed but not enabled. Turning on **autostart** in Settings runs
 `systemctl --user enable openvoice-desktop.service`, which resolves against the
@@ -88,6 +109,17 @@ GNOME owns global hotkeys, so bind them in **Settings → Keyboard → Custom Sh
 Paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`. If none can
 type into the focused app, the transcript stays in the clipboard and a notification
 is shown.
+
+GNOME allows only one custom shortcut per key combination, and a leftover binding
+from another dictation app keeps firing even after that app is closed — the
+binding launches it again. Check what currently owns `Ctrl+Space` before blaming
+OpenVoiceDesktop:
+
+```bash
+dconf dump /org/gnome/settings-daemon/plugins/media-keys/
+```
+
+Delete or rebind any entry whose `command` is not `openvoice-desktop`.
 
 Logs:
 

@@ -18,11 +18,13 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
+    use crate::core::settings_ui::{TrayIconState, TrayMenuAction};
     use crate::ipc::{
         CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
         STATUS_COMMAND, TOGGLE_COMMAND,
     };
     use crate::platform::linux::LinuxPlatformAdapter;
+    use crate::platform::linux_tray::LinuxTrayCommand;
 
     crate::core::lifecycle::acquire_daemon_instance()?;
     let socket_path = config.socket_path()?;
@@ -40,6 +42,7 @@ pub async fn run(config: Config) -> Result<()> {
     let asr = ReqwestAsrClient::new(config.clone());
     let history = crate::core::history::HistoryStore::from_config(&config).ok();
     let logger = logger_from_config(&config);
+    let mut show_tray_icon = config.app.show_tray_icon;
     let mut controller = VoiceController::new(recorder, asr, platform, config);
     if let Some(history) = history {
         controller = controller.with_history_store(history);
@@ -47,6 +50,29 @@ pub async fn run(config: Config) -> Result<()> {
     if let Some(logger) = logger {
         controller = controller.with_logger(logger);
     }
+
+    // The sender is kept alive for the whole daemon so the tray can be rebuilt
+    // on config reload without touching the receiver the select loop borrows.
+    let (tray_tx, mut tray_rx) = tokio::sync::mpsc::unbounded_channel::<LinuxTrayCommand>();
+    let mut tray_view: Option<TrayView> = None;
+    let mut tray = if show_tray_icon {
+        crate::platform::linux_tray::spawn(
+            tray_tx.clone(),
+            TrayIconState::from_recording_state(controller.state()),
+            controller.selected_language().map(str::to_string),
+            last_transcript_available(),
+        )
+        .await
+    } else {
+        None
+    };
+    sync_tray(
+        &tray,
+        &mut tray_view,
+        controller.state(),
+        controller.selected_language().map(str::to_string),
+    )
+    .await;
 
     loop {
         tokio::select! {
@@ -110,18 +136,218 @@ pub async fn run(config: Config) -> Result<()> {
                 };
                 stream.write_all(response.as_bytes()).await?;
                 if shutdown_requested {
+                    shutdown_tray(&tray).await;
                     cleanup_socket(&socket_path);
                     return Ok(());
                 }
+                if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
+                    let desired = Config::load_default()
+                        .map(|loaded| loaded.config.app.show_tray_icon)
+                        .unwrap_or(show_tray_icon);
+                    if desired != show_tray_icon {
+                        show_tray_icon = desired;
+                        tray_view = None;
+                        if desired {
+                            tray = crate::platform::linux_tray::spawn(
+                                tray_tx.clone(),
+                                TrayIconState::from_recording_state(controller.state()),
+                                controller.selected_language().map(str::to_string),
+                                last_transcript_available(),
+                            )
+                            .await;
+                        } else {
+                            shutdown_tray(&tray).await;
+                            tray = None;
+                        }
+                    }
+                }
+                sync_tray(
+                    &tray,
+                    &mut tray_view,
+                    controller.state(),
+                    controller.selected_language().map(str::to_string),
+                )
+                .await;
+            }
+            Some(command) = tray_rx.recv() => {
+                match command {
+                    LinuxTrayCommand::Toggle => {
+                        if let Err(error) = controller.toggle().await {
+                            eprintln!("openvoice-desktop tray toggle failed: {error}");
+                        }
+                    }
+                    LinuxTrayCommand::Menu(TrayMenuAction::Cancel) => {
+                        if let Err(error) = controller.cancel().await {
+                            eprintln!("openvoice-desktop tray cancel failed: {error}");
+                        }
+                    }
+                    LinuxTrayCommand::Menu(TrayMenuAction::Quit) => {
+                        controller.shutdown().await?;
+                        shutdown_tray(&tray).await;
+                        cleanup_socket(&socket_path);
+                        return Ok(());
+                    }
+                    LinuxTrayCommand::Menu(action) => {
+                        if let Err(error) = run_tray_menu_action(action).await {
+                            eprintln!("openvoice-desktop tray action failed: {error}");
+                        }
+                    }
+                }
+                sync_tray(
+                    &tray,
+                    &mut tray_view,
+                    controller.state(),
+                    controller.selected_language().map(str::to_string),
+                )
+                .await;
             }
             signal = tokio::signal::ctrl_c() => {
                 signal?;
                 controller.shutdown().await?;
+                shutdown_tray(&tray).await;
                 cleanup_socket(&socket_path);
                 return Ok(());
             }
         }
     }
+}
+
+/// Tray-visible slice of controller state. Comparing it lets the daemon skip a
+/// D-Bus round trip (and the history read behind it) on the frequent status
+/// polls the overlay makes.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TrayView {
+    state: crate::core::settings_ui::TrayIconState,
+    language: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+type TrayHandle = ksni::Handle<crate::platform::linux_tray::OpenVoiceTray>;
+
+#[cfg(target_os = "linux")]
+fn last_transcript_available() -> bool {
+    Config::load_default()
+        .ok()
+        .and_then(|loaded| crate::core::history::HistoryStore::from_config(&loaded.config).ok())
+        .and_then(|store| store.last_transcript().ok().flatten())
+        .is_some()
+}
+
+#[cfg(target_os = "linux")]
+async fn sync_tray(
+    tray: &Option<TrayHandle>,
+    last: &mut Option<TrayView>,
+    state: crate::core::state::RecordingState,
+    language: Option<String>,
+) {
+    let Some(handle) = tray else {
+        return;
+    };
+    let view = TrayView {
+        state: crate::core::settings_ui::TrayIconState::from_recording_state(state),
+        language,
+    };
+    if last.as_ref() == Some(&view) {
+        return;
+    }
+    *last = Some(view.clone());
+    let has_last_transcript = last_transcript_available();
+    handle
+        .update(move |tray| {
+            tray.set_state(view.state);
+            tray.set_language(view.language);
+            tray.set_has_last_transcript(has_last_transcript);
+        })
+        .await;
+}
+
+#[cfg(target_os = "linux")]
+async fn shutdown_tray(tray: &Option<TrayHandle>) {
+    if let Some(handle) = tray {
+        handle.shutdown().await;
+    }
+}
+
+/// Tray menu entries that do not touch the controller. `Cancel` and `Quit` are
+/// handled by the daemon loop because they need the live controller.
+#[cfg(target_os = "linux")]
+async fn run_tray_menu_action(action: crate::core::settings_ui::TrayMenuAction) -> Result<()> {
+    use crate::core::platform::PlatformAdapter;
+    use crate::core::settings_ui::TrayMenuAction;
+    use crate::platform::linux::LinuxPlatformAdapter;
+    use anyhow::Context;
+
+    match action {
+        TrayMenuAction::Settings => {
+            let exe = std::env::current_exe().context("locating OpenVoiceDesktop executable")?;
+            tokio::process::Command::new(exe)
+                .arg("settings")
+                .spawn()
+                .context("starting OpenVoiceDesktop settings window")?;
+            Ok(())
+        }
+        TrayMenuAction::CopyLastTranscript => {
+            let loaded = Config::load_default()?;
+            let store = crate::core::history::HistoryStore::from_config(&loaded.config)?;
+            let text = store
+                .last_transcript()?
+                .ok_or_else(|| anyhow::anyhow!("no transcript available"))?;
+            LinuxPlatformAdapter.set_clipboard_text(&text).await?;
+            LinuxPlatformAdapter
+                .notify("OpenVoiceDesktop", "Last transcript copied.")
+                .await
+                .ok();
+            Ok(())
+        }
+        TrayMenuAction::TestEndpoint => {
+            let config = Config::load_default()?.config;
+            let diagnostic = crate::core::asr::test_endpoint(&config).await?;
+            LinuxPlatformAdapter
+                .notify(
+                    "OpenVoiceDesktop",
+                    &format!(
+                        "HTTP {} - {} ms",
+                        diagnostic.http_status, diagnostic.latency_ms
+                    ),
+                )
+                .await
+                .ok();
+            Ok(())
+        }
+        TrayMenuAction::OpenLogs => {
+            let loaded = Config::load_default()?;
+            let logger = crate::core::logging::FileLogger::for_config_path(
+                &Config::default_path()?,
+                &loaded.config,
+            )?;
+            let directory = logger.directory().to_path_buf();
+            std::fs::create_dir_all(&directory).ok();
+            open_path(&directory).await
+        }
+        TrayMenuAction::OpenConfig => {
+            let path = Config::default_path()?;
+            let directory = path
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or(path);
+            open_path(&directory).await
+        }
+        TrayMenuAction::Cancel | TrayMenuAction::Quit => Ok(()),
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn open_path(path: &std::path::Path) -> Result<()> {
+    use anyhow::Context;
+
+    let status = tokio::process::Command::new("xdg-open")
+        .arg(path)
+        .status()
+        .await
+        .context("running xdg-open")?;
+    anyhow::ensure!(status.success(), "xdg-open failed for {}", path.display());
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
