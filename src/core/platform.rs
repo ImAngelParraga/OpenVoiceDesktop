@@ -60,6 +60,13 @@ pub trait PlatformAdapter: Send + Sync {
     async fn clipboard_text(&self) -> Result<Option<String>>;
     async fn set_clipboard_text(&self, text: &str) -> Result<()>;
     async fn trigger_paste(&self) -> Result<()>;
+    /// Paste with an explicitly chosen input tool. `output.typing_tool` picked
+    /// the tool for typing and submitting but never for the paste itself, so a
+    /// user whose desktop cannot run the auto-detected first choice had no way
+    /// to point the paste at one that works.
+    async fn trigger_paste_with_tool(&self, _tool: TypingTool) -> Result<()> {
+        self.trigger_paste().await
+    }
     async fn type_text(&self, text: &str) -> Result<()> {
         self.set_clipboard_text(text).await?;
         self.trigger_paste().await
@@ -159,7 +166,7 @@ where
     };
 
     platform.set_clipboard_text(transcript).await?;
-    let paste_result = platform.trigger_paste().await;
+    let paste_result = platform.trigger_paste_with_tool(typing_tool).await;
     if let Err(error) = paste_result {
         platform
             .notify(
@@ -300,7 +307,7 @@ where
     }
     platform.set_clipboard_text(transcript).await?;
     let clipboard_written_at = Instant::now();
-    if let Err(error) = platform.trigger_paste().await {
+    if let Err(error) = platform.trigger_paste_with_tool(output.typing_tool).await {
         platform
             .notify(
                 "OpenVoiceDesktop paste failed",

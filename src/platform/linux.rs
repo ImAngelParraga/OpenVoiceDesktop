@@ -47,7 +47,11 @@ impl PlatformAdapter for LinuxPlatformAdapter {
     }
 
     async fn trigger_paste(&self) -> Result<()> {
-        for command in linux_paste_command_candidates(TypingTool::Auto) {
+        self.trigger_paste_with_tool(TypingTool::Auto).await
+    }
+
+    async fn trigger_paste_with_tool(&self, tool: TypingTool) -> Result<()> {
+        for command in linux_paste_command_candidates(tool) {
             if command_succeeds(command.program, &command.args).await {
                 return Ok(());
             }

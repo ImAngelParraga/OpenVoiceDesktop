@@ -163,10 +163,81 @@ pub fn apply(config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Desktop components outside the custom-keybinding list also claim
+/// accelerators, and they use their own spelling. IBus writes `Control+space`
+/// where GNOME writes `<Control>space`.
+pub fn ibus_hotkey_form(accelerator: &str) -> String {
+    accelerator
+        .replace("<Control>", "Control+")
+        .replace("<Alt>", "Alt+")
+        .replace("<Shift>", "Shift+")
+        .replace("<Super>", "Super+")
+}
+
+/// Accelerators claimed by desktop components that are not custom keybindings.
+/// IBus's `trigger` is the one that matters in practice: it ships bound to
+/// `Control+space`, so a dictation shortcut on that combination is processed by
+/// the input method on the very same keypress.
+fn foreign_hotkey_claims(accelerator: &str) -> Vec<String> {
+    let mut claims = Vec::new();
+    let ibus_form = ibus_hotkey_form(accelerator);
+    for (schema, key, label) in [
+        (
+            "org.freedesktop.ibus.general.hotkey",
+            "trigger",
+            "the IBus input-method trigger",
+        ),
+        (
+            "org.freedesktop.ibus.general.hotkey",
+            "triggers",
+            "the IBus input-method trigger",
+        ),
+    ] {
+        let Ok(value) = gsettings_get(schema, key) else {
+            continue;
+        };
+        let entries = parse_gsettings_string_list(&value);
+        if entries
+            .iter()
+            .any(|entry| entry == &ibus_form || entry == accelerator)
+        {
+            claims.push(format!("{label} (`gsettings get {schema} {key}`)"));
+        }
+    }
+    for (schema, key, label) in [(
+        "org.gnome.desktop.wm.keybindings",
+        "switch-input-source",
+        "the GNOME input-source switch",
+    )] {
+        let Ok(value) = gsettings_get(schema, key) else {
+            continue;
+        };
+        if parse_gsettings_string_list(&value)
+            .iter()
+            .any(|entry| entry == accelerator)
+        {
+            claims.push(format!("{label} (`gsettings get {schema} {key}`)"));
+        }
+    }
+    claims
+}
+
 /// GNOME silently lets two custom keybindings claim the same accelerator, and
 /// the loser just stops working. Name the other entry instead of leaving the
 /// user to guess why the shortcut runs someone else's program.
 fn warn_on_conflicts(existing: &[String], owned: &[GnomeKeybinding]) {
+    for binding in owned {
+        for claim in foreign_hotkey_claims(&binding.accelerator) {
+            eprintln!(
+                "openvoice-desktop shortcut conflict: {} is also claimed by {claim}; both react to the same keypress",
+                binding.accelerator
+            );
+        }
+    }
+    warn_on_custom_keybinding_conflicts(existing, owned);
+}
+
+fn warn_on_custom_keybinding_conflicts(existing: &[String], owned: &[GnomeKeybinding]) {
     let owned_paths: Vec<String> = owned.iter().map(GnomeKeybinding::path).collect();
     for path in existing {
         if owned_paths.contains(path) {

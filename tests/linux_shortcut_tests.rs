@@ -3,8 +3,8 @@
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::shortcut::ParsedShortcut;
 use openvoice_desktop::platform::linux_shortcuts::{
-    desired_bindings, format_gsettings_string_list, gnome_accelerator, merged_keybinding_paths,
-    parse_gsettings_string_list,
+    desired_bindings, format_gsettings_string_list, gnome_accelerator, ibus_hotkey_form,
+    merged_keybinding_paths, parse_gsettings_string_list,
 };
 
 fn accelerator(value: &str) -> String {
@@ -99,4 +99,14 @@ fn gsettings_string_lists_round_trip() {
         parse_gsettings_string_list(&format_gsettings_string_list(&["/a/".to_string()])),
         vec!["/a/".to_string()]
     );
+}
+
+#[test]
+fn accelerators_are_matched_against_the_ibus_spelling_too() {
+    // IBus ships `trigger` bound to `Control+space`, the same physical keypress
+    // as the default dictation shortcut, and writes it in its own syntax.
+    assert_eq!(ibus_hotkey_form("<Control>space"), "Control+space");
+    assert_eq!(ibus_hotkey_form("<Control><Alt>l"), "Control+Alt+l");
+    assert_eq!(ibus_hotkey_form("<Super><Shift>F5"), "Super+Shift+F5");
+    assert_eq!(ibus_hotkey_form("F9"), "F9");
 }

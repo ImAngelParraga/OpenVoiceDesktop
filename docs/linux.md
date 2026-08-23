@@ -130,9 +130,21 @@ One consequence of GNOME's design is worth knowing: a custom keybinding runs a
 **command**, not "notify the running app". A leftover binding pointing at another
 dictation app therefore launches that app on every press even when it is not running.
 
-Paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`. If none can
-type into the focused app, the transcript stays in the clipboard and a notification
-is shown.
+Paste fallback order is `wtype`, `dotool`, `ydotool`, then `xdotool`, and
+`output.typing_tool` pins one instead of auto-detecting.
+
+**On GNOME, `wtype` cannot work.** Mutter does not implement the
+`zwp_virtual_keyboard_v1` protocol, so `wtype` exits with *"Compositor does not
+support the virtual keyboard protocol"* on every call and auto-detection falls
+through to the next tool. Install `ydotool` and run its daemon, or pin it:
+
+```bash
+wtype -M ctrl -P v -p v -m ctrl   # prints the error above on GNOME
+systemctl --user enable --now ydotoold
+```
+
+If none can type into the focused app, the transcript stays in the clipboard and a
+notification is shown.
 
 GNOME allows only one custom shortcut per key combination, and a leftover binding
 from another dictation app keeps firing even after that app is closed — the
@@ -144,6 +156,23 @@ dconf dump /org/gnome/settings-daemon/plugins/media-keys/
 ```
 
 Delete or rebind any entry whose `command` is not `openvoice-desktop`.
+
+Custom shortcuts are not the only claimants. **IBus ships its input-method trigger
+bound to `Control+space`**, the same combination as the default dictation shortcut,
+so both react to one keypress:
+
+```bash
+gsettings get org.freedesktop.ibus.general.hotkey trigger
+```
+
+The daemon reports any such overlap at startup (`shortcut conflict: ... is also
+claimed by ...`) but never edits another component's settings. Drop the entry
+yourself, or move the dictation shortcut:
+
+```bash
+gsettings set org.freedesktop.ibus.general.hotkey trigger \
+  "['Zenkaku_Hankaku', 'Alt+Kanji', 'Alt+grave', 'Hangul', 'Alt+Release+Alt_R']"
+```
 
 Logs:
 
