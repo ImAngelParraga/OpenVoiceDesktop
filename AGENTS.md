@@ -32,6 +32,30 @@ History mostly uses Conventional Commit prefixes such as `feat:`, `fix:`, and `c
 
 Always commit and push after each change.
 
+## Ship Every Change
+
+A change that only exists in `main` has not reached the user: this repository has
+no CI, so nothing builds or publishes anything unless it is done here. **Every
+change that alters what the app does ends in a published release**, not just in a
+commit:
+
+1. Bump the version in `Cargo.toml` and the `openvoice-desktop` package stanza in
+   `Cargo.lock`. The release tag is always `v<Cargo version>`, and the installed
+   `.deb` will not upgrade without a higher version.
+2. Commit the bump and push, because `scripts/release-local.sh` refuses to publish
+   a dirty tree or a commit that is not on the remote.
+3. Run `./scripts/release-local.sh`. It runs the test suite, builds the Debian
+   package natively and the Windows NSIS setup in the cross-build container,
+   stages both with `.sha256` files, tags the commit, creates the GitHub release,
+   and uploads the assets.
+4. Report the published tag and the asset names, plus the commands the user needs
+   to install the new version.
+
+Documentation-only or test-only changes do not need a release; say so instead of
+skipping it silently. `--dry-run` builds and verifies everything without
+publishing, and `--linux-only` / `--windows-only` narrow a re-run when one
+platform's asset needs rebuilding.
+
 ## No CI
 
 This repository defines no CI workflows, and a push starts no remote build. Do not add GitHub Actions, GitLab CI, or any other remote pipeline. Every release artifact is compiled on the maintainer's Ubuntu host and uploaded from it by `scripts/release-local.sh`, so local `cargo test` and the packaging verification scripts are the only gates that exist. Windows-only regressions cannot be caught by a runner: keep tests over repository text ending-agnostic, and treat the cross-compiled Windows setup as unsmoked until someone runs `scripts/test-installer.ps1` on Windows.
