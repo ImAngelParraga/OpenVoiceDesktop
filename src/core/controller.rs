@@ -81,6 +81,16 @@ where
         self
     }
 
+    /// Adopt a cancel flag owned by the caller. A config reload replaces the
+    /// whole controller, and whoever answers a cancel while dictation is in
+    /// flight holds the flag, not the controller: without this the reload
+    /// silently handed them a flag nothing reads any more.
+    pub fn with_cancel_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        flag.store(false, Ordering::SeqCst);
+        self.cancel_requested = flag;
+        self
+    }
+
     pub fn state(&self) -> RecordingState {
         self.state
     }

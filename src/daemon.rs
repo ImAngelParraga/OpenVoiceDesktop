@@ -12,16 +12,18 @@ fn logger_from_config(config: &Config) -> Option<crate::core::logging::FileLogge
 #[cfg(target_os = "linux")]
 pub async fn run(config: Config) -> Result<()> {
     use anyhow::Context;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
     use tokio::net::UnixListener;
 
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
     use crate::core::settings_ui::{TrayIconState, TrayMenuAction};
+    use crate::core::status::StatusSnapshot;
     use crate::ipc::{
         CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
-        STATUS_COMMAND, TOGGLE_COMMAND,
+        TOGGLE_COMMAND,
     };
     use crate::platform::linux::LinuxPlatformAdapter;
     use crate::platform::linux_tray::LinuxTrayCommand;
@@ -39,19 +41,27 @@ pub async fn run(config: Config) -> Result<()> {
 
     let platform = LinuxPlatformAdapter;
     let recorder = CpalRecorder::with_audio_config(&config.audio);
+    // Everything the socket has to answer without borrowing the controller:
+    // the state the overlay polls, and the flag a cancel raises.
+    let snapshot = Arc::new(StatusSnapshot::new());
+    snapshot.attach_level(recorder.level_handle());
+    let cancel_flag = Arc::new(AtomicBool::new(false));
     let asr = ReqwestAsrClient::new(config.clone());
     let history = crate::core::history::HistoryStore::from_config(&config).ok();
     let logger = logger_from_config(&config);
     let mut show_tray_icon = config.app.show_tray_icon;
     let mut show_overlay = config.app.show_overlay;
-    let shortcut_config = config.clone();
-    let mut controller = VoiceController::new(recorder, asr, platform, config);
+    let mut shortcut_config = config.clone();
+    let mut controller =
+        VoiceController::with_event_sink(recorder, asr, platform, config, Arc::clone(&snapshot))
+            .with_cancel_flag(Arc::clone(&cancel_flag));
     if let Some(history) = history {
         controller = controller.with_history_store(history);
     }
     if let Some(logger) = logger {
         controller = controller.with_logger(logger);
     }
+    snapshot.set_language(controller.selected_language().map(str::to_string));
 
     // GNOME owns global hotkeys, so the saved shortcut only takes effect once it
     // is written into a custom keybinding. Doing it at startup makes the daemon
@@ -68,6 +78,37 @@ pub async fn run(config: Config) -> Result<()> {
     } else {
         None
     };
+
+    // Answering `status` from the controller froze the overlay for the whole of
+    // a dictation - the `&mut` that writes the WAV, uploads it and pastes is
+    // held until the text has landed - so the overlay could only hide *after*
+    // the paste it was reporting. The socket now lives in its own task: status
+    // is served from the snapshot, cancel raises the flag on the spot, and only
+    // work that needs the controller is handed to the loop below.
+    let (command_tx, mut command_rx) =
+        tokio::sync::mpsc::unbounded_channel::<(String, tokio::sync::oneshot::Sender<String>)>();
+    {
+        let snapshot = Arc::clone(&snapshot);
+        let cancel_flag = Arc::clone(&cancel_flag);
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(serve_connection(
+                    stream,
+                    Arc::clone(&snapshot),
+                    Arc::clone(&cancel_flag),
+                    command_tx.clone(),
+                ));
+            }
+        });
+    }
+
+    // A daemon killed mid-dictation cannot hand the cancel key back itself, so
+    // start the session by taking it back.
+    release_cancel_shortcut().await;
+    let mut cancel_grabbed = false;
 
     // The sender is kept alive for the whole daemon so the tray can be rebuilt
     // on config reload without touching the receiver the select loop borrows.
@@ -111,20 +152,14 @@ pub async fn run(config: Config) -> Result<()> {
 
     loop {
         tokio::select! {
-            result = listener.accept() => {
-                let (mut stream, _) = result?;
-                let mut command = String::new();
-                stream.read_to_string(&mut command).await?;
+            Some((command, responder)) = command_rx.recv() => {
                 let mut shutdown_requested = false;
-                let response = if command == STATUS_COMMAND {
-                    serde_json::to_string(&crate::ipc::DaemonStatus {
-                        state: controller.state(),
-                        mic_level_bucket: controller.mic_level_bucket(),
-                        language: controller.selected_language().map(str::to_string),
-                    })? + "\n"
-                } else if command == CYCLE_LANGUAGE_COMMAND {
+                let response = if command == CYCLE_LANGUAGE_COMMAND {
                     match controller.cycle_language() {
-                        Ok(language) => format!("Language: {}\n", language.as_deref().unwrap_or("auto")),
+                        Ok(language) => {
+                            snapshot.set_language(language.clone());
+                            format!("Language: {}\n", language.as_deref().unwrap_or("auto"))
+                        }
                         Err(error) => format!("error: {error}\n"),
                     }
                 } else if command == RELOAD_CONFIG_COMMAND && controller.state() != crate::core::state::RecordingState::Idle {
@@ -136,16 +171,29 @@ pub async fn run(config: Config) -> Result<()> {
                     }) {
                         Ok(updated) => {
                             let recorder = CpalRecorder::with_audio_config(&updated.audio);
+                            // The new recorder owns a new level counter, and the
+                            // new controller must keep reporting into the same
+                            // snapshot the socket task reads.
+                            snapshot.attach_level(recorder.level_handle());
                             let asr = ReqwestAsrClient::new(updated.clone());
                             let history = crate::core::history::HistoryStore::from_config(&updated).ok();
                             let logger = logger_from_config(&updated);
-                            controller = VoiceController::new(recorder, asr, LinuxPlatformAdapter, updated);
+                            shortcut_config = updated.clone();
+                            controller = VoiceController::with_event_sink(
+                                recorder,
+                                asr,
+                                LinuxPlatformAdapter,
+                                updated,
+                                Arc::clone(&snapshot),
+                            )
+                            .with_cancel_flag(Arc::clone(&cancel_flag));
                             if let Some(history) = history {
                                 controller = controller.with_history_store(history);
                             }
                             if let Some(logger) = logger {
                                 controller = controller.with_logger(logger);
                             }
+                            snapshot.set_language(controller.selected_language().map(str::to_string));
                             "Reloaded\n".to_string()
                         }
                         Err(error) => format!("error: rejected config: {error}\n"),
@@ -175,13 +223,15 @@ pub async fn run(config: Config) -> Result<()> {
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
-                stream.write_all(response.as_bytes()).await?;
+                let _ = responder.send(response.clone());
                 if shutdown_requested {
+                    release_cancel_shortcut().await;
                     stop_overlay_shell(&mut overlay_shell).await;
                     shutdown_tray(&tray).await;
                     cleanup_socket(&socket_path);
                     return Ok(());
                 }
+                sync_cancel_shortcut(&shortcut_config, &mut cancel_grabbed, controller.state()).await;
                 if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
                     if let Ok(loaded) = Config::load_default() {
                         if let Err(error) =
@@ -253,6 +303,7 @@ pub async fn run(config: Config) -> Result<()> {
                     }
                     LinuxTrayCommand::Menu(TrayMenuAction::Quit) => {
                         controller.shutdown().await?;
+                        release_cancel_shortcut().await;
                         stop_overlay_shell(&mut overlay_shell).await;
                         shutdown_tray(&tray).await;
                         cleanup_socket(&socket_path);
@@ -264,6 +315,7 @@ pub async fn run(config: Config) -> Result<()> {
                         }
                     }
                 }
+                sync_cancel_shortcut(&shortcut_config, &mut cancel_grabbed, controller.state()).await;
                 sync_tray(
                     &tray,
                     &mut tray_view,
@@ -297,6 +349,7 @@ pub async fn run(config: Config) -> Result<()> {
                         .await;
                     }
                 }
+                sync_cancel_shortcut(&shortcut_config, &mut cancel_grabbed, controller.state()).await;
                 if show_overlay && overlay_shell_exited(&mut overlay_shell) {
                     overlay_shell = None;
                     if overlay_restarts < MAX_OVERLAY_RESTARTS {
@@ -316,6 +369,7 @@ pub async fn run(config: Config) -> Result<()> {
             signal = tokio::signal::ctrl_c() => {
                 signal?;
                 controller.shutdown().await?;
+                release_cancel_shortcut().await;
                 stop_overlay_shell(&mut overlay_shell).await;
                 shutdown_tray(&tray).await;
                 cleanup_socket(&socket_path);
@@ -323,6 +377,91 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
     }
+}
+
+/// Serve one socket connection. Status is answered from the snapshot and cancel
+/// raises the flag here, so neither waits for the controller; everything else
+/// is forwarded to the daemon loop and answered when it gets there.
+#[cfg(target_os = "linux")]
+async fn serve_connection(
+    mut stream: tokio::net::UnixStream,
+    snapshot: std::sync::Arc<crate::core::status::StatusSnapshot>,
+    cancel_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    commands: tokio::sync::mpsc::UnboundedSender<(String, tokio::sync::oneshot::Sender<String>)>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut command = String::new();
+    if stream.read_to_string(&mut command).await.is_err() {
+        return;
+    }
+    let response = if command == crate::ipc::STATUS_COMMAND {
+        match serde_json::to_string(&crate::ipc::DaemonStatus {
+            state: snapshot.state(),
+            mic_level_bucket: snapshot.level_bucket(),
+            language: snapshot.language(),
+        }) {
+            Ok(status) => status + "\n",
+            Err(error) => format!("error: {error}\n"),
+        }
+    } else {
+        // The upload the user gave up on is already in flight, and the flag is
+        // what suppresses its result - it cannot wait for the loop to be free.
+        if command == crate::ipc::CANCEL_COMMAND {
+            cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let (responder, response) = tokio::sync::oneshot::channel();
+        if commands.send((command, responder)).is_err() {
+            return;
+        }
+        response
+            .await
+            .unwrap_or_else(|_| "error: daemon stopped\n".to_string())
+    };
+    let _ = stream.write_all(response.as_bytes()).await;
+}
+
+/// Hold the cancel accelerator for exactly as long as a dictation lasts.
+///
+/// Under Wayland the compositor owns every hotkey, so `Escape` can only reach
+/// this app through a real GNOME keybinding - and a permanent one would swallow
+/// the key for the whole session.
+#[cfg(target_os = "linux")]
+async fn sync_cancel_shortcut(
+    config: &Config,
+    grabbed: &mut bool,
+    state: crate::core::state::RecordingState,
+) {
+    let wanted = state != crate::core::state::RecordingState::Idle;
+    if wanted == *grabbed {
+        return;
+    }
+    let config = config.clone();
+    // `gsettings` is a process per call; keep it off the loop that answers the
+    // socket and drives the tray.
+    let result = tokio::task::spawn_blocking(move || {
+        if wanted {
+            crate::platform::linux_shortcuts::grab_cancel(&config)
+        } else {
+            crate::platform::linux_shortcuts::release_cancel()
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => *grabbed = wanted,
+        Ok(Err(error)) => eprintln!(
+            "openvoice-desktop cancel shortcut {} failed: {error}",
+            if wanted { "grab" } else { "release" }
+        ),
+        Err(error) => eprintln!("openvoice-desktop cancel shortcut task failed: {error}"),
+    }
+}
+
+/// Unconditional release, for daemon start and every exit path. A session with
+/// no GNOME has nothing to release, which is why the error is not reported.
+#[cfg(target_os = "linux")]
+async fn release_cancel_shortcut() {
+    let _ = tokio::task::spawn_blocking(crate::platform::linux_shortcuts::release_cancel).await;
 }
 
 /// How often the daemon re-checks the surfaces it does not own: the tray host

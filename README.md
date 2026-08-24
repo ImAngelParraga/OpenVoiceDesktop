@@ -110,6 +110,10 @@ GNOME owns global hotkeys, so add two custom keyboard shortcuts in
 - `OpenVoiceDesktop Toggle` → `/usr/bin/openvoice-desktop toggle` → `Ctrl+Space`
 - `OpenVoiceDesktop Language` → `/usr/bin/openvoice-desktop cycle-language` → `Ctrl+Alt+L`
 
+The daemon registers these itself from Settings, and adds a third one for
+`behavior.cancel_shortcut` (default `Escape`) only while a dictation is running, so
+Escape keeps working everywhere else.
+
 Check daemon logs:
 
 ```bash

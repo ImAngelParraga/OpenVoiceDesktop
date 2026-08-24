@@ -3,8 +3,9 @@
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::shortcut::ParsedShortcut;
 use openvoice_desktop::platform::linux_shortcuts::{
-    desired_bindings, format_gsettings_string_list, gnome_accelerator, ibus_hotkey_form,
-    merged_keybinding_paths, parse_gsettings_string_list,
+    cancel_binding, desired_bindings, format_gsettings_string_list, gnome_accelerator,
+    ibus_hotkey_form, merged_keybinding_paths, parse_gsettings_string_list,
+    without_keybinding_path,
 };
 
 fn accelerator(value: &str) -> String {
@@ -109,4 +110,57 @@ fn accelerators_are_matched_against_the_ibus_spelling_too() {
     assert_eq!(ibus_hotkey_form("<Control><Alt>l"), "Control+Alt+l");
     assert_eq!(ibus_hotkey_form("<Super><Shift>F5"), "Super+Shift+F5");
     assert_eq!(ibus_hotkey_form("F9"), "F9");
+}
+
+#[test]
+fn the_cancel_key_is_never_a_permanent_keybinding() {
+    // A standing binding on `Escape` would swallow the key session-wide; the
+    // daemon only holds it for the length of a dictation.
+    let bindings =
+        desired_bindings(&Config::default(), "/usr/bin/openvoice-desktop").expect("bindings");
+    assert!(
+        bindings
+            .iter()
+            .all(|binding| !binding.command.ends_with(" cancel")),
+        "cancel must not be registered permanently: {bindings:?}"
+    );
+}
+
+#[test]
+fn the_cancel_binding_runs_this_executable_on_the_configured_key() {
+    let binding =
+        cancel_binding(&Config::default(), "/usr/bin/openvoice-desktop").expect("cancel binding");
+    assert_eq!(binding.slug, "openvoice-cancel");
+    assert_eq!(binding.accelerator, "Escape");
+    assert_eq!(binding.command, "/usr/bin/openvoice-desktop cancel");
+
+    let mut config = Config::default();
+    config.behavior.cancel_shortcut = "Ctrl+Alt+C".to_string();
+    let rebound = cancel_binding(&config, "/usr/bin/openvoice-desktop").expect("cancel binding");
+    assert_eq!(rebound.accelerator, "<Control><Alt>c");
+    assert_eq!(
+        rebound.path(),
+        binding.path(),
+        "a rebind must reuse the dconf path instead of piling up entries"
+    );
+}
+
+#[test]
+fn releasing_the_cancel_key_leaves_every_other_keybinding_alone() {
+    let cancel = cancel_binding(&Config::default(), "/usr/bin/openvoice-desktop")
+        .expect("cancel binding")
+        .path();
+    let other = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/screenshot/";
+    let toggle =
+        "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/openvoice-toggle/";
+    let existing = vec![other.to_string(), cancel.clone(), toggle.to_string()];
+
+    let remaining = without_keybinding_path(&existing, &cancel);
+
+    assert_eq!(remaining, vec![other.to_string(), toggle.to_string()]);
+    assert_eq!(
+        without_keybinding_path(&remaining, &cancel),
+        remaining,
+        "releasing a key that is not held must change nothing"
+    );
 }

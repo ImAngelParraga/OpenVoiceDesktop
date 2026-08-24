@@ -96,6 +96,27 @@ pub fn desired_bindings(config: &Config, executable: &str) -> Result<Vec<GnomeKe
     ])
 }
 
+/// The cancel binding, held only while a dictation is in flight.
+///
+/// `Escape` cannot live in `desired_bindings`: a permanent custom keybinding on
+/// it would swallow the key for the whole session, and Escape has to keep
+/// dismissing dialogs everywhere else. GNOME owns every hotkey under Wayland,
+/// though, so the only way the key can reach this app at all is a real
+/// keybinding - which is why the daemon adds this one when recording starts and
+/// removes it the moment the dictation ends.
+pub fn cancel_binding(config: &Config, executable: &str) -> Result<GnomeKeybinding> {
+    let cancel = ParsedShortcut::parse(&config.behavior.cancel_shortcut)
+        .context("parsing behavior.cancel_shortcut for the GNOME keybinding")?;
+    Ok(GnomeKeybinding {
+        slug: CANCEL_SLUG,
+        name: "OpenVoiceDesktop Cancel".to_string(),
+        command: format!("{executable} cancel"),
+        accelerator: gnome_accelerator(&cancel)?,
+    })
+}
+
+pub const CANCEL_SLUG: &str = "openvoice-cancel";
+
 /// Merge this app's paths into the existing `custom-keybindings` list without
 /// disturbing entries other applications own.
 pub fn merged_keybinding_paths(existing: &[String], owned: &[GnomeKeybinding]) -> Vec<String> {
@@ -107,6 +128,16 @@ pub fn merged_keybinding_paths(existing: &[String], owned: &[GnomeKeybinding]) -
         }
     }
     paths
+}
+
+/// Drop one path from the `custom-keybindings` list, leaving every other
+/// entry - and their order - alone.
+pub fn without_keybinding_path(existing: &[String], path: &str) -> Vec<String> {
+    existing
+        .iter()
+        .filter(|entry| entry.as_str() != path)
+        .cloned()
+        .collect()
 }
 
 /// Parse the GVariant string array `gsettings get` prints.
@@ -160,6 +191,49 @@ pub fn apply(config: &Config) -> Result<()> {
         )?;
     }
     warn_on_conflicts(&existing, &owned);
+    Ok(())
+}
+
+/// Claim the cancel accelerator for the duration of one dictation. Blocking:
+/// each `gsettings` call is a process.
+pub fn grab_cancel(config: &Config) -> Result<()> {
+    let executable = std::env::current_exe()
+        .context("locating OpenVoiceDesktop executable")?
+        .to_string_lossy()
+        .into_owned();
+    let binding = cancel_binding(config, &executable)?;
+    let target = format!("{CUSTOM_KEYBINDING_SCHEMA}:{}", binding.path());
+    gsettings_set(&target, "name", &binding.name)?;
+    gsettings_set(&target, "command", &binding.command)?;
+    gsettings_set(&target, "binding", &binding.accelerator)?;
+    let existing =
+        parse_gsettings_string_list(&gsettings_get(MEDIA_KEYS_SCHEMA, "custom-keybindings")?);
+    let merged = merged_keybinding_paths(&existing, std::slice::from_ref(&binding));
+    if merged != existing {
+        gsettings_set_raw(
+            MEDIA_KEYS_SCHEMA,
+            "custom-keybindings",
+            &format_gsettings_string_list(&merged),
+        )?;
+    }
+    Ok(())
+}
+
+/// Give the cancel accelerator back to the desktop. Also called once at daemon
+/// start, because a daemon killed mid-recording would otherwise leave the key
+/// grabbed for the rest of the session.
+pub fn release_cancel() -> Result<()> {
+    let path = format!("{CUSTOM_KEYBINDING_PREFIX}{CANCEL_SLUG}/");
+    let existing =
+        parse_gsettings_string_list(&gsettings_get(MEDIA_KEYS_SCHEMA, "custom-keybindings")?);
+    let remaining = without_keybinding_path(&existing, &path);
+    if remaining != existing {
+        gsettings_set_raw(
+            MEDIA_KEYS_SCHEMA,
+            "custom-keybindings",
+            &format_gsettings_string_list(&remaining),
+        )?;
+    }
     Ok(())
 }
 

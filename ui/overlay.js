@@ -6,6 +6,13 @@ const waveform = document.querySelector("#waveform");
 const language = document.querySelector("#language");
 const cancel = document.querySelector("#cancel");
 
+// Rebuilding the bars on every poll threw away the CSS transition with the
+// element that carried it, which is what made the waveform jump instead of
+// move. They are created once and only their height changes.
+const BAR_COUNT = 4;
+const bars = Array.from({ length: BAR_COUNT }, () => document.createElement("i"));
+waveform.append(...bars);
+
 function render(view) {
   root.hidden = !view.visible;
   root.dataset.theme = view.theme ?? "system";
@@ -15,14 +22,12 @@ function render(view) {
   cancel.hidden = !view.show_cancel;
   language.hidden = !view.show_language_control;
   language.textContent = view.language_label ?? "AUTO";
-  waveform.replaceChildren();
+  waveform.hidden = !view.show_waveform;
   if (!view.show_waveform) return;
   const level = view.level_bucket ?? 0;
-  for (let index = 0; index < 4; index += 1) {
-    const bar = document.createElement("i");
-    bar.style.height = `${Math.max(3, 4 + ((index + level) % 4) * 3)}px`;
-    waveform.append(bar);
-  }
+  bars.forEach((bar, index) => {
+    bar.style.height = `${Math.max(3, 4 + ((index + level) % BAR_COUNT) * 3)}px`;
+  });
 }
 
 cancel.addEventListener("click", () => invoke("cancel_transcription"));

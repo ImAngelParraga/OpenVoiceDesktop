@@ -439,6 +439,61 @@ async fn late_asr_result_after_cancel_is_not_pasted() {
 }
 
 #[tokio::test]
+async fn an_externally_held_cancel_flag_suppresses_the_pending_paste() {
+    // The daemon answers a cancel while the controller is busy uploading, so
+    // the flag it raises has to be the very one the controller checks.
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asr_observations = Arc::new(Mutex::new(Vec::new()));
+    let platform = FakePlatform::new(None);
+    let platform_observations = platform.observations.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "late text".to_string(),
+            observations: asr_observations.clone(),
+        },
+        platform,
+        Config::default(),
+    )
+    .with_cancel_flag(Arc::clone(&flag));
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Canceled);
+
+    assert!(asr_observations.lock().unwrap().is_empty());
+    assert!(platform_observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn adopting_a_cancel_flag_clears_a_stale_cancel() {
+    // A config reload builds a new controller around the same flag; a cancel
+    // from before the reload must not abort the next dictation.
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let platform = FakePlatform::new(None);
+    let platform_observations = platform.observations.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        Config::default(),
+    )
+    .with_cancel_flag(Arc::clone(&flag));
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::Inserted {
+            text: "hello".to_string()
+        }
+    );
+    assert!(!platform_observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn mic_level_event_uses_normalized_bucket() {
     let observations = Arc::new(Mutex::new(Vec::new()));
     let recorder = FakeRecorder {

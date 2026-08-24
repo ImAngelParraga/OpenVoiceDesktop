@@ -122,9 +122,22 @@ shortcut in Settings is enough and the old one stops working:
 | --- | --- | --- |
 | `openvoice-toggle` | `openvoice-desktop toggle` | `behavior.shortcut` |
 | `openvoice-language` | `openvoice-desktop cycle-language` | `behavior.language_shortcut` |
+| `openvoice-cancel` | `openvoice-desktop cancel` | `behavior.cancel_shortcut`, only while dictating |
 
 Each action keeps one entry, so a rebind edits it instead of adding another, and
 custom shortcuts owned by other applications are left alone.
+
+### The cancel key is held, not owned
+
+`behavior.cancel_shortcut` defaults to `Escape`, and a standing keybinding on it
+would take the key away from every dialog, editor and browser in the session. The
+daemon therefore writes `openvoice-cancel` when a dictation starts and removes it
+when the dictation ends - so Escape belongs to this app only while the overlay is
+up, and to everything else the rest of the time. It is released again at daemon
+start, which is what cleans up after a daemon that was killed mid-dictation.
+
+Cancel is also on the overlay's `x` button, the tray menu, and
+`openvoice-desktop cancel`, none of which depend on the key being held.
 
 One consequence of GNOME's design is worth knowing: a custom keybinding runs a
 **command**, not "notify the running app". A leftover binding pointing at another

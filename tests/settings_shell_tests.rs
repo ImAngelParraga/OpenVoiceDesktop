@@ -197,7 +197,12 @@ fn test_v38_compact_overlay_is_tiny_accessible_and_dpi_logical() {
     assert!(OVERLAY_CSS.contains("min-height: 34px"));
     assert!(OVERLAY_CSS.contains("cursor: default"));
     assert!(OVERLAY_CSS.contains("cursor: pointer"));
-    assert!(OVERLAY_JS.contains("index < 4"));
+    // Four bars, created once: rebuilding them per poll dropped the CSS
+    // transition and made the reduced waveform jump.
+    assert!(OVERLAY_JS.contains("const BAR_COUNT = 4;"));
+    assert!(OVERLAY_JS.contains("length: BAR_COUNT"));
+    assert!(!OVERLAY_JS.contains("waveform.replaceChildren()"));
+    assert!(OVERLAY_CSS.contains("transition: height"));
 }
 
 #[test]

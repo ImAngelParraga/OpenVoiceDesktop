@@ -63,6 +63,12 @@ impl CpalRecorder {
             level_bucket: Arc::new(AtomicU8::new(0)),
         }
     }
+
+    /// Share the counter the capture callback writes, so the waveform can be
+    /// read without borrowing the controller that owns this recorder.
+    pub fn level_handle(&self) -> Arc<AtomicU8> {
+        Arc::clone(&self.level_bucket)
+    }
 }
 
 impl Default for CpalRecorder {

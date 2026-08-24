@@ -26,6 +26,11 @@ Shortcuts as `OpenVoiceDesktop Toggle` running `openvoice-desktop toggle`.
 
 The first press starts recording. The second press stops, transcribes, and pastes.
 
+`behavior.cancel_shortcut` (default `Escape`) is registered the same way, but only
+for the length of a dictation: a permanent binding on Escape would swallow the key
+for the whole session. It appears as `OpenVoiceDesktop Cancel` while the overlay is
+up and disappears when the dictation ends.
+
 A GNOME custom keybinding runs a command; it does not message an already-running app.
 A stale entry left behind by another dictation tool will therefore start that tool on
 every press. Check who owns a combination with:

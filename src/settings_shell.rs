@@ -77,13 +77,37 @@ pub fn run(start_hidden: bool) -> Result<()> {
             }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // Re-reading the config from disk and re-applying size, position
+                // and visibility on every tick made the overlay stutter and kept
+                // the compositor re-mapping a window that had not changed. Both
+                // are now driven by change, not by the clock.
+                let mut config = load_overlay_config();
+                let mut ticks_since_config_read = 0u32;
+                let mut last_view: Option<crate::core::settings_ui::OverlayView> = None;
+                let mut applied: Option<AppliedOverlayWindow> = None;
+                let mut ticks_since_emit = 0u32;
                 loop {
-                    let view = overlay_view_from_daemon().await;
-                    if let Some(window) = handle.get_webview_window("overlay") {
-                        let _ = handle.emit("overlay-state", &view);
-                        let _ = apply_overlay_window(&window, &view);
+                    if ticks_since_config_read >= OVERLAY_CONFIG_TICKS {
+                        config = load_overlay_config();
+                        ticks_since_config_read = 0;
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    ticks_since_config_read += 1;
+                    let view = overlay_view_from_daemon(&config).await;
+                    if let Some(window) = handle.get_webview_window("overlay") {
+                        // Resent on a slow beat as well as on change, so a
+                        // webview that finished loading after the last change
+                        // still learns what to draw.
+                        if last_view.as_ref() != Some(&view)
+                            || ticks_since_emit >= OVERLAY_RESEND_TICKS
+                        {
+                            let _ = handle.emit("overlay-state", &view);
+                            last_view = Some(view.clone());
+                            ticks_since_emit = 0;
+                        }
+                        ticks_since_emit += 1;
+                        let _ = apply_overlay_window(&window, &view, &mut applied);
+                    }
+                    tokio::time::sleep(OVERLAY_POLL_INTERVAL).await;
                 }
             });
             Ok(())
@@ -464,49 +488,77 @@ fn open_directory(_path: &std::path::Path) -> anyhow::Result<()> {
     anyhow::bail!("opening directories is unsupported on this platform")
 }
 
+/// How often the overlay asks the daemon what it is doing. The daemon answers
+/// status without touching the controller, so this stays honest even mid-paste.
 #[cfg(feature = "desktop-shell")]
-async fn overlay_view_from_daemon() -> crate::core::settings_ui::OverlayView {
-    use crate::core::config::Config;
-    use crate::core::settings_ui::OverlayView;
-    let config = Config::load_default()
+const OVERLAY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// Ticks between unconditional re-sends of an unchanged view.
+#[cfg(feature = "desktop-shell")]
+const OVERLAY_RESEND_TICKS: u32 = 25;
+
+/// Config ticks between disk reads: overlay position, style and theme change
+/// when the user saves Settings, not several times a second.
+#[cfg(feature = "desktop-shell")]
+const OVERLAY_CONFIG_TICKS: u32 = 12;
+
+#[cfg(feature = "desktop-shell")]
+fn load_overlay_config() -> crate::core::config::Config {
+    crate::core::config::Config::load_default()
         .map(|loaded| loaded.config)
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+#[cfg(feature = "desktop-shell")]
+async fn overlay_view_from_daemon(
+    config: &crate::core::config::Config,
+) -> crate::core::settings_ui::OverlayView {
+    use crate::core::settings_ui::OverlayView;
+    let idle = || {
+        OverlayView::from_recording_state(config, crate::core::state::RecordingState::Idle, None)
+    };
     if !config.app.show_overlay {
-        return OverlayView::from_recording_state(
-            &config,
-            crate::core::state::RecordingState::Idle,
-            None,
-        );
+        return idle();
     }
     let Ok(socket_path) = config.socket_path() else {
-        return OverlayView::from_recording_state(
-            &config,
-            crate::core::state::RecordingState::Idle,
-            None,
-        );
+        return idle();
     };
     match crate::ipc::send_status(&socket_path).await {
         Ok(status) => {
-            OverlayView::from_recording_state(&config, status.state, Some(status.mic_level_bucket))
+            OverlayView::from_recording_state(config, status.state, Some(status.mic_level_bucket))
                 .with_language(status.language.as_deref())
         }
-        Err(_) => OverlayView::from_recording_state(
-            &config,
-            crate::core::state::RecordingState::Idle,
-            None,
-        ),
+        Err(_) => idle(),
     }
+}
+
+/// What the overlay window was last told. Re-issuing an unchanged size or
+/// position is what made the window jump around while it was open.
+#[cfg(feature = "desktop-shell")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AppliedOverlayWindow {
+    visible: bool,
+    size: (u32, u32),
+    position: (i32, i32),
 }
 
 #[cfg(feature = "desktop-shell")]
 fn apply_overlay_window(
     window: &tauri::WebviewWindow,
     view: &crate::core::settings_ui::OverlayView,
+    applied: &mut Option<AppliedOverlayWindow>,
 ) -> anyhow::Result<()> {
     use tauri::{LogicalSize, PhysicalPosition, Position, Size};
 
     if !view.visible {
-        window.hide()?;
+        if applied.map(|state| state.visible).unwrap_or(true) {
+            window.hide()?;
+            *applied = Some(AppliedOverlayWindow {
+                visible: false,
+                size: applied.map(|state| state.size).unwrap_or((0, 0)),
+                position: applied.map(|state| state.position).unwrap_or((0, 0)),
+            });
+        }
         return Ok(());
     }
     let (width, height) = if view.style == crate::core::config::OverlayStyle::Expanded {
@@ -514,7 +566,8 @@ fn apply_overlay_window(
     } else {
         (210.0, 44.0)
     };
-    window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
+    let mut size = applied.map(|state| state.size).unwrap_or((0, 0));
+    let mut position = applied.map(|state| state.position).unwrap_or((0, 0));
     if let Some(monitor) = window.current_monitor()? {
         let monitor_position = monitor.position();
         let monitor_size = monitor.size();
@@ -528,9 +581,26 @@ fn apply_overlay_window(
                 monitor_position.y + monitor_size.height as i32 - physical_height as i32 - 64
             }
         };
-        window.set_position(Position::Physical(PhysicalPosition::new(x, y)))?;
+        size = (physical_width, physical_height);
+        position = (x, y);
     }
-    window.show()?;
+    let desired = AppliedOverlayWindow {
+        visible: true,
+        size,
+        position,
+    };
+    if applied.map(|state| state.size) != Some(desired.size) {
+        window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
+    }
+    if applied.map(|state| state.position) != Some(desired.position) {
+        window.set_position(Position::Physical(PhysicalPosition::new(
+            position.0, position.1,
+        )))?;
+    }
+    if applied.map(|state| state.visible) != Some(true) {
+        window.show()?;
+    }
+    *applied = Some(desired);
     Ok(())
 }
 

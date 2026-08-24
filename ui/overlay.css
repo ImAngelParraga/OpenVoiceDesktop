@@ -12,7 +12,9 @@ body { margin: 0; padding: 3px; background: transparent; }
 #overlay[hidden] { display: none; }
 #message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 #waveform { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .1rem; height: .85rem; }
-#waveform i { width: .16rem; border-radius: .15rem; background: var(--overlay-wave); }
+#waveform[hidden] { display: none; }
+#waveform i { width: .16rem; height: 3px; border-radius: .15rem; background: var(--overlay-wave); transition: height .12s ease-out; }
+@media (prefers-reduced-motion: reduce) { #waveform i { transition: none; } }
 #language { flex: 0 0 auto; margin-left: auto; min-width: 1.8rem; height: 1.25rem; border: 1px solid var(--overlay-border); border-radius: .4rem; padding: 0 .22rem; color: inherit; background: transparent; font-size: .62rem; font-weight: 700; line-height: 1; cursor: pointer; }
 #cancel { flex: 0 0 auto; width: 1.4rem; height: 1.4rem; border: 1px solid #596674; border-radius: 50%; padding: 0; color: inherit; background: transparent; font-size: .9rem; line-height: 1; cursor: pointer; }
 #overlay.expanded { max-width: 420px; min-height: 62px; padding: .55rem .75rem; font-size: .9rem; }
