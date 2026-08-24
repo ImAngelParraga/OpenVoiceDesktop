@@ -35,6 +35,49 @@ pub const START_HIDDEN_FLAG: &str = "--start-hidden";
 /// skip-taskbar, so the shell asks for the X11 backend when the session is
 /// Wayland and Xwayland is reachable. An explicit `GDK_BACKEND` always wins.
 #[cfg(all(target_os = "linux", feature = "desktop-shell"))]
+fn import_graphical_session_environment() {
+    const VARIABLES: [&str; 4] = [
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_TYPE",
+    ];
+
+    if VARIABLES
+        .iter()
+        .all(|variable| std::env::var_os(variable).is_some())
+    {
+        return;
+    }
+
+    // A user service enabled at login can start just before GNOME imports its
+    // display variables into the systemd user manager. The daemon keeps that
+    // stale environment, but the manager has the current values by the time
+    // the supervised shell retry runs. Read them here before GTK initializes.
+    let Ok(output) = std::process::Command::new("systemctl")
+        .args(["--user", "show-environment"])
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Some((variable, value)) = line.split_once('=') else {
+            continue;
+        };
+        if VARIABLES.contains(&variable)
+            && std::env::var_os(variable).is_none()
+            && !value.is_empty()
+        {
+            std::env::set_var(variable, value);
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "desktop-shell"))]
 fn prefer_x11_backend_for_overlay() {
     if std::env::var_os("GDK_BACKEND").is_some() {
         return;
@@ -52,7 +95,10 @@ pub fn run(start_hidden: bool) -> Result<()> {
     use tauri::{Emitter, Manager};
 
     #[cfg(target_os = "linux")]
-    prefer_x11_backend_for_overlay();
+    {
+        import_graphical_session_environment();
+        prefer_x11_backend_for_overlay();
+    }
 
     tauri::Builder::default()
         // Must be first: `H:src-tauri/src/lib.rs` lifecycle adapted to Tauri's

@@ -47,6 +47,21 @@ fn the_shell_asks_for_xwayland_so_the_overlay_can_be_positioned() {
         SETTINGS_SHELL_RS.contains("if std::env::var_os(\"GDK_BACKEND\").is_some()"),
         "an explicitly chosen backend must win over this default"
     );
+    assert!(
+        SETTINGS_SHELL_RS.contains("fn import_graphical_session_environment()")
+            && SETTINGS_SHELL_RS.contains("[\"--user\", \"show-environment\"]"),
+        "a login-race retry must refresh graphical variables from the user manager"
+    );
+    let import = SETTINGS_SHELL_RS
+        .find("import_graphical_session_environment();")
+        .expect("shell imports the current graphical environment");
+    let prefer = SETTINGS_SHELL_RS
+        .find("prefer_x11_backend_for_overlay();")
+        .expect("shell selects XWayland");
+    assert!(
+        import < prefer,
+        "the graphical environment must be refreshed before choosing a GTK backend"
+    );
 }
 
 #[test]
