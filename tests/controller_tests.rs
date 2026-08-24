@@ -684,6 +684,19 @@ impl AsrClient for FakeAsr {
     }
 }
 
+struct UnreachableAsr;
+
+#[async_trait]
+impl AsrClient for UnreachableAsr {
+    async fn transcribe_file(
+        &self,
+        _path: &Path,
+        _language: Option<&str>,
+    ) -> Result<Transcription> {
+        anyhow::bail!("error sending request for url (https://asr.invalid/v1/audio/transcriptions)")
+    }
+}
+
 struct CancelingAsr {
     handle_slot: Arc<Mutex<Option<openvoice_desktop::core::controller::CancelHandle>>>,
     observations: Arc<Mutex<Vec<String>>>,
@@ -870,5 +883,35 @@ fn assert_before(observations: &[String], before: &str, after: &str) {
     assert!(
         before_index < after_index,
         "expected {before} before {after}: {observations:?}"
+    );
+}
+
+/// A dictation that cannot reach the endpoint must say so on the desktop. The
+/// tray host and the overlay shell can both be missing, so without this the
+/// only trace of an unreachable endpoint is a log line nobody is reading.
+#[tokio::test]
+async fn test_v61_unreachable_endpoint_notifies_the_desktop() {
+    let platform = FakePlatform::new(None);
+    let observations = platform.observations.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        UnreachableAsr,
+        platform,
+        Config::default(),
+    );
+
+    controller.toggle().await.unwrap();
+    let error = controller.toggle().await.unwrap_err().to_string();
+    assert!(error.contains("error sending request"), "{error}");
+    assert_eq!(controller.state(), RecordingState::Idle);
+
+    let observations = observations.lock().unwrap().clone();
+    let notification = observations
+        .iter()
+        .find(|entry| entry.starts_with("notify:"))
+        .unwrap_or_else(|| panic!("no desktop notification in {observations:?}"));
+    assert!(
+        notification.contains("Dictation failed") && notification.contains("error sending request"),
+        "the notification must name the failure: {notification}"
     );
 }

@@ -79,16 +79,33 @@ pub async fn run(config: Config) -> Result<()> {
             TrayIconState::from_recording_state(controller.state()),
             controller.selected_language().map(str::to_string),
             last_transcript_available(),
+            true,
         )
         .await
     } else {
         None
     };
+    // The user unit starts with the session, so at login the daemon regularly
+    // wins the race against gnome-shell loading its AppIndicator extension:
+    // the first `spawn` finds no StatusNotifierWatcher on the bus. Retrying on
+    // a timer is what makes the icon appear anyway, and what brings it back
+    // after the shell restarts. The same tick supervises the overlay shell,
+    // which loses the same race against the session's display environment and
+    // dies in GTK init.
+    let mut supervise = tokio::time::interval_at(
+        tokio::time::Instant::now() + SUPERVISE_INTERVAL,
+        SUPERVISE_INTERVAL,
+    );
+    let mut overlay_restarts = 0u32;
+    // Sticky until the next dictation succeeds, so the tray keeps showing that
+    // the last attempt failed.
+    let mut last_dictation_failed = false;
     sync_tray(
         &tray,
         &mut tray_view,
         controller.state(),
         controller.selected_language().map(str::to_string),
+        last_dictation_failed,
     )
     .await;
 
@@ -146,8 +163,14 @@ pub async fn run(config: Config) -> Result<()> {
                         controller.cancel().await
                     };
                     match result {
-                        Ok(outcome) => format!("{outcome:?}\n"),
-                        Err(error) => format!("error: {error}\n"),
+                        Ok(outcome) => {
+                            last_dictation_failed = false;
+                            format!("{outcome:?}\n")
+                        }
+                        Err(error) => {
+                            last_dictation_failed = true;
+                            format!("error: {error}\n")
+                        }
                     }
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
@@ -172,6 +195,7 @@ pub async fn run(config: Config) -> Result<()> {
                         if desired_overlay != show_overlay {
                             show_overlay = desired_overlay;
                             stop_overlay_shell(&mut overlay_shell).await;
+                            overlay_restarts = 0;
                             if desired_overlay {
                                 overlay_shell = spawn_overlay_shell();
                             }
@@ -189,6 +213,7 @@ pub async fn run(config: Config) -> Result<()> {
                                 TrayIconState::from_recording_state(controller.state()),
                                 controller.selected_language().map(str::to_string),
                                 last_transcript_available(),
+                                true,
                             )
                             .await;
                         } else {
@@ -202,19 +227,28 @@ pub async fn run(config: Config) -> Result<()> {
                     &mut tray_view,
                     controller.state(),
                     controller.selected_language().map(str::to_string),
+                    last_dictation_failed,
                 )
                 .await;
             }
             Some(command) = tray_rx.recv() => {
                 match command {
                     LinuxTrayCommand::Toggle => {
-                        if let Err(error) = controller.toggle().await {
-                            eprintln!("openvoice-desktop tray toggle failed: {error}");
+                        match controller.toggle().await {
+                            Ok(_) => last_dictation_failed = false,
+                            Err(error) => {
+                                last_dictation_failed = true;
+                                eprintln!("openvoice-desktop tray toggle failed: {error}");
+                            }
                         }
                     }
                     LinuxTrayCommand::Menu(TrayMenuAction::Cancel) => {
-                        if let Err(error) = controller.cancel().await {
-                            eprintln!("openvoice-desktop tray cancel failed: {error}");
+                        match controller.cancel().await {
+                            Ok(_) => last_dictation_failed = false,
+                            Err(error) => {
+                                last_dictation_failed = true;
+                                eprintln!("openvoice-desktop tray cancel failed: {error}");
+                            }
                         }
                     }
                     LinuxTrayCommand::Menu(TrayMenuAction::Quit) => {
@@ -235,8 +269,49 @@ pub async fn run(config: Config) -> Result<()> {
                     &mut tray_view,
                     controller.state(),
                     controller.selected_language().map(str::to_string),
+                    last_dictation_failed,
                 )
                 .await;
+            }
+            _ = supervise.tick() => {
+                if show_tray_icon && tray.is_none() {
+                    tray = crate::platform::linux_tray::spawn(
+                        tray_tx.clone(),
+                        TrayIconState::from_recording_state(controller.state()),
+                        controller.selected_language().map(str::to_string),
+                        last_transcript_available(),
+                        false,
+                    )
+                    .await;
+                    if tray.is_some() {
+                        eprintln!("openvoice-desktop tray registered");
+                        // Force the next sync to push state into the fresh item.
+                        tray_view = None;
+                        sync_tray(
+                            &tray,
+                            &mut tray_view,
+                            controller.state(),
+                            controller.selected_language().map(str::to_string),
+                            last_dictation_failed,
+                        )
+                        .await;
+                    }
+                }
+                if show_overlay && overlay_shell_exited(&mut overlay_shell) {
+                    overlay_shell = None;
+                    if overlay_restarts < MAX_OVERLAY_RESTARTS {
+                        overlay_restarts += 1;
+                        eprintln!(
+                            "openvoice-desktop overlay shell exited; restart {overlay_restarts} of {MAX_OVERLAY_RESTARTS}"
+                        );
+                        overlay_shell = spawn_overlay_shell();
+                    } else if overlay_restarts == MAX_OVERLAY_RESTARTS {
+                        overlay_restarts += 1;
+                        eprintln!(
+                            "openvoice-desktop overlay shell keeps exiting; giving up until the next config reload"
+                        );
+                    }
+                }
             }
             signal = tokio::signal::ctrl_c() => {
                 signal?;
@@ -248,6 +323,27 @@ pub async fn run(config: Config) -> Result<()> {
             }
         }
     }
+}
+
+/// How often the daemon re-checks the surfaces it does not own: the tray host
+/// and the overlay shell process.
+#[cfg(target_os = "linux")]
+const SUPERVISE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Restart budget for the overlay shell. The failure this exists for is the
+/// transient one at login, so a shell that is broken for good must stop being
+/// respawned instead of being restarted forever.
+#[cfg(target_os = "linux")]
+const MAX_OVERLAY_RESTARTS: u32 = 10;
+
+/// Whether the overlay shell process is gone. A shell that is still running
+/// reports nothing, so `false` also covers "no shell was ever started".
+#[cfg(target_os = "linux")]
+fn overlay_shell_exited(shell: &mut Option<tokio::process::Child>) -> bool {
+    let Some(child) = shell else {
+        return true;
+    };
+    matches!(child.try_wait(), Ok(Some(_)) | Err(_))
 }
 
 /// Start the Tauri shell that owns the recording overlay, with the Settings
@@ -313,12 +409,21 @@ async fn sync_tray(
     last: &mut Option<TrayView>,
     state: crate::core::state::RecordingState,
     language: Option<String>,
+    failed: bool,
 ) {
     let Some(handle) = tray else {
         return;
     };
+    // A failed dictation returns the controller to `Idle` immediately, so
+    // without carrying the failure the icon would go straight back to looking
+    // healthy and the only trace of a dead endpoint would be the log.
+    let icon = crate::core::settings_ui::TrayIconState::from_recording_state(state);
     let view = TrayView {
-        state: crate::core::settings_ui::TrayIconState::from_recording_state(state),
+        state: if failed && icon == crate::core::settings_ui::TrayIconState::Idle {
+            crate::core::settings_ui::TrayIconState::Error
+        } else {
+            icon
+        },
         language,
     };
     if last.as_ref() == Some(&view) {

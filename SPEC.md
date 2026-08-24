@@ -132,6 +132,8 @@ V56: Test-hermeticity invariant: the suite gives the same result on a machine th
 V57: Paste-tool invariant: `output.typing_tool` selects the tool for the paste as well as for typing, submitting, and selection. Auto-detection tries each candidate and treats a non-zero exit as a failure, so a tool the compositor cannot support - `wtype` under Mutter, which lacks `zwp_virtual_keyboard_v1` - falls through instead of silently dropping the transcript.
 V58: Hotkey-claim invariant: the daemon reports every other desktop component that claims a registered accelerator, matching each component's own spelling, and never edits settings it does not own.
 V59: Input-tool-syntax invariant: ydotool 0.x takes key names joined by `+` and 1.x takes `<keycode>:<state>` pairs, and 0.x answers the wrong syntax by typing digits into the focused window and exiting zero. The adapter classifies the installed binary from its own `key --help` once per process and emits that syntax for paste, submit, and selection. An unclassifiable or absent binary must never be sent keycode pairs.
+V60: Linux-session-race invariant: the daemon's user unit starts with the session, before gnome-shell has loaded its AppIndicator extension and before the shell it launches can reach the display, so neither surface may be attempted once and abandoned. While `app.show_tray_icon` is set and no item is owned, the daemon re-attempts StatusNotifierItem registration on a timer for as long as it runs, reporting the reason only on the first attempt and re-pushing state into the fresh item; while `app.show_overlay` is set, it restarts an exited overlay shell within a bounded budget that a config reload restores.
+V61: Failure-visibility invariant: a dictation that cannot reach the ASR endpoint reports itself where the user is looking, never only in the log. Every failure raises a desktop notification naming the error, and the tray keeps the error icon until the next dictation succeeds - the controller returns to `Idle` at once, so the failure is carried separately.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -232,6 +234,7 @@ T93|x|Stop the endpoint check reading as a transcript|Label the tray notificatio
 T94|x|Make token tests machine-independent|Add a process switch that disables `OPENVOICE_DESKTOP_TOKEN` and the OS secret store, use it in the endpoint-request and onboarding-gating tests, and cover the switch itself.|—|V56
 T95|x|Honor the configured tool for pasting|Add a tool-aware paste to the platform trait, route both paste call sites through `output.typing_tool`, report IBus and GNOME input-source claims on a registered accelerator, and document that `wtype` cannot work under Mutter.|—|I.platform,V57,V58
 T96|x|Speak the installed ydotool's key syntax|Detect ydotool 0.x versus 1.x from `key --help`, emit key names or keycode pairs accordingly for paste, submit, and selection, and test both syntaxes and the classifier.|—|I.platform,V57,V59
+T97|x|Survive the login race and stop failing silently|Retry StatusNotifierItem registration on a timer while the setting is on and no item is owned, supervise and restart the overlay shell within a budget, notify the desktop on every dictation failure, and keep the tray on the error icon until the next success.|—|V60,V61
 
 §B
 id|date|cause|fix
@@ -289,3 +292,6 @@ B51|2026-08-24|Token resolution read the OS secret store before config, so on an
 B52|2026-08-24|`trigger_paste` hardcoded `TypingTool::Auto`, so `output.typing_tool` changed typing and submitting but never the paste, leaving no way to route around a paste tool the compositor rejects|V57
 B53|2026-08-24|Conflict reporting covered custom keybindings only, so IBus holding the same `Control+space` trigger as the dictation shortcut went unreported|V58
 B54|2026-08-24|The paste sent ydotool 1.x keycode pairs to whatever `ydotool` was on the daemon's PATH; Ubuntu's packaged 0.1.8 read `29:1` as the key name `2` and typed `2442` into the user's document, exiting zero so the transcript was logged as pasted|V59
+B55|2026-08-24|The tray registered once at unit start, before gnome-shell owned `org.kde.StatusNotifierWatcher`, so after every reboot the daemon logged the missing watcher and ran the whole session with no indicator|V60
+B56|2026-08-24|The overlay shell was spawned once at unit start and panicked in GTK init because the session's display was not yet reachable, and nothing ever restarted it, so the process stayed defunct for the session|V60
+B57|2026-08-24|FortiClient's VPN tore `tailscale0` down mid-session, making the ASR endpoint unreachable; the failure reached only the log file, so dictation appeared to do nothing at all with no tray, notification, or overlay saying why|V61

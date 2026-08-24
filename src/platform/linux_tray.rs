@@ -135,11 +135,17 @@ impl Tray for OpenVoiceTray {
 /// Start the tray service. Returns `None` when the session has no
 /// StatusNotifier host: the daemon must keep dictating without an indicator
 /// rather than refuse to start.
+///
+/// `report_failure` exists because the shell's StatusNotifierWatcher is not on
+/// the bus yet when the user unit starts at login, so the daemon retries on a
+/// timer. Only the first attempt of a retry series should speak, or every
+/// session without a tray host would fill the journal.
 pub async fn spawn(
     commands: UnboundedSender<LinuxTrayCommand>,
     state: TrayIconState,
     language: Option<String>,
     has_last_transcript: bool,
+    report_failure: bool,
 ) -> Option<Handle<OpenVoiceTray>> {
     let mut tray = OpenVoiceTray::new(commands);
     tray.set_state(state);
@@ -148,7 +154,11 @@ pub async fn spawn(
     match tray.spawn().await {
         Ok(handle) => Some(handle),
         Err(error) => {
-            eprintln!("openvoice-desktop tray unavailable: {error}");
+            if report_failure {
+                eprintln!(
+                    "openvoice-desktop tray unavailable: {error}; retrying while the daemon runs"
+                );
+            }
             None
         }
     }

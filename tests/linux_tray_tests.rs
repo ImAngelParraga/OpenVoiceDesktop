@@ -148,3 +148,57 @@ fn linux_daemon_removes_the_tray_before_it_exits() {
         "every daemon exit path must retract the tray icon: {shutdowns} shutdowns for {exits} exits"
     );
 }
+
+#[test]
+fn test_v60_linux_daemon_retries_the_tray_until_a_host_appears() {
+    assert!(
+        DAEMON_RS.contains("supervise.tick()"),
+        "the daemon must re-attempt tray registration on a timer, because the \
+         user unit starts before gnome-shell loads its AppIndicator extension"
+    );
+    assert!(
+        DAEMON_RS.contains("if show_tray_icon && tray.is_none() {"),
+        "the retry must fire exactly while the setting is on and no item is owned"
+    );
+    let quiet_retry =
+        DAEMON_RS.contains("last_transcript_available(),\n                        false,");
+    assert!(
+        quiet_retry,
+        "retries must not report the failure again, or a session with no tray \
+         host would fill the journal every five seconds"
+    );
+}
+
+#[test]
+fn test_v60_linux_daemon_restarts_a_dead_overlay_shell_within_a_budget() {
+    assert!(
+        DAEMON_RS.contains("overlay_shell_exited(&mut overlay_shell)"),
+        "the daemon must notice that the overlay shell process is gone"
+    );
+    assert!(
+        DAEMON_RS.contains("MAX_OVERLAY_RESTARTS"),
+        "a permanently broken overlay shell must stop being respawned"
+    );
+    assert!(
+        DAEMON_RS.contains("overlay_restarts = 0;"),
+        "reconciling the overlay setting must restore the restart budget"
+    );
+}
+
+#[test]
+fn test_v61_linux_tray_keeps_showing_the_last_failed_dictation() {
+    assert!(
+        DAEMON_RS.contains("last_dictation_failed"),
+        "a failure returns the controller to Idle at once, so the tray needs the \
+         failure carried separately to stay on the error icon"
+    );
+    assert!(
+        DAEMON_RS.contains("TrayIconState::Error"),
+        "the carried failure must select the error icon"
+    );
+    assert_ne!(
+        icon_color(TrayIconState::Error),
+        icon_color(TrayIconState::Recording),
+        "error must not be mistakable for recording"
+    );
+}

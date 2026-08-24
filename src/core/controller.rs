@@ -449,6 +449,13 @@ where
             message.push_str(&format!("; audio restore failed: {restore_error}"));
         }
         self.play_feedback(AudioFeedbackEvent::Error).await;
+        // The overlay and the tray can both be absent - no tray host, a dead
+        // shell - and a failure that only reaches the log looks to the user
+        // like dictation silently doing nothing. Say it on the desktop too.
+        self.platform
+            .notify("OpenVoiceDesktop", &format!("Dictation failed: {message}"))
+            .await
+            .ok();
         self.recording_started_at = None;
         self.state = RecordingState::Idle;
         self.events.emit(AppShellEvent::Error {
