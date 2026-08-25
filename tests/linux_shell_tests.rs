@@ -65,6 +65,56 @@ fn the_shell_asks_for_xwayland_so_the_overlay_can_be_positioned() {
 }
 
 #[test]
+fn the_shell_imports_the_x_authority_cookie_and_drops_a_stale_one() {
+    // XWayland refuses a client with no cookie ("Authorization required, but no
+    // authorization protocol specified") and GTK init then panics, so the
+    // display variables alone are not enough to reach the X server.
+    assert!(
+        SETTINGS_SHELL_RS.contains("\"XAUTHORITY\","),
+        "XAUTHORITY must be imported alongside the display variables"
+    );
+    assert!(
+        SETTINGS_SHELL_RS.contains("fn stale_xauthority()")
+            && SETTINGS_SHELL_RS.contains("std::env::remove_var(\"XAUTHORITY\")"),
+        "a cookie path left over from a previous login must be dropped before importing"
+    );
+    let drop_stale = SETTINGS_SHELL_RS
+        .find("std::env::remove_var(\"XAUTHORITY\")")
+        .expect("shell drops a stale cookie");
+    let show_environment = SETTINGS_SHELL_RS
+        .find("[\"--user\", \"show-environment\"]")
+        .expect("shell reads the user manager environment");
+    assert!(
+        drop_stale < show_environment,
+        "the stale cookie must be dropped before the import, or it would be kept"
+    );
+}
+
+#[test]
+fn the_shell_keeps_wayland_when_x11_has_no_cookie() {
+    // Forcing GDK_BACKEND=x11 without a usable cookie cannot open the display
+    // at all; an overlay Mutter places badly still beats a shell that panics.
+    assert!(
+        SETTINGS_SHELL_RS.contains("fn x11_authority_is_reachable()"),
+        "the shell must check that an X11 connection can authenticate"
+    );
+    assert!(
+        SETTINGS_SHELL_RS.contains(".join(\".Xauthority\")"),
+        "a plain X11 session authenticates through ~/.Xauthority"
+    );
+    let check = SETTINGS_SHELL_RS
+        .find("if !x11_authority_is_reachable() {")
+        .expect("the backend choice consults the cookie");
+    let set_backend = SETTINGS_SHELL_RS
+        .find("std::env::set_var(\"GDK_BACKEND\", \"x11\")")
+        .expect("the shell selects XWayland");
+    assert!(
+        check < set_backend,
+        "the cookie must be checked before GDK_BACKEND is forced to x11"
+    );
+}
+
+#[test]
 fn the_daemon_owns_the_overlay_shell_process() {
     assert!(
         DAEMON_RS.contains("fn spawn_overlay_shell()"),

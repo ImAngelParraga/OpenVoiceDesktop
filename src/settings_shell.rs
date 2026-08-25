@@ -36,12 +36,21 @@ pub const START_HIDDEN_FLAG: &str = "--start-hidden";
 /// Wayland and Xwayland is reachable. An explicit `GDK_BACKEND` always wins.
 #[cfg(all(target_os = "linux", feature = "desktop-shell"))]
 fn import_graphical_session_environment() {
-    const VARIABLES: [&str; 4] = [
+    const VARIABLES: [&str; 5] = [
         "DISPLAY",
         "WAYLAND_DISPLAY",
+        "XAUTHORITY",
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
     ];
+
+    // `XAUTHORITY` is the one that cannot simply be inherited: Mutter writes a
+    // fresh `.mutter-Xwaylandauth.*` cookie for every login, so a value carried
+    // over from an earlier session points at a file that no longer exists and
+    // the X connection is refused exactly as if it were unset.
+    if stale_xauthority() {
+        std::env::remove_var("XAUTHORITY");
+    }
 
     if VARIABLES
         .iter()
@@ -77,6 +86,30 @@ fn import_graphical_session_environment() {
     }
 }
 
+/// Whether `XAUTHORITY` names a file that is not there. Mutter's XWayland
+/// cookie is per-login, so an inherited path from a previous session is worse
+/// than no value at all.
+#[cfg(all(target_os = "linux", feature = "desktop-shell"))]
+fn stale_xauthority() -> bool {
+    match std::env::var_os("XAUTHORITY") {
+        Some(path) if !path.is_empty() => !std::path::Path::new(&path).exists(),
+        _ => false,
+    }
+}
+
+/// Whether an X11 connection can present a cookie. XWayland refuses an
+/// unauthenticated client with "Authorization required, but no authorization
+/// protocol specified", and GTK then fails to initialize and the shell panics.
+#[cfg(all(target_os = "linux", feature = "desktop-shell"))]
+fn x11_authority_is_reachable() -> bool {
+    if !stale_xauthority() && std::env::var_os("XAUTHORITY").is_some() {
+        return true;
+    }
+    std::env::var_os("HOME")
+        .map(|home| std::path::Path::new(&home).join(".Xauthority").exists())
+        .unwrap_or(false)
+}
+
 #[cfg(all(target_os = "linux", feature = "desktop-shell"))]
 fn prefer_x11_backend_for_overlay() {
     if std::env::var_os("GDK_BACKEND").is_some() {
@@ -86,6 +119,11 @@ fn prefer_x11_backend_for_overlay() {
         .map(|value| value.eq_ignore_ascii_case("wayland"))
         .unwrap_or(false);
     if wayland && std::env::var_os("DISPLAY").is_some() {
+        if !x11_authority_is_reachable() {
+            // Better a Wayland overlay Mutter places itself than no overlay at
+            // all: X11 without a cookie cannot even open the display.
+            return;
+        }
         std::env::set_var("GDK_BACKEND", "x11");
     }
 }
