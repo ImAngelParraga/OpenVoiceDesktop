@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+# dpkg replaces /usr/lib/systemd/user/openvoice-desktop.service under every
+# running user manager, which keeps serving the unit it read at login until it
+# is told to re-read the disk. Without this the upgrade prints "The unit file
+# ... changed on disk" and the previous binary keeps running for the rest of
+# the session, so a packaged fix looks like it did not work.
+#
+# There is no `systemctl --global daemon-reload`: the user managers have to be
+# reached one at a time. `systemctl --user -M <uid>@` addresses one from root.
+# Every step is best-effort - a container, a chroot, or a machine with nobody
+# logged in has no user manager, and that must not fail the installation.
+
+reload_user_managers() {
+  command -v loginctl >/dev/null 2>&1 || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+
+  loginctl list-users --no-legend 2>/dev/null | awk '{print $1}' | while read -r uid; do
+    [ -n "$uid" ] || continue
+    systemctl --user -M "${uid}@" daemon-reload >/dev/null 2>&1 || continue
+    # Only a user already running the daemon gets it restarted; `try-restart`
+    # is a no-op for everyone else, so this never starts it behind their back.
+    systemctl --user -M "${uid}@" try-restart openvoice-desktop.service >/dev/null 2>&1 || true
+  done
+}
+
+case "$1" in
+  configure)
+    reload_user_managers
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

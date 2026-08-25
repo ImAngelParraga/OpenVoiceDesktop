@@ -117,6 +117,7 @@ const DEB_SMOKE: &str = include_str!("../scripts/test-deb-install.sh");
 const LINUX_DOCS: &str = include_str!("../docs/linux.md");
 const PACKAGED_UNIT: &str = include_str!("../systemd/openvoice-desktop-packaged.service");
 const DESKTOP_TEMPLATE: &str = include_str!("../deb/openvoice-desktop.desktop");
+const DEB_POSTINST: &str = include_str!("../deb/postinst");
 
 #[test]
 fn test_v51_local_setup_pins_linux_packaging_tools() {
@@ -185,6 +186,10 @@ fn test_v51_bundle_config_ships_user_unit_and_settings_launcher() {
         "autostart toggle runs `systemctl --user enable`, so the unit must be installed"
     );
     assert_eq!(deb["desktopTemplate"], "deb/openvoice-desktop.desktop");
+    assert_eq!(
+        deb["postInstallScript"], "deb/postinst",
+        "the upgraded unit is inert until each user manager re-reads it"
+    );
     let depends: Vec<&str> = deb["depends"]
         .as_array()
         .unwrap()
@@ -204,6 +209,37 @@ fn test_v51_bundle_config_ships_user_unit_and_settings_launcher() {
         DESKTOP_TEMPLATE.contains("Exec={{exec}} settings"),
         "Linux has no tray, so the launcher must open a visible surface"
     );
+}
+
+#[test]
+fn test_v65_postinst_reloads_every_running_user_manager() {
+    // dpkg replaces the unit file, but a user manager keeps serving what it
+    // read at login: without this the upgrade warns "changed on disk" and the
+    // previous binary runs for the rest of the session, so the fix looks dead.
+    for required in [
+        "loginctl list-users --no-legend",
+        "systemctl --user -M \"${uid}@\" daemon-reload",
+        "try-restart openvoice-desktop.service",
+        "case \"$1\" in",
+        "configure)",
+    ] {
+        assert!(DEB_POSTINST.contains(required), "{required}");
+    }
+    assert!(
+        DEB_POSTINST.starts_with("#!/bin/sh\nset -e\n"),
+        "a maintainer script must abort the installation on an unexpected failure"
+    );
+    assert!(
+        !DEB_POSTINST.contains("systemctl --user start "),
+        "an upgrade must not start the daemon for a user who had it stopped"
+    );
+    for required in [
+        "dpkg-deb --ctrl-tarfile",
+        "Package is missing its postinst maintainer script.",
+        "try-restart openvoice-desktop.service",
+    ] {
+        assert!(VERIFY_DEB.contains(required), "{required}");
+    }
 }
 
 #[test]

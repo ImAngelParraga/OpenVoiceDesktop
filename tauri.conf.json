@@ -49,6 +49,7 @@
         "depends": ["libasound2t64 | libasound2", "wl-clipboard"],
         "recommends": ["wtype", "libsecret-tools", "libnotify-bin"],
         "desktopTemplate": "deb/openvoice-desktop.desktop",
+        "postInstallScript": "deb/postinst",
         "files": {
           "/usr/lib/systemd/user/openvoice-desktop.service": "systemd/openvoice-desktop-packaged.service"
         }

@@ -64,4 +64,22 @@ for dependency in 'libwebkit2gtk-4.1-0' 'libasound2' 'wl-clipboard'; do
   fi
 done
 
+# The packaged unit replaces one a running user manager already read, so the
+# upgrade only takes effect if `postinst` makes it re-read the disk.
+CONTROL_MEMBERS="$(dpkg-deb --ctrl-tarfile "$PACKAGE" | tar -t)"
+if ! grep -Eq '(^|/)postinst$' <<<"$CONTROL_MEMBERS"; then
+  echo "Package is missing its postinst maintainer script." >&2
+  echo "$CONTROL_MEMBERS" >&2
+  exit 1
+fi
+
+POSTINST="$(dpkg-deb --ctrl-tarfile "$PACKAGE" | tar -xO ./postinst 2>/dev/null || dpkg-deb --ctrl-tarfile "$PACKAGE" | tar -xO postinst)"
+for required in 'daemon-reload' 'try-restart openvoice-desktop.service'; do
+  if ! grep -Fq "$required" <<<"$POSTINST"; then
+    echo "postinst must run $required so an upgraded unit is picked up." >&2
+    echo "$POSTINST" >&2
+    exit 1
+  fi
+done
+
 echo "Linux package payload: PASS"
