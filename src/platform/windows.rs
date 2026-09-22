@@ -488,67 +488,104 @@ const IID_AUDIO_ENDPOINT_VOLUME: GUID = GUID {
     data4: [0x97, 0x22, 0x0c, 0xf7, 0x40, 0x78, 0x22, 0x9a],
 };
 
+struct ComApartment;
+
+impl ComApartment {
+    fn initialize() -> Result<Self> {
+        let result = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
+        check_hresult(result, "initializing Windows audio COM session")?;
+        Ok(Self)
+    }
+}
+
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        unsafe { CoUninitialize() };
+    }
+}
+
+#[derive(Default)]
+struct ComObject(*mut c_void);
+
+impl ComObject {
+    fn out(&mut self) -> *mut *mut c_void {
+        debug_assert!(self.0.is_null());
+        &mut self.0
+    }
+
+    fn get(&self, operation: &str) -> Result<*mut c_void> {
+        if self.0.is_null() {
+            Err(anyhow!("{operation} returned a null COM interface"))
+        } else {
+            Ok(self.0)
+        }
+    }
+}
+
+impl Drop for ComObject {
+    fn drop(&mut self) {
+        unsafe { release_com(self.0) };
+    }
+}
+
 fn windows_output_state(
     set_muted: Option<bool>,
     set_volume: Option<f32>,
 ) -> Result<AudioOutputState> {
-    let init = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
-    if init < 0 {
-        return Err(anyhow!(
-            "initializing Windows audio COM session failed: HRESULT {init:#x}"
-        ));
-    }
-
-    let result = (|| unsafe {
-        let mut enumerator = std::ptr::null_mut();
+    let _apartment = ComApartment::initialize()?;
+    unsafe {
+        let mut enumerator = ComObject::default();
         check_hresult(
             CoCreateInstance(
                 &CLSID_MM_DEVICE_ENUMERATOR,
                 std::ptr::null_mut(),
                 CLSCTX_ALL,
                 &IID_MM_DEVICE_ENUMERATOR,
-                &mut enumerator,
+                enumerator.out(),
             ),
             "creating Windows audio device enumerator",
         )?;
-        let enumerator_vtable = *(enumerator as *mut *mut DeviceEnumeratorVtable);
-        let mut device = std::ptr::null_mut();
+        let enumerator_ptr = enumerator.get("creating Windows audio device enumerator")?;
+        let enumerator_vtable = *(enumerator_ptr as *mut *mut DeviceEnumeratorVtable);
+        let mut device = ComObject::default();
         check_hresult(
             ((*enumerator_vtable).get_default_audio_endpoint)(
-                enumerator,
+                enumerator_ptr,
                 eRender,
                 eMultimedia,
-                &mut device,
+                device.out(),
             ),
             "getting Windows default output device",
         )?;
-        let device_vtable = *(device as *mut *mut DeviceVtable);
-        let mut endpoint = std::ptr::null_mut();
+        let device_ptr = device.get("getting Windows default output device")?;
+        let device_vtable = *(device_ptr as *mut *mut DeviceVtable);
+        let mut endpoint = ComObject::default();
         check_hresult(
             ((*device_vtable).activate)(
-                device,
+                device_ptr,
                 &IID_AUDIO_ENDPOINT_VOLUME,
                 CLSCTX_ALL,
                 std::ptr::null(),
-                &mut endpoint,
+                endpoint.out(),
             ),
             "activating Windows endpoint volume",
         )?;
-        let endpoint_vtable = *(endpoint as *mut *mut EndpointVolumeVtable);
+        let endpoint_ptr = endpoint.get("activating Windows endpoint volume")?;
+        let endpoint_vtable = *(endpoint_ptr as *mut *mut EndpointVolumeVtable);
         let mut muted = 0_i32;
         let mut volume = 0.0_f32;
         check_hresult(
-            ((*endpoint_vtable).get_mute)(endpoint, &mut muted),
+            ((*endpoint_vtable).get_mute)(endpoint_ptr, &mut muted),
             "reading Windows output mute state",
         )?;
         check_hresult(
-            ((*endpoint_vtable).get_master_volume_level_scalar)(endpoint, &mut volume),
+            ((*endpoint_vtable).get_master_volume_level_scalar)(endpoint_ptr, &mut volume),
             "reading Windows output volume",
         )?;
         if let Some(set_volume) = set_volume {
             check_hresult(
                 ((*endpoint_vtable).set_master_volume_level_scalar)(
-                    endpoint,
+                    endpoint_ptr,
                     set_volume.clamp(0.0, 1.0),
                     std::ptr::null(),
                 ),
@@ -557,20 +594,15 @@ fn windows_output_state(
         }
         if let Some(set_muted) = set_muted {
             check_hresult(
-                ((*endpoint_vtable).set_mute)(endpoint, i32::from(set_muted), std::ptr::null()),
+                ((*endpoint_vtable).set_mute)(endpoint_ptr, i32::from(set_muted), std::ptr::null()),
                 "setting Windows output mute state",
             )?;
         }
-        release_com(endpoint);
-        release_com(device);
-        release_com(enumerator);
         Ok(AudioOutputState {
             muted: muted != 0,
             volume: volume.clamp(0.0, 1.0),
         })
-    })();
-    unsafe { CoUninitialize() };
-    result
+    }
 }
 
 unsafe fn release_com(value: *mut c_void) {
@@ -588,6 +620,68 @@ fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
         Ok(())
     } else {
         Err(anyhow!("{operation} failed: HRESULT {value:#x}"))
+    }
+}
+
+#[cfg(test)]
+mod com_ownership_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[repr(C)]
+    struct FakeComObject {
+        vtable: *const usize,
+        releases: *const AtomicUsize,
+    }
+
+    unsafe extern "system" fn fake_release(value: *mut c_void) -> u32 {
+        let object = &*(value as *const FakeComObject);
+        (*object.releases).fetch_add(1, Ordering::SeqCst);
+        0
+    }
+
+    #[test]
+    fn each_acquired_interface_releases_on_later_failure() {
+        for fail_after in 1..=3 {
+            let releases = std::array::from_fn::<_, 3, _>(|_| AtomicUsize::new(0));
+            let vtable = [0, 0, fake_release as *const () as usize];
+            let mut objects = std::array::from_fn::<_, 3, _>(|index| FakeComObject {
+                vtable: vtable.as_ptr(),
+                releases: &releases[index],
+            });
+
+            let result = (|| -> Result<()> {
+                let mut enumerator = ComObject::default();
+                unsafe { *enumerator.out() = (&mut objects[0] as *mut FakeComObject).cast() };
+                if fail_after == 1 {
+                    check_hresult(-1, "fake endpoint lookup")?;
+                }
+                let mut device = ComObject::default();
+                unsafe { *device.out() = (&mut objects[1] as *mut FakeComObject).cast() };
+                if fail_after == 2 {
+                    check_hresult(-1, "fake activation")?;
+                }
+                let mut endpoint = ComObject::default();
+                unsafe { *endpoint.out() = (&mut objects[2] as *mut FakeComObject).cast() };
+                check_hresult(-1, "fake volume read")?;
+                Ok(())
+            })();
+
+            assert!(result.is_err());
+            for (index, counter) in releases.iter().enumerate() {
+                assert_eq!(
+                    counter.load(Ordering::SeqCst),
+                    usize::from(index < fail_after),
+                    "failure after interface {fail_after} leaked or double-released interface {index}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn successful_hresult_with_null_interface_is_rejected() {
+        let interface = ComObject::default();
+        assert!(interface.get("fake allocation").is_err());
     }
 }
 

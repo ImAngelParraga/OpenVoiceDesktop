@@ -56,6 +56,18 @@ target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sha256
 Linux cross-compilation does not execute or smoke-test the Windows application,
 and there is no CI runner to do it either. Native coverage means copying the
 setup file to a Windows machine and running `scripts/test-installer.ps1` there.
+After installation, run the interactive runtime matrix from a PowerShell prompt:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-windows-runtime.ps1 -ExePath "$env:LOCALAPPDATA\Programs\OpenVoiceDesktop\openvoice-desktop.exe"
+```
+
+Use the executable path reported by the installer if it differs. The matrix
+records PASS/FAIL/NOT RUN and observations for W01–W10 in
+`target/windows-runtime-smoke.md`; any failure or unrun case exits nonzero.
+Do not include tokens or private transcript text in observations. The worksheet
+does not run itself during cross-build, so a release stays unsmoked until a
+Windows operator completes it.
 Release notes state that the Windows asset is unsmoked for this reason.
 
 ## Configure
@@ -112,6 +124,7 @@ Cross-compilation cannot verify these interactions. On a Windows desktop, check 
 7. Change theme and interface language before Save. Appearance and navigation should change immediately; the title should remain Settings. Translation is currently partial: field labels and detailed messages remain English. Reopen Settings and check both selections persist.
 8. Set an invalid numeric value and confirm the field shows an error before Save. Clear a previously set ASR language and confirm it saves as auto-detect. Change log level through its dropdown; turn live logs on and confirm lines refresh while Debug is open.
 9. Connect or disconnect an audio device, then use **Refresh audio devices** without restarting Settings. Check new devices and default markers, and confirm a missing saved device remains visible with a fallback warning. Repeat refresh; if enumeration fails or hangs, Settings should remain open with its prior list.
+10. During repeated playback-device failures, confirm recording output errors do not crash the app or steadily increase its process handle count. The Windows-only COM ownership unit tests cover release on each injected failure stage; this native check covers real endpoints.
 
 The Windows adapter saves the current clipboard text, sets the transcript, sends `Ctrl+V`, then restores the previous clipboard after the configured delay.
 Paste behavior follows `[output]`: `clipboard-paste` restores or leaves the clipboard according to `clipboard_handling`, `copy-only` never sends `Ctrl+V`, and `direct-type` uses the native `SendInput` path.

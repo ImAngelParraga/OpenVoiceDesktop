@@ -1,9 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use openvoice_desktop::core::config::{Config, TypingTool};
+#[cfg(unix)]
+use openvoice_desktop::core::platform::run_external_script;
 use openvoice_desktop::core::platform::{
-    paste_with_output_config, post_paste_selection_plan, run_external_script,
-    validate_external_script, PasteResult, PlatformAdapter, SelectionPlan,
+    paste_with_output_config, post_paste_selection_plan, validate_external_script, PasteResult,
+    PlatformAdapter, SelectionPlan,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
