@@ -49,6 +49,7 @@ pub struct SaveSettingsRequest {
 #[serde(rename_all = "kebab-case")]
 pub enum ApplyStatus {
     Applied,
+    Pending,
     RestartRequired,
     Unavailable,
 }
@@ -70,6 +71,15 @@ pub fn mark_runtime_deferred(result: &mut SaveSettingsResult) {
         if field.status == ApplyStatus::Applied {
             field.status = ApplyStatus::RestartRequired;
             field.reason = Some("Saved; applies when resident daemon starts".to_string());
+        }
+    }
+}
+
+pub fn mark_runtime_pending(result: &mut SaveSettingsResult) {
+    for field in &mut result.fields {
+        if field.status == ApplyStatus::Applied {
+            field.status = ApplyStatus::Pending;
+            field.reason = Some("Saved; applies after current dictation completes".to_string());
         }
     }
 }
@@ -460,10 +470,7 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
         if changed
             && matches!(
                 entry.id,
-                "portable.enabled"
-                    | "portable.data_dir"
-                    | "ipc.socket_path"
-                    | "behavior.language_shortcut"
+                "portable.enabled" | "portable.data_dir" | "ipc.socket_path"
             )
         {
             results.push(FieldApplyResult {

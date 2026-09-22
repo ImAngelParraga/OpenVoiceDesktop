@@ -457,11 +457,16 @@ saveButton.addEventListener("click", async () => {
     await new Promise(requestAnimationFrame);
     const result = await invoke("save_settings", { request: { config: documentModel.config } });
     const applied = result.fields.filter((field) => field.status === "applied").length;
+    const pending = result.fields.filter((field) => field.status === "pending").length;
     const restart = result.fields.filter((field) => field.status === "restart-required").length;
     const runtimeReasons = [...new Set(result.fields.map((field) => field.reason).filter(Boolean))];
     const reasonText = runtimeReasons.length > 0 ? ` ${runtimeReasons.join(" ")}` : "";
-    status.textContent = `Saved. ${applied} applied; ${restart} restart-required.`;
-    saveResult.textContent = `Saved. ${applied} changes applied; ${restart} require restart.${reasonText}`;
+    status.textContent = pending > 0
+      ? "Saved. Changes pending until dictation completes."
+      : `Saved. ${applied} applied; ${restart} restart-required.`;
+    saveResult.textContent = pending > 0
+      ? "Saved. Changes will apply after current dictation completes."
+      : `Saved. ${applied} changes applied; ${restart} require restart.${reasonText}`;
     saveResult.dataset.state = "success";
   } catch (error) {
     status.textContent = `Save failed: ${error}`;

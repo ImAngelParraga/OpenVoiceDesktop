@@ -132,14 +132,19 @@ impl ShortcutBindings {
                 action: ShortcutAction::Cancel,
             },
             ShortcutBinding {
-                shortcut: ParsedShortcut::parse(debug_shortcut)?,
-                action: ShortcutAction::Debug,
-            },
-            ShortcutBinding {
                 shortcut: ParsedShortcut::parse(&behavior.language_shortcut)?,
                 action: ShortcutAction::CycleLanguage,
             },
         ];
+        #[cfg(not(target_os = "windows"))]
+        let mut bindings = bindings;
+        #[cfg(not(target_os = "windows"))]
+        bindings.push(ShortcutBinding {
+            shortcut: ParsedShortcut::parse(debug_shortcut)?,
+            action: ShortcutAction::Debug,
+        });
+        #[cfg(target_os = "windows")]
+        let _ = debug_shortcut;
         let mut seen = HashSet::new();
         for binding in &bindings {
             if !seen.insert(&binding.shortcut) {

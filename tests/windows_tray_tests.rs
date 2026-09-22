@@ -74,17 +74,16 @@ fn test_v50_windows_selection_waits_for_paste_and_preserves_suffix() {
 }
 
 #[test]
-fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
+fn test_v18_cancel_shortcut_is_registered_only_during_dictation() {
     assert!(
         WINDOWS_RS.contains("const CANCEL_HOTKEY_ID: i32 = 2"),
         "cancel shortcut needs its own Windows hotkey id"
     );
     assert!(
-        WINDOWS_RS.contains("RegisterHotKey(")
-            && WINDOWS_RS.contains("CANCEL_HOTKEY_ID,")
-            && WINDOWS_RS.contains("MOD_NOREPEAT as u32,")
-            && WINDOWS_RS.contains("VK_ESCAPE as u32,"),
-        "Escape must be registered as a non-repeating global hotkey"
+        WINDOWS_RS.contains("register_hotkey(hwnd, CANCEL_HOTKEY_ID, &active.bindings.cancel)")
+            && WINDOWS_RS.contains("let wanted = snapshot.state()")
+            && WINDOWS_RS.contains("else if !wanted"),
+        "cancel shortcut must follow the saved binding and release while idle"
     );
     assert!(
         WINDOWS_RS.contains("CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel)"),
@@ -99,7 +98,7 @@ fn test_v18_escape_cancel_is_registered_globally_and_routes_to_cancel() {
 #[test]
 fn language_shortcut_registers_and_routes_to_shared_action() {
     assert!(WINDOWS_RS.contains("const LANGUAGE_HOTKEY_ID: i32 = 3"));
-    assert!(WINDOWS_RS.contains("windows_hotkey(language_shortcut)"));
+    assert!(WINDOWS_RS.contains("windows_hotkey(&config.behavior.language_shortcut)"));
     assert!(WINDOWS_RS.contains("LANGUAGE_HOTKEY_ID => send_command(TrayCommand::CycleLanguage)"));
     assert!(WINDOWS_RS.contains("UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID)"));
     assert!(WINDOWS_RS.contains("WM_LBUTTONUP"));

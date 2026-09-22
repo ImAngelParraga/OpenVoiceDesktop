@@ -1,49 +1,54 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ffi::OsStr;
 use std::iter::once;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
-    Mutex, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 use std::time::Duration;
 use tokio::sync::mpsc;
 use windows_sys::core::{GUID, HRESULT};
-use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-    FillRect, InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
-    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+    FillRect, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, RoundRect, SelectObject,
+    SetBkMode, SetTextColor, SetWindowRgn, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
 };
 use windows_sys::Win32::Media::Audio::{eMultimedia, eRender};
 use windows_sys::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_CONTROL, VK_ESCAPE,
-    VK_LEFT, VK_RETURN, VK_SHIFT, VK_SPACE, VK_V,
+    GetAsyncKeyState, RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBDINPUT, KEYEVENTF_KEYUP, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, VK_BACK,
+    VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_F1, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_RWIN,
+    VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, VK_V,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
-    LoadCursorW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+    DestroyMenu, DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, IsWindowVisible,
+    KillTimer, LoadCursorW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
     SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage,
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_HAND,
-    IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE,
-    SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND,
-    WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+    IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
+    SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY,
+    WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSW,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
 use crate::core::audio::{play_audio_feedback, AudioFeedbackPlan};
-use crate::core::config::{RecordingOutputMode, Theme, TypingTool};
+use crate::core::config::{OverlayPosition, OverlayStyle, RecordingOutputMode, Theme, TypingTool};
 use crate::core::platform::{
     post_paste_selection_plan, reduced_output_volume, AudioOutputState, PlatformAdapter,
 };
@@ -56,8 +61,11 @@ const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_STATUS_POPUP: u32 = WM_APP + 2;
 const WM_STATUS_HIDE: u32 = WM_APP + 3;
+const WM_STATUS_RECONFIGURE: u32 = WM_APP + 4;
 const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
 const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
+const HOTKEY_TIMER_ID: usize = 3;
+const WM_RELOAD_HOTKEYS: u32 = WM_APP + 5;
 const STATUS_POPUP_WIDTH: i32 = 180;
 const STATUS_POPUP_HEIGHT: i32 = 34;
 const POST_PASTE_SELECTION_DELAY_MS: u64 = 50;
@@ -79,7 +87,196 @@ static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static STATUS_POPUP_MODE: OnceLock<Mutex<StatusPopupMode>> = OnceLock::new();
 static STATUS_POPUP_FRAME: OnceLock<Mutex<u32>> = OnceLock::new();
 static RECORDING_LANGUAGE: OnceLock<Mutex<String>> = OnceLock::new();
-static TRAY_THEME: OnceLock<Mutex<Theme>> = OnceLock::new();
+static POPUP_CONFIG: OnceLock<Mutex<WindowsPopupConfig>> = OnceLock::new();
+static HOTKEYS: OnceLock<Mutex<ActiveHotkeys>> = OnceLock::new();
+static HOTKEY_RELOADS: OnceLock<
+    Mutex<VecDeque<(WindowsHotkeys, tokio::sync::oneshot::Sender<Result<()>>)>>,
+> = OnceLock::new();
+static STATUS_SNAPSHOT: OnceLock<Arc<crate::core::status::StatusSnapshot>> = OnceLock::new();
+static CANCEL_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowsPopupConfig {
+    pub show: bool,
+    pub position: OverlayPosition,
+    pub style: OverlayStyle,
+    pub theme: Theme,
+}
+
+impl Default for WindowsPopupConfig {
+    fn default() -> Self {
+        Self {
+            show: true,
+            position: OverlayPosition::Bottom,
+            style: OverlayStyle::Compact,
+            theme: Theme::System,
+        }
+    }
+}
+
+impl From<&crate::core::config::Config> for WindowsPopupConfig {
+    fn from(config: &crate::core::config::Config) -> Self {
+        Self {
+            show: config.app.show_overlay,
+            position: config.app.overlay_position,
+            style: config.app.overlay_style,
+            theme: config.ui.theme,
+        }
+    }
+}
+
+fn popup_config() -> WindowsPopupConfig {
+    *POPUP_CONFIG
+        .get_or_init(|| Mutex::new(WindowsPopupConfig::default()))
+        .lock()
+        .unwrap()
+}
+
+pub fn set_popup_config(config: WindowsPopupConfig) -> Result<()> {
+    *POPUP_CONFIG
+        .get_or_init(|| Mutex::new(WindowsPopupConfig::default()))
+        .lock()
+        .unwrap() = config;
+    if let Some(hwnd) = STATUS_POPUP_HWND.get() {
+        unsafe {
+            if PostMessageW(*hwnd, WM_STATUS_RECONFIGURE, 0, 0) == 0 {
+                return Err(anyhow!("posting Windows popup reconfiguration failed"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HotkeySpec {
+    modifiers: u32,
+    key: u32,
+    label: String,
+}
+
+impl HotkeySpec {
+    fn held(&self) -> bool {
+        unsafe {
+            let down = |key: u16| GetAsyncKeyState(i32::from(key)) as u16 & 0x8000 != 0;
+            down(self.key as u16)
+                && (self.modifiers & MOD_CONTROL as u32 == 0 || down(VK_CONTROL))
+                && (self.modifiers & MOD_ALT as u32 == 0 || down(VK_MENU))
+                && (self.modifiers & MOD_SHIFT as u32 == 0 || down(VK_SHIFT))
+                && (self.modifiers & MOD_WIN as u32 == 0 || down(VK_LWIN) || down(VK_RWIN))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsHotkeys {
+    toggle: HotkeySpec,
+    cancel: HotkeySpec,
+    language: HotkeySpec,
+    push_to_talk: bool,
+}
+
+impl WindowsHotkeys {
+    fn from_config(config: &crate::core::config::Config) -> Result<Self> {
+        Ok(Self {
+            toggle: windows_hotkey(&config.behavior.shortcut)?,
+            cancel: windows_hotkey(&config.behavior.cancel_shortcut)?,
+            language: windows_hotkey(&config.behavior.language_shortcut)?,
+            push_to_talk: config.behavior.push_to_talk,
+        })
+    }
+}
+
+struct ActiveHotkeys {
+    bindings: WindowsHotkeys,
+    cancel_registered: bool,
+    cancel_failure_reported: bool,
+    push_active: bool,
+}
+
+unsafe fn register_hotkey(hwnd: HWND, id: i32, spec: &HotkeySpec) -> Result<()> {
+    if RegisterHotKey(hwnd, id, spec.modifiers, spec.key) == 0 {
+        return Err(anyhow!(
+            "Windows shortcut {} is unavailable or already in use",
+            spec.label
+        ));
+    }
+    Ok(())
+}
+
+unsafe fn register_hotkey_set(hwnd: HWND, bindings: &WindowsHotkeys) -> Result<bool> {
+    register_hotkey(hwnd, HOTKEY_ID, &bindings.toggle)?;
+    if let Err(error) = register_hotkey(hwnd, LANGUAGE_HOTKEY_ID, &bindings.language) {
+        UnregisterHotKey(hwnd, HOTKEY_ID);
+        return Err(error);
+    }
+    let active = STATUS_SNAPSHOT
+        .get()
+        .is_some_and(|snapshot| snapshot.state() != crate::core::state::RecordingState::Idle);
+    if active {
+        if let Err(error) = register_hotkey(hwnd, CANCEL_HOTKEY_ID, &bindings.cancel) {
+            UnregisterHotKey(hwnd, HOTKEY_ID);
+            UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+            return Err(error);
+        }
+    }
+    Ok(active)
+}
+
+unsafe fn unregister_hotkey_set(hwnd: HWND) {
+    UnregisterHotKey(hwnd, HOTKEY_ID);
+    UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
+    UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+}
+
+unsafe fn replace_hotkey_set(hwnd: HWND, next: WindowsHotkeys) -> Result<()> {
+    let Some(hotkeys) = HOTKEYS.get() else {
+        return Err(anyhow!("Windows shortcuts are not initialized"));
+    };
+    let mut active = hotkeys.lock().unwrap();
+    if active.bindings == next {
+        return Ok(());
+    }
+    let previous = active.bindings.clone();
+    unregister_hotkey_set(hwnd);
+    match register_hotkey_set(hwnd, &next) {
+        Ok(cancel_registered) => {
+            active.bindings = next;
+            active.cancel_registered = cancel_registered;
+            active.cancel_failure_reported = false;
+            active.push_active = false;
+            Ok(())
+        }
+        Err(error) => {
+            active.cancel_registered =
+                register_hotkey_set(hwnd, &previous).unwrap_or_else(|rollback| {
+                    eprintln!("openvoice-desktop shortcut rollback failed: {rollback}");
+                    false
+                });
+            Err(error)
+        }
+    }
+}
+
+pub async fn apply_hotkey_config(config: &crate::core::config::Config) -> Result<()> {
+    let next = WindowsHotkeys::from_config(config)?;
+    let hwnd = *TRAY_HWND
+        .get()
+        .ok_or_else(|| anyhow!("Windows tray window is not initialized"))?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    HOTKEY_RELOADS
+        .get_or_init(|| Mutex::new(VecDeque::new()))
+        .lock()
+        .unwrap()
+        .push_back((next, tx));
+    unsafe {
+        if PostMessageW(hwnd, WM_RELOAD_HOTKEYS, 0, 0) == 0 {
+            HOTKEY_RELOADS.get().unwrap().lock().unwrap().pop_back();
+            return Err(anyhow!("posting Windows shortcut reload failed"));
+        }
+    }
+    rx.await
+        .map_err(|_| anyhow!("Windows shortcut reload stopped"))?
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StatusPopupMode {
@@ -90,6 +287,7 @@ enum StatusPopupMode {
 #[derive(Debug, Clone, Copy)]
 pub enum TrayCommand {
     Toggle,
+    PushToTalkReleased,
     CycleLanguage,
     Settings,
     CopyLastTranscript,
@@ -97,7 +295,10 @@ pub enum TrayCommand {
     TestEndpoint,
     OpenLogs,
     OpenConfigFolder,
-    ReloadLifecycle { show_tray_icon: bool },
+    ReloadLifecycle {
+        show_tray_icon: bool,
+        popup: WindowsPopupConfig,
+    },
     Quit,
 }
 
@@ -395,20 +596,28 @@ fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
 }
 
 pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
-    run_tray_loop_with_config(tx, true, false, Theme::System, "Ctrl+Alt+L")
+    run_tray_loop_with_config(
+        tx,
+        &crate::core::config::Config::default(),
+        Arc::new(crate::core::status::StatusSnapshot::new()),
+        Arc::new(AtomicBool::new(false)),
+    )
 }
 
 pub fn run_tray_loop_with_config(
     tx: mpsc::UnboundedSender<TrayCommand>,
-    show_tray_icon: bool,
-    start_hidden: bool,
-    theme: Theme,
-    language_shortcut: &str,
+    config: &crate::core::config::Config,
+    snapshot: Arc<crate::core::status::StatusSnapshot>,
+    cancel_flag: Arc<AtomicBool>,
 ) -> Result<()> {
-    *TRAY_THEME
-        .get_or_init(|| Mutex::new(Theme::System))
-        .lock()
-        .unwrap() = theme;
+    set_popup_config(WindowsPopupConfig::from(config))?;
+    let bindings = WindowsHotkeys::from_config(config)?;
+    STATUS_SNAPSHOT
+        .set(snapshot)
+        .map_err(|_| anyhow!("Windows status snapshot was already initialized"))?;
+    CANCEL_FLAG
+        .set(cancel_flag)
+        .map_err(|_| anyhow!("Windows cancel flag was already initialized"))?;
     COMMAND_TX
         .set(tx)
         .map_err(|_| anyhow!("Windows tray command channel was already initialized"))?;
@@ -454,37 +663,28 @@ pub fn run_tray_loop_with_config(
             .set(popup_hwnd)
             .map_err(|_| anyhow!("Windows status popup was already initialized"))?;
 
-        if RegisterHotKey(hwnd, HOTKEY_ID, MOD_CONTROL as u32, VK_SPACE as u32) == 0 {
-            message_box(
-                "OpenVoiceDesktop hotkey unavailable",
-                "Ctrl+Space is already registered by another application.",
-            )?;
-        }
-        if RegisterHotKey(
-            hwnd,
-            CANCEL_HOTKEY_ID,
-            MOD_NOREPEAT as u32,
-            VK_ESCAPE as u32,
-        ) == 0
-        {
-            message_box(
-                "OpenVoiceDesktop cancel shortcut unavailable",
-                "Escape is already registered by another application.",
-            )?;
-        }
-        let (language_modifiers, language_key) = windows_hotkey(language_shortcut)?;
-        if RegisterHotKey(hwnd, LANGUAGE_HOTKEY_ID, language_modifiers, language_key) == 0 {
-            message_box(
-                "OpenVoiceDesktop language shortcut unavailable",
-                &format!("{language_shortcut} is already registered by another application."),
-            )?;
+        let cancel_registered = register_hotkey_set(hwnd, &bindings).map_err(|error| {
+            let _ = message_box("OpenVoiceDesktop shortcut unavailable", &error.to_string());
+            error
+        })?;
+        HOTKEYS
+            .set(Mutex::new(ActiveHotkeys {
+                bindings,
+                cancel_registered,
+                cancel_failure_reported: false,
+                push_active: false,
+            }))
+            .map_err(|_| anyhow!("Windows shortcuts were already initialized"))?;
+        if SetTimer(hwnd, HOTKEY_TIMER_ID, 40, None) == 0 {
+            unregister_hotkey_set(hwnd);
+            return Err(anyhow!("starting Windows shortcut lifecycle timer failed"));
         }
 
-        if show_tray_icon {
+        if config.app.show_tray_icon {
             add_tray_icon(hwnd)?;
             TRAY_ICON_VISIBLE.store(true, Ordering::Relaxed);
         }
-        if start_hidden {
+        if config.app.start_hidden {
             ShowWindow(hwnd, SW_HIDE);
         }
 
@@ -497,9 +697,8 @@ pub fn run_tray_loop_with_config(
         if TRAY_ICON_VISIBLE.swap(false, Ordering::Relaxed) {
             remove_tray_icon(hwnd);
         }
-        UnregisterHotKey(hwnd, HOTKEY_ID);
-        UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
-        UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+        KillTimer(hwnd, HOTKEY_TIMER_ID);
+        unregister_hotkey_set(hwnd);
         Ok(())
     }
 }
@@ -524,7 +723,7 @@ fn send_ctrl_v() -> Result<()> {
     Ok(())
 }
 
-fn windows_hotkey(shortcut: &str) -> Result<(u32, u32)> {
+fn windows_hotkey(shortcut: &str) -> Result<HotkeySpec> {
     let parsed = crate::core::shortcut::ParsedShortcut::parse(shortcut)?;
     let mut parts = parsed.as_str().split('+').collect::<Vec<_>>();
     let key = parts.pop().ok_or_else(|| anyhow!("shortcut has no key"))?;
@@ -534,7 +733,7 @@ fn windows_hotkey(shortcut: &str) -> Result<(u32, u32)> {
             "Ctrl" => MOD_CONTROL as u32,
             "Alt" => MOD_ALT as u32,
             "Shift" => MOD_SHIFT as u32,
-            "Win" => MOD_WIN as u32,
+            "Super" => MOD_WIN as u32,
             _ => {
                 return Err(anyhow!(
                     "unsupported Windows shortcut modifier {modifier:?}"
@@ -545,10 +744,24 @@ fn windows_hotkey(shortcut: &str) -> Result<(u32, u32)> {
     let virtual_key = match key {
         "Space" => VK_SPACE as u32,
         "Escape" => VK_ESCAPE as u32,
+        "Enter" => VK_RETURN as u32,
+        "Tab" => VK_TAB as u32,
+        "Backspace" => VK_BACK as u32,
+        "Left" => VK_LEFT as u32,
+        "Right" => VK_RIGHT as u32,
+        "Up" => VK_UP as u32,
+        "Down" => VK_DOWN as u32,
+        value if value.starts_with('F') && value[1..].parse::<u32>().is_ok() => {
+            VK_F1 as u32 + value[1..].parse::<u32>()? - 1
+        }
         value if value.len() == 1 => value.as_bytes()[0].to_ascii_uppercase() as u32,
         _ => return Err(anyhow!("unsupported Windows shortcut key {key:?}")),
     };
-    Ok((modifiers, virtual_key))
+    Ok(HotkeySpec {
+        modifiers,
+        key: virtual_key,
+        label: parsed.as_str().to_string(),
+    })
 }
 
 fn send_enter() -> Result<()> {
@@ -625,11 +838,31 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_HOTKEY => {
             match wparam as i32 {
-                HOTKEY_ID => send_command(TrayCommand::Toggle),
+                HOTKEY_ID => {
+                    if let Some(hotkeys) = HOTKEYS.get() {
+                        let mut active = hotkeys.lock().unwrap();
+                        if !active.bindings.push_to_talk || !active.push_active {
+                            active.push_active = active.bindings.push_to_talk;
+                            send_command(TrayCommand::Toggle);
+                        }
+                    }
+                }
                 CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel),
                 LANGUAGE_HOTKEY_ID => send_command(TrayCommand::CycleLanguage),
                 _ => {}
             }
+            0
+        }
+        WM_RELOAD_HOTKEYS => {
+            if let Some(queue) = HOTKEY_RELOADS.get() {
+                while let Some((next, reply)) = queue.lock().unwrap().pop_front() {
+                    let _ = reply.send(replace_hotkey_set(hwnd, next));
+                }
+            }
+            0
+        }
+        WM_TIMER if wparam == HOTKEY_TIMER_ID => {
+            sync_hotkey_lifecycle(hwnd);
             0
         }
         WM_COMMAND => {
@@ -661,8 +894,46 @@ unsafe extern "system" fn wnd_proc(
 }
 
 fn send_command(command: TrayCommand) {
+    if matches!(command, TrayCommand::Cancel) {
+        if let Some(flag) = CANCEL_FLAG.get() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
     if let Some(tx) = COMMAND_TX.get() {
         let _ = tx.send(command);
+    }
+}
+
+unsafe fn sync_hotkey_lifecycle(hwnd: HWND) {
+    let Some(snapshot) = STATUS_SNAPSHOT.get() else {
+        return;
+    };
+    let Some(hotkeys) = HOTKEYS.get() else {
+        return;
+    };
+    let mut active = hotkeys.lock().unwrap();
+    let wanted = snapshot.state() != crate::core::state::RecordingState::Idle;
+    if wanted && !active.cancel_registered && !active.cancel_failure_reported {
+        match register_hotkey(hwnd, CANCEL_HOTKEY_ID, &active.bindings.cancel) {
+            Ok(()) => active.cancel_registered = true,
+            Err(error) => {
+                active.cancel_failure_reported = true;
+                let _ = message_box(
+                    "OpenVoiceDesktop cancel shortcut unavailable",
+                    &error.to_string(),
+                );
+            }
+        }
+    } else if !wanted {
+        if active.cancel_registered {
+            UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
+            active.cancel_registered = false;
+        }
+        active.cancel_failure_reported = false;
+    }
+    if active.push_active && !active.bindings.toggle.held() {
+        active.push_active = false;
+        send_command(TrayCommand::PushToTalkReleased);
     }
 }
 
@@ -698,6 +969,9 @@ unsafe fn remove_tray_icon(hwnd: HWND) {
 }
 
 pub fn show_status_popup(text: &str, timeout_ms: Option<u32>) -> Result<()> {
+    if !popup_config().show {
+        return Ok(());
+    }
     let hwnd = *STATUS_POPUP_HWND
         .get()
         .ok_or_else(|| anyhow!("Windows status popup is not initialized"))?;
@@ -716,6 +990,9 @@ pub fn show_status_popup(text: &str, timeout_ms: Option<u32>) -> Result<()> {
 }
 
 pub fn show_recording_popup() -> Result<()> {
+    if !popup_config().show {
+        return Ok(());
+    }
     let hwnd = *STATUS_POPUP_HWND
         .get()
         .ok_or_else(|| anyhow!("Windows status popup is not initialized"))?;
@@ -797,6 +1074,10 @@ unsafe extern "system" fn status_popup_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_STATUS_POPUP => {
+            if !popup_config().show {
+                ShowWindow(hwnd, SW_HIDE);
+                return 0;
+            }
             position_status_popup(hwnd);
             InvalidateRect(hwnd, std::ptr::null(), 1);
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -825,6 +1106,17 @@ unsafe extern "system" fn status_popup_wnd_proc(
             ShowWindow(hwnd, SW_HIDE);
             0
         }
+        WM_STATUS_RECONFIGURE => {
+            if !popup_config().show {
+                KillTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID);
+                KillTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID);
+                ShowWindow(hwnd, SW_HIDE);
+            } else if IsWindowVisible(hwnd) != 0 {
+                position_status_popup(hwnd);
+                InvalidateRect(hwnd, std::ptr::null(), 1);
+            }
+            0
+        }
         WM_TIMER if wparam == STATUS_POPUP_HIDE_TIMER_ID => {
             KillTimer(hwnd, STATUS_POPUP_HIDE_TIMER_ID);
             KillTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID);
@@ -842,6 +1134,10 @@ unsafe extern "system" fn status_popup_wnd_proc(
             paint_status_popup(hwnd);
             0
         }
+        WM_SETTINGCHANGE | WM_THEMECHANGED => {
+            InvalidateRect(hwnd, std::ptr::null(), 1);
+            0
+        }
         WM_LBUTTONUP => {
             let mode = *STATUS_POPUP_MODE
                 .get_or_init(|| Mutex::new(StatusPopupMode::Text))
@@ -857,10 +1153,33 @@ unsafe extern "system" fn status_popup_wnd_proc(
 }
 
 unsafe fn position_status_popup(hwnd: HWND) {
-    let width = STATUS_POPUP_WIDTH;
-    let height = STATUS_POPUP_HEIGHT;
-    let x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
-    let y = GetSystemMetrics(SM_CYSCREEN) - height - 64;
+    let config = popup_config();
+    let (logical_width, logical_height) = match config.style {
+        OverlayStyle::Compact => (STATUS_POPUP_WIDTH, STATUS_POPUP_HEIGHT),
+        OverlayStyle::Expanded => (300, 50),
+    };
+    let mut cursor = POINT { x: 0, y: 0 };
+    GetCursorPos(&mut cursor);
+    let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+    let mut info: MONITORINFO = std::mem::zeroed();
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    if monitor == 0 || GetMonitorInfoW(monitor, &mut info) == 0 {
+        return;
+    }
+    let mut dpi_x = 96;
+    let mut dpi_y = 96;
+    if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) < 0 {
+        dpi_x = 96;
+        dpi_y = 96;
+    }
+    let width = logical_width * dpi_x as i32 / 96;
+    let height = logical_height * dpi_y as i32 / 96;
+    let work = info.rcWork;
+    let x = work.left + (work.right - work.left - width) / 2;
+    let y = match config.position {
+        OverlayPosition::Top => work.top + 32,
+        OverlayPosition::Bottom => work.bottom - height - 64,
+    };
     let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, height, height);
     if region != 0 {
         SetWindowRgn(hwnd, region, 1);
@@ -879,18 +1198,9 @@ unsafe fn position_status_popup(hwnd: HWND) {
 unsafe fn paint_status_popup(hwnd: HWND) {
     let mut ps: PAINTSTRUCT = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
-    let rect = RECT {
-        left: 0,
-        top: 0,
-        right: STATUS_POPUP_WIDTH,
-        bottom: STATUS_POPUP_HEIGHT,
-    };
-    let (background, border, foreground) = tray_palette(
-        *TRAY_THEME
-            .get_or_init(|| Mutex::new(Theme::System))
-            .lock()
-            .unwrap(),
-    );
+    let mut rect: RECT = std::mem::zeroed();
+    GetClientRect(hwnd, &mut rect);
+    let (background, border, foreground) = tray_palette(popup_config().theme);
     let brush = CreateSolidBrush(background);
     let pen = CreatePen(PS_SOLID, 1, border);
     let old_brush = SelectObject(hdc, brush);
@@ -901,8 +1211,8 @@ unsafe fn paint_status_popup(hwnd: HWND) {
         rect.top,
         rect.right,
         rect.bottom,
-        STATUS_POPUP_HEIGHT,
-        STATUS_POPUP_HEIGHT,
+        rect.bottom,
+        rect.bottom,
     );
     SelectObject(hdc, old_pen);
     SelectObject(hdc, old_brush);
@@ -914,7 +1224,7 @@ unsafe fn paint_status_popup(hwnd: HWND) {
         .lock()
         .unwrap();
     if mode == StatusPopupMode::RecordingBars {
-        draw_recording_bars(hdc, foreground);
+        draw_recording_bars(hdc, foreground, rect.right, rect.bottom);
     } else {
         SetBkMode(hdc, TRANSPARENT as i32);
         SetTextColor(hdc, foreground);
@@ -926,8 +1236,8 @@ unsafe fn paint_status_popup(hwnd: HWND) {
         let mut text_rect = RECT {
             left: 14,
             top: 0,
-            right: STATUS_POPUP_WIDTH - 14,
-            bottom: STATUS_POPUP_HEIGHT,
+            right: rect.right - 14,
+            bottom: rect.bottom,
         };
         DrawTextW(
             hdc,
@@ -940,7 +1250,7 @@ unsafe fn paint_status_popup(hwnd: HWND) {
     EndPaint(hwnd, &ps);
 }
 
-unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
+unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, height: i32) {
     let frame = *STATUS_POPUP_FRAME
         .get_or_init(|| Mutex::new(0))
         .lock()
@@ -959,7 +1269,7 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
         left: 10,
         top: 0,
         right: 52,
-        bottom: STATUS_POPUP_HEIGHT,
+        bottom: height,
     };
     DrawTextW(
         hdc,
@@ -969,16 +1279,16 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
     let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
-    let mut x = 56 + (STATUS_POPUP_WIDTH - 56 - total_width) / 2;
+    let mut x = 56 + (width - 56 - total_width) / 2;
     let brush = CreateSolidBrush(foreground);
     for index in 0..heights.len() {
-        let height = heights[((index as u32 + frame) as usize) % heights.len()];
-        let y = (STATUS_POPUP_HEIGHT - height) / 2;
+        let bar_height = heights[((index as u32 + frame) as usize) % heights.len()];
+        let y = (height - bar_height) / 2;
         let rect = RECT {
             left: x,
             top: y,
             right: x + bar_width,
-            bottom: y + height,
+            bottom: y + bar_height,
         };
         FillRect(hdc, &rect, brush);
         x += bar_width + gap;
@@ -989,8 +1299,28 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF) {
 fn tray_palette(theme: Theme) -> (COLORREF, COLORREF, COLORREF) {
     match theme {
         Theme::Light => (rgb(247, 248, 250), rgb(203, 213, 225), rgb(32, 36, 42)),
+        Theme::System if system_uses_light_theme() => {
+            (rgb(247, 248, 250), rgb(203, 213, 225), rgb(32, 36, 42))
+        }
         Theme::Dark | Theme::System => (rgb(17, 20, 24), rgb(48, 56, 66), rgb(244, 247, 250)),
     }
+}
+
+fn system_uses_light_theme() -> bool {
+    let mut value = 1u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            wide("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize").as_ptr(),
+            wide("AppsUseLightTheme").as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut value as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    status != 0 || value != 0
 }
 
 fn load_logo_icon() -> Option<isize> {
@@ -1114,7 +1444,7 @@ fn open_settings_panel() -> Result<()> {
 
 pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
     match command {
-        TrayCommand::Toggle => Ok(true),
+        TrayCommand::Toggle | TrayCommand::PushToTalkReleased => Ok(true),
         TrayCommand::Cancel => Ok(false),
         TrayCommand::CycleLanguage => Ok(false),
         TrayCommand::Settings => {
@@ -1152,8 +1482,12 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
             tokio::task::spawn_blocking(open_config_folder).await??;
             Ok(false)
         }
-        TrayCommand::ReloadLifecycle { show_tray_icon } => {
+        TrayCommand::ReloadLifecycle {
+            show_tray_icon,
+            popup,
+        } => {
             set_tray_visibility(show_tray_icon)?;
+            set_popup_config(popup)?;
             Ok(false)
         }
         TrayCommand::Quit => Ok(false),
@@ -1189,6 +1523,15 @@ fn message_box(title: &str, body: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn report_deferred_reload_error() {
+    std::thread::spawn(|| {
+        let _ = message_box(
+            "OpenVoiceDesktop settings could not be applied",
+            "Saved settings could not be applied after dictation. Reopen Settings and save again, or restart OpenVoiceDesktop.",
+        );
+    });
 }
 
 fn wide(value: &str) -> Vec<u16> {

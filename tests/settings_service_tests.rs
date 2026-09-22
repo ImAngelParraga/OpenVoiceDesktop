@@ -4,8 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 use openvoice_desktop::core::config::Config;
 use openvoice_desktop::core::settings_inventory::{InventoryKind, SETTINGS_INVENTORY};
 use openvoice_desktop::core::settings_service::{
-    complete_onboarding, mark_runtime_deferred, validate_config, ApplyStatus, FieldApplyResult,
-    SaveSettingsRequest, SaveSettingsResult, SettingsService,
+    complete_onboarding, mark_runtime_deferred, mark_runtime_pending, validate_config, ApplyStatus,
+    FieldApplyResult, SaveSettingsRequest, SaveSettingsResult, SettingsService,
 };
 
 static DEVICE_ENUMERATION_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -130,6 +130,32 @@ fn test_v42_deferred_runtime_marks_applied_fields_restart_required() {
         result.fields[0].reason.as_deref(),
         Some("Saved; applies when resident daemon starts")
     );
+    assert_eq!(result.fields[1].reason.as_deref(), Some("existing"));
+}
+
+#[test]
+fn busy_runtime_marks_live_fields_pending_without_marking_restart_fields() {
+    let mut result = SaveSettingsResult {
+        fields: vec![
+            FieldApplyResult {
+                field: "app.overlay_position".to_string(),
+                status: ApplyStatus::Applied,
+                reason: None,
+            },
+            FieldApplyResult {
+                field: "portable.enabled".to_string(),
+                status: ApplyStatus::RestartRequired,
+                reason: Some("existing".to_string()),
+            },
+        ],
+    };
+    mark_runtime_pending(&mut result);
+    assert_eq!(result.fields[0].status, ApplyStatus::Pending);
+    assert_eq!(
+        result.fields[0].reason.as_deref(),
+        Some("Saved; applies after current dictation completes")
+    );
+    assert_eq!(result.fields[1].status, ApplyStatus::RestartRequired);
     assert_eq!(result.fields[1].reason.as_deref(), Some("existing"));
 }
 
@@ -395,7 +421,7 @@ fn portable_changes_report_restart_required_without_being_disabled() {
 }
 
 #[test]
-fn language_shortcut_change_reports_restart_required() {
+fn language_shortcut_change_applies_without_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let previous = Config::default();
@@ -412,6 +438,6 @@ fn language_shortcut_change_reports_restart_required() {
         .unwrap();
     assert_eq!(
         language.status,
-        openvoice_desktop::core::settings_service::ApplyStatus::RestartRequired
+        openvoice_desktop::core::settings_service::ApplyStatus::Applied
     );
 }

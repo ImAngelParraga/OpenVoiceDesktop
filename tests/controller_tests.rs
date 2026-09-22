@@ -439,6 +439,31 @@ async fn late_asr_result_after_cancel_is_not_pasted() {
 }
 
 #[tokio::test]
+async fn cancel_interrupts_slow_asr_before_paste() {
+    let platform = FakePlatform::new(None);
+    let observations = platform.observations.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        SlowAsr,
+        platform,
+        Config::default(),
+    );
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    let cancel = controller.cancel_handle();
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(controller.toggle(), async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel.cancel();
+        })
+    })
+    .await
+    .expect("cancel should not wait for the ASR timeout");
+    assert_eq!(result.unwrap(), ToggleOutcome::Canceled);
+    assert_eq!(controller.state(), RecordingState::Idle);
+    assert!(observations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn an_externally_held_cancel_flag_suppresses_the_pending_paste() {
     // The daemon answers a cancel while the controller is busy uploading, so
     // the flag it raises has to be the very one the controller checks.
@@ -740,6 +765,23 @@ impl AsrClient for FakeAsr {
 }
 
 struct UnreachableAsr;
+
+struct SlowAsr;
+
+#[async_trait]
+impl AsrClient for SlowAsr {
+    async fn transcribe_file(
+        &self,
+        _path: &Path,
+        _language: Option<&str>,
+    ) -> Result<Transcription> {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        Ok(Transcription {
+            text: "too late".to_string(),
+            elapsed: Duration::from_secs(10),
+        })
+    }
+}
 
 #[async_trait]
 impl AsrClient for UnreachableAsr {

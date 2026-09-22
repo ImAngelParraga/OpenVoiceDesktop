@@ -1,6 +1,6 @@
 # Windows 10/11 V1
 
-OpenVoiceDesktop on Windows runs as a resident tray app. It registers `Ctrl+Space` itself, so no external shortcut setup is required.
+OpenVoiceDesktop on Windows runs as a resident tray app. It registers the configured recording shortcut itself (`Ctrl+Space` by default), so no external shortcut setup is required.
 
 ## Install
 
@@ -90,12 +90,24 @@ Token lookup order is:
 ## Use
 
 - Start the app from the Start menu. Completed setup launches the resident tray app.
-- Toggle recording: `Ctrl+Space`
+- Toggle recording: configured shortcut (`Ctrl+Space` by default).
 - First press starts recording.
 - Second press stops, uploads WAV audio to `{base_url}/v1/audio/transcriptions`, and pastes the returned transcript.
 - `Ctrl+Space` shows a compact bottom-of-screen status popup: animated bars while recording, `processing` while uploading/transcribing, and short feedback for empty transcript, busy, or error states. Successful insertion stays quiet. It does not use Windows notification balloons.
 
-If `Ctrl+Space` does nothing, another Windows feature or app may have captured that shortcut. Open Settings from the tray and choose a different shortcut.
+If the recording shortcut does nothing, another Windows feature or app may have captured it. Open Settings from the tray and choose a different shortcut. The cancel shortcut is registered only during dictation, so the default `Escape` remains available to other applications while OpenVoiceDesktop is idle. Push-to-talk mode stops recording when the configured recording chord is released.
+
+The native status popup follows the saved overlay visibility, top/bottom position, compact/expanded style, and light/dark/system theme. It uses the work area and DPI of the monitor under the pointer when shown. Settings changes apply without restarting the resident app; a Save during dictation reports pending until the current dictation finishes.
+
+### Native Windows checks after installing a new release
+
+Cross-compilation cannot verify these interactions. On a Windows desktop, check each item and record pass/fail before calling the setup smoke-tested:
+
+1. Start dictation with Settings closed. Change overlay visibility, position, style, and theme; Save after each change. Check the next popup, including on a secondary monitor with a different scale. Repeat with Settings open; only one popup should appear.
+2. Change recording, cancel, and language shortcuts; Save and use each without restarting. Try a shortcut held by another app: Save should report the conflict, and the previous binding should still work. Confirm `Escape` works normally in other apps while idle.
+3. Enable push-to-talk, Save, hold the recording chord, then release it. Recording should stop once. Press the chord briefly and release before startup finishes; it must not start another recording.
+4. Use a slow ASR endpoint. During upload, query `openvoice-desktop status`, cancel with the configured shortcut or tray menu, and confirm no transcript is inserted. Save a setting during upload; it should report pending and take effect after dictation ends.
+5. Change recording output mode or volume, Save, and start a new recording without restarting. Confirm output reduction applies and restores on stop. Test the actual playback endpoint used by the user.
 
 The Windows adapter saves the current clipboard text, sets the transcript, sends `Ctrl+V`, then restores the previous clipboard after the configured delay.
 Paste behavior follows `[output]`: `clipboard-paste` restores or leaves the clipboard according to `clipboard_handling`, `copy-only` never sends `Ctrl+V`, and `direct-type` uses the native `SendInput` path.

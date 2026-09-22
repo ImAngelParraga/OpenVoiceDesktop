@@ -178,7 +178,13 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     wa!("retry-transcript"),
     wa!("save-transcript"),
     // I.settings.debug
+    #[cfg(not(target_os = "windows"))]
     w!("debug.debug_shortcut"),
+    #[cfg(target_os = "windows")]
+    u!(
+        "debug.debug_shortcut",
+        "Windows debug shortcut is not implemented"
+    ),
     w!("debug.log_level"),
     w!("debug.live_log_viewer"),
     w!("debug.recording_buffer_ms"),

@@ -681,17 +681,13 @@ pub async fn run(config: Config) -> Result<()> {
     crate::core::lifecycle::acquire_daemon_instance()?;
     use anyhow::Context;
     use std::sync::mpsc as std_mpsc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
     use tokio::sync::mpsc;
 
     use crate::core::asr::ReqwestAsrClient;
     use crate::core::controller::VoiceController;
     use crate::core::recorder::CpalRecorder;
-    use crate::ipc::{
-        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
-        STATUS_COMMAND, TOGGLE_COMMAND, WINDOWS_PIPE_NAME,
-    };
+    use crate::ipc::WINDOWS_PIPE_NAME;
     use crate::platform::windows::{
         handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_recording_language,
         set_tray_state, show_recording_popup, show_status_popup, TrayCommand,
@@ -699,7 +695,11 @@ pub async fn run(config: Config) -> Result<()> {
     };
 
     let (controller_tx, controller_rx) = std_mpsc::channel::<ControllerRequest>();
+    let snapshot = std::sync::Arc::new(crate::core::status::StatusSnapshot::new());
+    let cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let controller_config = config.clone();
+    let controller_snapshot = std::sync::Arc::clone(&snapshot);
+    let controller_cancel_flag = std::sync::Arc::clone(&cancel_flag);
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -714,17 +714,26 @@ pub async fn run(config: Config) -> Result<()> {
 
         runtime.block_on(async move {
             let recorder = CpalRecorder::with_audio_config(&controller_config.audio);
+            controller_snapshot.attach_level(recorder.level_handle());
             let asr = ReqwestAsrClient::new(controller_config.clone());
             let platform = WindowsPlatformAdapter;
             let history = crate::core::history::HistoryStore::from_config(&controller_config).ok();
             let logger = logger_from_config(&controller_config);
-            let mut controller = VoiceController::new(recorder, asr, platform, controller_config);
+            let mut controller = VoiceController::with_event_sink(
+                recorder,
+                asr,
+                platform,
+                controller_config,
+                std::sync::Arc::clone(&controller_snapshot),
+            )
+            .with_cancel_flag(std::sync::Arc::clone(&controller_cancel_flag));
             if let Some(history) = history {
                 controller = controller.with_history_store(history);
             }
             if let Some(logger) = logger {
                 controller = controller.with_logger(logger);
             }
+            controller_snapshot.set_language(controller.selected_language().map(str::to_string));
 
             while let Ok(request) = controller_rx.recv() {
                 if matches!(&request.command, ControllerCommand::Status) {
@@ -739,10 +748,18 @@ pub async fn run(config: Config) -> Result<()> {
                 }
                 let result = match request.command {
                     ControllerCommand::Toggle => controller.toggle().await,
+                    ControllerCommand::StopIfRecording => {
+                        if controller.state() == crate::core::state::RecordingState::Recording {
+                            controller.toggle().await
+                        } else {
+                            Ok(crate::core::state::ToggleOutcome::Canceled)
+                        }
+                    }
                     ControllerCommand::Cancel => controller.cancel().await,
                     ControllerCommand::CycleLanguage => {
                         let response = match controller.cycle_language() {
                             Ok(language) => {
+                                controller_snapshot.set_language(language.clone());
                                 format!("Language: {}\n", language.as_deref().unwrap_or("auto"))
                             }
                             Err(error) => format!("error: {error}\n"),
@@ -759,18 +776,27 @@ pub async fn run(config: Config) -> Result<()> {
                             continue;
                         }
                         let recorder = CpalRecorder::with_audio_config(&updated.audio);
+                        controller_snapshot.attach_level(recorder.level_handle());
                         let asr = ReqwestAsrClient::new(updated.clone());
                         let history =
                             crate::core::history::HistoryStore::from_config(&updated).ok();
                         let logger = logger_from_config(&updated);
-                        controller =
-                            VoiceController::new(recorder, asr, WindowsPlatformAdapter, updated);
+                        controller = VoiceController::with_event_sink(
+                            recorder,
+                            asr,
+                            WindowsPlatformAdapter,
+                            updated,
+                            std::sync::Arc::clone(&controller_snapshot),
+                        )
+                        .with_cancel_flag(std::sync::Arc::clone(&controller_cancel_flag));
                         if let Some(history) = history {
                             controller = controller.with_history_store(history);
                         }
                         if let Some(logger) = logger {
                             controller = controller.with_logger(logger);
                         }
+                        controller_snapshot
+                            .set_language(controller.selected_language().map(str::to_string));
                         let _ = request.reply_tx.send("Reloaded\n".to_string());
                         continue;
                     }
@@ -803,57 +829,81 @@ pub async fn run(config: Config) -> Result<()> {
     });
 
     let (tray_tx, mut tray_rx) = mpsc::unbounded_channel::<TrayCommand>();
+    let (reload_tx, mut reload_rx) =
+        mpsc::unbounded_channel::<(Config, tokio::sync::oneshot::Sender<String>)>();
+    let reload_controller_tx = controller_tx.clone();
+    let reload_tray_tx = tray_tx.clone();
+    let reload_snapshot = std::sync::Arc::clone(&snapshot);
+    let mut active_config = config.clone();
+    tokio::spawn(async move {
+        while let Some((updated, reply)) = reload_rx.recv().await {
+            while reload_snapshot.state() != crate::core::state::RecordingState::Idle {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            let response = match crate::platform::windows::apply_hotkey_config(&updated).await {
+                Err(error) => format!("error: rejected shortcut: {error}\n"),
+                Ok(()) => {
+                    let response = loop {
+                        let response = request_controller(
+                            &reload_controller_tx,
+                            ControllerCommand::Reload(updated.clone()),
+                        )
+                        .await;
+                        if !response.starts_with("error: rejected config: controller busy") {
+                            break response;
+                        }
+                        while reload_snapshot.state() != crate::core::state::RecordingState::Idle {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    };
+                    if response.trim() == "Reloaded" {
+                        active_config = updated.clone();
+                        let _ = reload_tray_tx.send(TrayCommand::ReloadLifecycle {
+                            show_tray_icon: updated.app.show_tray_icon,
+                            popup: crate::platform::windows::WindowsPopupConfig::from(&updated),
+                        });
+                    } else if let Err(error) =
+                        crate::platform::windows::apply_hotkey_config(&active_config).await
+                    {
+                        eprintln!("openvoice-desktop shortcut rollback failed: {error}");
+                    }
+                    response
+                }
+            };
+            if reply.is_closed() && response.starts_with("error:") {
+                eprintln!(
+                    "openvoice-desktop deferred config reload failed: {}",
+                    response.trim()
+                );
+                crate::platform::windows::report_deferred_reload_error();
+            }
+            let _ = reply.send(response);
+        }
+    });
     let pipe_controller_tx = controller_tx.clone();
-    let pipe_tray_tx = tray_tx.clone();
+    let pipe_snapshot = std::sync::Arc::clone(&snapshot);
+    let pipe_cancel_flag = std::sync::Arc::clone(&cancel_flag);
     tokio::spawn(async move {
         loop {
             let result = async {
-                let mut server = ServerOptions::new()
+                let server = ServerOptions::new()
                     .pipe_mode(PipeMode::Message)
                     .create(WINDOWS_PIPE_NAME)
                     .with_context(|| format!("creating daemon pipe {WINDOWS_PIPE_NAME}"))?;
                 server.connect().await?;
-
-                let mut command = String::new();
-                server.read_to_string(&mut command).await?;
-                let response = if command == TOGGLE_COMMAND {
-                    request_controller(&pipe_controller_tx, ControllerCommand::Toggle).await
-                } else if command == CANCEL_COMMAND {
-                    request_controller(&pipe_controller_tx, ControllerCommand::Cancel).await
-                } else if command == CYCLE_LANGUAGE_COMMAND {
-                    request_controller(&pipe_controller_tx, ControllerCommand::CycleLanguage).await
-                } else if command == STATUS_COMMAND {
-                    request_controller(&pipe_controller_tx, ControllerCommand::Status).await
-                } else if command == RELOAD_CONFIG_COMMAND {
-                    match Config::load_default().and_then(|loaded| {
-                        crate::core::settings_service::validate_config(&loaded.config)?;
-                        Ok(loaded.config)
-                    }) {
-                        Ok(updated) => {
-                            let show_tray_icon = updated.app.show_tray_icon;
-                            let response = request_controller(
-                                &pipe_controller_tx,
-                                ControllerCommand::Reload(updated),
-                            )
-                            .await;
-                            if response.trim() == "Reloaded" {
-                                let _ = pipe_tray_tx
-                                    .send(TrayCommand::ReloadLifecycle { show_tray_icon });
-                            }
-                            response
-                        }
-                        Err(error) => format!("error: rejected config: {error}\n"),
+                let controller_tx = pipe_controller_tx.clone();
+                let snapshot = std::sync::Arc::clone(&pipe_snapshot);
+                let cancel_flag = std::sync::Arc::clone(&pipe_cancel_flag);
+                let reload_tx = reload_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(error) =
+                        serve_windows_pipe(server, controller_tx, snapshot, cancel_flag, reload_tx)
+                            .await
+                    {
+                        eprintln!("openvoice-desktop pipe connection error: {error}");
                     }
-                } else if command == SHUTDOWN_COMMAND {
-                    let response =
-                        request_controller(&pipe_controller_tx, ControllerCommand::Shutdown).await;
-                    crate::platform::windows::request_tray_exit();
-                    response
-                } else {
-                    format!("error: unknown command {:?}\n", command.trim())
-                };
-                set_tray_state(tray_state_from_response(&response));
-                server.write_all(response.as_bytes()).await?;
+                });
                 anyhow::Ok(())
             }
             .await;
@@ -871,8 +921,13 @@ pub async fn run(config: Config) -> Result<()> {
             match handle_tray_command(command).await {
                 Ok(true) => {
                     show_status_popup("processing", None).ok();
+                    let controller_command = if matches!(command, TrayCommand::PushToTalkReleased) {
+                        ControllerCommand::StopIfRecording
+                    } else {
+                        ControllerCommand::Toggle
+                    };
                     let response =
-                        request_controller(&tray_controller_tx, ControllerCommand::Toggle).await;
+                        request_controller(&tray_controller_tx, controller_command).await;
                     set_tray_state(tray_state_from_response(&response));
                     eprint!("{response}");
                     match toggle_status_popup(&response) {
@@ -950,13 +1005,73 @@ pub async fn run(config: Config) -> Result<()> {
     });
 
     eprintln!("openvoice-desktop Windows tray app starting");
-    run_tray_loop_with_config(
-        tray_tx,
-        config.app.show_tray_icon,
-        config.app.start_hidden,
-        config.ui.theme,
-        &config.behavior.language_shortcut,
-    )
+    run_tray_loop_with_config(tray_tx, &config, snapshot, cancel_flag)
+}
+
+#[cfg(target_os = "windows")]
+async fn serve_windows_pipe(
+    mut server: tokio::net::windows::named_pipe::NamedPipeServer,
+    controller_tx: std::sync::mpsc::Sender<ControllerRequest>,
+    snapshot: std::sync::Arc<crate::core::status::StatusSnapshot>,
+    cancel_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    reload_tx: tokio::sync::mpsc::UnboundedSender<(Config, tokio::sync::oneshot::Sender<String>)>,
+) -> anyhow::Result<()> {
+    use crate::ipc::{
+        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
+        STATUS_COMMAND, TOGGLE_COMMAND,
+    };
+    use crate::platform::windows::set_tray_state;
+    use std::sync::atomic::Ordering;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut command = String::new();
+    server.read_to_string(&mut command).await?;
+    let response = if command == STATUS_COMMAND {
+        serde_json::to_string(&crate::ipc::DaemonStatus {
+            state: snapshot.state(),
+            mic_level_bucket: snapshot.level_bucket(),
+            language: snapshot.language(),
+        })? + "\n"
+    } else if command == CANCEL_COMMAND {
+        cancel_flag.store(true, Ordering::SeqCst);
+        let response = request_controller(&controller_tx, ControllerCommand::Cancel).await;
+        set_tray_state(tray_state_from_response(&response));
+        response
+    } else if command == TOGGLE_COMMAND {
+        let response = request_controller(&controller_tx, ControllerCommand::Toggle).await;
+        set_tray_state(tray_state_from_response(&response));
+        response
+    } else if command == CYCLE_LANGUAGE_COMMAND {
+        request_controller(&controller_tx, ControllerCommand::CycleLanguage).await
+    } else if command == RELOAD_CONFIG_COMMAND {
+        match Config::load_default().and_then(|loaded| {
+            crate::core::settings_service::validate_config(&loaded.config)?;
+            Ok(loaded.config)
+        }) {
+            Ok(updated) => {
+                let busy = snapshot.state() != crate::core::state::RecordingState::Idle;
+                let (reply, result) = tokio::sync::oneshot::channel();
+                if reload_tx.send((updated, reply)).is_err() {
+                    "error: daemon reload worker stopped\n".to_string()
+                } else if busy {
+                    "Pending\n".to_string()
+                } else {
+                    result
+                        .await
+                        .unwrap_or_else(|_| "error: daemon reload worker stopped\n".to_string())
+                }
+            }
+            Err(error) => format!("error: rejected config: {error}\n"),
+        }
+    } else if command == SHUTDOWN_COMMAND {
+        let response = request_controller(&controller_tx, ControllerCommand::Shutdown).await;
+        crate::platform::windows::request_tray_exit();
+        response
+    } else {
+        format!("error: unknown command {:?}\n", command.trim())
+    };
+    server.write_all(response.as_bytes()).await?;
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -1025,6 +1140,7 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
 #[derive(Debug, Clone)]
 enum ControllerCommand {
     Toggle,
+    StopIfRecording,
     Cancel,
     CycleLanguage,
     Reload(Config),

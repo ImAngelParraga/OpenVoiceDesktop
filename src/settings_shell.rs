@@ -250,16 +250,23 @@ async fn save_settings(
         .and_then(|loaded| loaded.config.socket_path())
         .map_err(safe_error)?;
     let runtime_deferred = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let runtime_pending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let deferred_for_apply = runtime_deferred.clone();
+    let pending_for_apply = runtime_pending.clone();
     let mut result = SettingsService::new(path)
         .save_with_async(request, move |candidate| {
             let socket_path = socket_path.clone();
             let runtime_deferred = deferred_for_apply.clone();
+            let runtime_pending = pending_for_apply.clone();
             async move {
-                if reload_or_start_daemon(&candidate, &socket_path).await?
-                    == DaemonApplyOutcome::Deferred
-                {
-                    runtime_deferred.store(true, std::sync::atomic::Ordering::SeqCst);
+                match reload_or_start_daemon(&candidate, &socket_path).await? {
+                    DaemonApplyOutcome::Deferred => {
+                        runtime_deferred.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    DaemonApplyOutcome::Pending => {
+                        runtime_pending.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    DaemonApplyOutcome::Applied => {}
                 }
                 let autostart = candidate.app.autostart;
                 let shortcut_config = candidate.clone();
@@ -284,6 +291,8 @@ async fn save_settings(
         .map_err(safe_error)?;
     if runtime_deferred.load(std::sync::atomic::Ordering::SeqCst) {
         crate::core::settings_service::mark_runtime_deferred(&mut result);
+    } else if runtime_pending.load(std::sync::atomic::Ordering::SeqCst) {
+        crate::core::settings_service::mark_runtime_pending(&mut result);
     }
     Ok(result)
 }
@@ -292,6 +301,7 @@ async fn save_settings(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DaemonApplyOutcome {
     Applied,
+    Pending,
     Deferred,
 }
 
@@ -311,6 +321,7 @@ async fn reload_or_start_daemon(
         Ok(Ok(response)) if response.trim() == "Reloaded" => {
             return Ok(DaemonApplyOutcome::Applied)
         }
+        Ok(Ok(response)) if response.trim() == "Pending" => return Ok(DaemonApplyOutcome::Pending),
         Ok(Ok(response)) => anyhow::bail!(response.trim().to_string()),
         Err(_) => anyhow::bail!("timed out waiting for daemon config reload"),
         Ok(Err(_unreachable)) => {}
@@ -598,21 +609,40 @@ async fn overlay_view_from_daemon(
     config: &crate::core::config::Config,
 ) -> crate::core::settings_ui::OverlayView {
     use crate::core::settings_ui::OverlayView;
-    let idle = || {
-        OverlayView::from_recording_state(config, crate::core::state::RecordingState::Idle, None)
-    };
-    if !config.app.show_overlay {
-        return idle();
+    #[cfg(target_os = "windows")]
+    {
+        let mut hidden = config.clone();
+        hidden.app.show_overlay = false;
+        return OverlayView::from_recording_state(
+            &hidden,
+            crate::core::state::RecordingState::Idle,
+            None,
+        );
     }
-    let Ok(socket_path) = config.socket_path() else {
-        return idle();
-    };
-    match crate::ipc::send_status(&socket_path).await {
-        Ok(status) => {
-            OverlayView::from_recording_state(config, status.state, Some(status.mic_level_bucket))
-                .with_language(status.language.as_deref())
+    #[cfg(not(target_os = "windows"))]
+    {
+        let idle = || {
+            OverlayView::from_recording_state(
+                config,
+                crate::core::state::RecordingState::Idle,
+                None,
+            )
+        };
+        if !config.app.show_overlay {
+            return idle();
         }
-        Err(_) => idle(),
+        let Ok(socket_path) = config.socket_path() else {
+            return idle();
+        };
+        match crate::ipc::send_status(&socket_path).await {
+            Ok(status) => OverlayView::from_recording_state(
+                config,
+                status.state,
+                Some(status.mic_level_bucket),
+            )
+            .with_language(status.language.as_deref()),
+            Err(_) => idle(),
+        }
     }
 }
 

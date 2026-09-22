@@ -262,11 +262,12 @@ where
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::Uploading,
         });
-        let mut transcription = match self
-            .asr
-            .transcribe_file(temp_file.path(), request_language.as_deref())
-            .await
-        {
+        let cancel_flag = Arc::clone(&self.cancel_requested);
+        let transcription_result = tokio::select! {
+            result = self.asr.transcribe_file(temp_file.path(), request_language.as_deref()) => result,
+            _ = wait_for_cancel(cancel_flag) => return Ok(self.finish_canceled().await),
+        };
+        let mut transcription = match transcription_result {
             Ok(transcription) => transcription,
             Err(error) => {
                 self.update_diagnostics(None, Some(&error.to_string()));
@@ -422,7 +423,7 @@ where
             let Ok(path) = Config::default_path() else {
                 return;
             };
-            if let Err(error) = self.config.save_to(&path) {
+            if let Err(error) = persist_diagnostics(&path, &self.config.diagnostics) {
                 eprintln!("openvoice-desktop diagnostic persistence failed: {error}");
             }
         }
@@ -499,6 +500,51 @@ where
             .unwrap_or(0);
         let bucket = ((peak * 10) / i16::MAX as u32).min(10) as u8;
         self.events.emit(AppShellEvent::MicLevel { bucket });
+    }
+}
+
+async fn wait_for_cancel(flag: Arc<AtomicBool>) {
+    while !flag.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn persist_diagnostics(
+    path: &std::path::Path,
+    diagnostics: &crate::core::config::DiagnosticsConfig,
+) -> Result<()> {
+    let mut current = Config::load_from(path)?.config;
+    if !current.diagnostics.store_last_latency_metrics {
+        return Ok(());
+    }
+    current.diagnostics.last_upload_latency_ms = diagnostics.last_upload_latency_ms;
+    current.diagnostics.last_http_status = diagnostics.last_http_status;
+    current.diagnostics.last_sanitized_body = diagnostics.last_sanitized_body.clone();
+    current.save_to(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::persist_diagnostics;
+    use crate::core::config::Config;
+
+    #[test]
+    fn diagnostic_persistence_preserves_settings_saved_during_upload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut current = Config::default();
+        current.audio.recording_output_volume = 0.2;
+        current.save_to(&path).unwrap();
+
+        let mut old_diagnostics = Config::default().diagnostics;
+        old_diagnostics.last_upload_latency_ms = Some(123);
+        old_diagnostics.last_http_status = Some(200);
+        persist_diagnostics(&path, &old_diagnostics).unwrap();
+
+        let saved = Config::load_from(&path).unwrap().config;
+        assert_eq!(saved.audio.recording_output_volume, 0.2);
+        assert_eq!(saved.diagnostics.last_upload_latency_ms, Some(123));
+        assert_eq!(saved.diagnostics.last_http_status, Some(200));
     }
 }
 
