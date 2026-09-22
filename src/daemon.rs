@@ -154,7 +154,7 @@ pub async fn run(config: Config) -> Result<()> {
         tokio::select! {
             Some((command, responder)) = command_rx.recv() => {
                 let mut shutdown_requested = false;
-                let response = if command == CYCLE_LANGUAGE_COMMAND {
+                let mut response = if command == CYCLE_LANGUAGE_COMMAND {
                     match controller.cycle_language() {
                         Ok(language) => {
                             snapshot.set_language(language.clone());
@@ -223,13 +223,17 @@ pub async fn run(config: Config) -> Result<()> {
                 } else {
                     format!("error: unknown command {:?}\n", command.trim())
                 };
-                let _ = responder.send(response.clone());
                 if shutdown_requested {
+                    let _ = responder.send(response);
                     release_cancel_shortcut().await;
                     stop_overlay_shell(&mut overlay_shell).await;
                     shutdown_tray(&tray).await;
                     cleanup_socket(&socket_path);
                     return Ok(());
+                }
+                let mut responder = Some(responder);
+                if command != RELOAD_CONFIG_COMMAND {
+                    let _ = responder.take().unwrap().send(response.clone());
                 }
                 sync_cancel_shortcut(&shortcut_config, &mut cancel_grabbed, controller.state()).await;
                 if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
@@ -240,6 +244,7 @@ pub async fn run(config: Config) -> Result<()> {
                             eprintln!(
                                 "openvoice-desktop shortcut registration failed: {error}"
                             );
+                            response = format!("error: applying shortcuts: {error}\n");
                         }
                         let desired_overlay = loaded.config.app.show_overlay;
                         if desired_overlay != show_overlay {
@@ -280,6 +285,9 @@ pub async fn run(config: Config) -> Result<()> {
                     last_dictation_failed,
                 )
                 .await;
+                if let Some(responder) = responder {
+                    let _ = responder.send(response);
+                }
             }
             Some(command) = tray_rx.recv() => {
                 match command {
@@ -832,7 +840,6 @@ pub async fn run(config: Config) -> Result<()> {
     let (reload_tx, mut reload_rx) =
         mpsc::unbounded_channel::<(Config, tokio::sync::oneshot::Sender<String>)>();
     let reload_controller_tx = controller_tx.clone();
-    let reload_tray_tx = tray_tx.clone();
     let reload_snapshot = std::sync::Arc::clone(&snapshot);
     let mut active_config = config.clone();
     tokio::spawn(async move {
@@ -843,7 +850,7 @@ pub async fn run(config: Config) -> Result<()> {
             let response = match crate::platform::windows::apply_hotkey_config(&updated).await {
                 Err(error) => format!("error: rejected shortcut: {error}\n"),
                 Ok(()) => {
-                    let response = loop {
+                    let mut response = loop {
                         let response = request_controller(
                             &reload_controller_tx,
                             ControllerCommand::Reload(updated.clone()),
@@ -858,11 +865,31 @@ pub async fn run(config: Config) -> Result<()> {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     };
                     if response.trim() == "Reloaded" {
-                        active_config = updated.clone();
-                        let _ = reload_tray_tx.send(TrayCommand::ReloadLifecycle {
-                            show_tray_icon: updated.app.show_tray_icon,
-                            popup: crate::platform::windows::WindowsPopupConfig::from(&updated),
-                        });
+                        match crate::platform::windows::apply_lifecycle(
+                            updated.app.show_tray_icon,
+                            crate::platform::windows::WindowsPopupConfig::from(&updated),
+                        ) {
+                            Ok(()) => active_config = updated.clone(),
+                            Err(error) => {
+                                let _ = request_controller(
+                                    &reload_controller_tx,
+                                    ControllerCommand::Reload(active_config.clone()),
+                                )
+                                .await;
+                                crate::platform::windows::apply_hotkey_config(&active_config)
+                                    .await
+                                    .ok();
+                                crate::platform::windows::apply_lifecycle(
+                                    active_config.app.show_tray_icon,
+                                    crate::platform::windows::WindowsPopupConfig::from(
+                                        &active_config,
+                                    ),
+                                )
+                                .ok();
+                                response =
+                                    format!("error: applying Windows UI settings: {error}\n");
+                            }
+                        }
                     } else if let Err(error) =
                         crate::platform::windows::apply_hotkey_config(&active_config).await
                     {

@@ -52,6 +52,9 @@ enum Command {
     Settings,
     /// Gracefully stop the resident daemon.
     Shutdown,
+    /// Enumerate devices in an isolated process for Settings refresh.
+    #[command(hide = true)]
+    DeviceInventory,
 }
 
 /// `settings` runs the Tauri/GTK event loop on the main thread and must stay
@@ -87,6 +90,7 @@ fn resolve_command(cli: &Cli) -> Result<Option<Command>> {
         Some(Command::ConfigPath) => Ok(Some(Command::ConfigPath)),
         Some(Command::Settings) => Ok(Some(Command::Settings)),
         Some(Command::Shutdown) => Ok(Some(Command::Shutdown)),
+        Some(Command::DeviceInventory) => Ok(Some(Command::DeviceInventory)),
         None => {
             let setup_ui_available = cfg!(all(target_os = "windows", feature = "desktop-shell"));
             Ok(Some(
@@ -172,6 +176,11 @@ async fn run_command(cli: Cli, command: Option<Command>) -> Result<()> {
             let loaded = Config::load_default()?;
             let response = ipc::send_shutdown(&loaded.config.socket_path()?).await?;
             print!("{response}");
+            Ok(())
+        }
+        Command::DeviceInventory => {
+            let inventory = openvoice_desktop::core::audio::enumerate_audio_device_inventory()?;
+            println!("{}", serde_json::to_string(&inventory)?);
             Ok(())
         }
     }

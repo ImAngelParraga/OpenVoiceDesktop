@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use openvoice_desktop::core::config::Config;
-use openvoice_desktop::core::settings_inventory::{InventoryKind, SETTINGS_INVENTORY};
 use openvoice_desktop::core::settings_service::{
     complete_onboarding, mark_runtime_deferred, mark_runtime_pending, validate_config, ApplyStatus,
     FieldApplyResult, SaveSettingsRequest, SaveSettingsResult, SettingsService,
@@ -44,19 +43,20 @@ fn test_v31_settings_document_exposes_only_asr_token_status() {
     assert_eq!(document.audio_encoding.channels, 1);
     assert!(!document.audio_encoding.editable);
 
+    let calls = AtomicUsize::new(0);
     let result = SettingsService::new(&path)
         .save_with(
             SaveSettingsRequest {
                 config: document.config,
             },
-            |_| Ok(()),
+            |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
         )
         .unwrap();
-    let expected = SETTINGS_INVENTORY
-        .iter()
-        .filter(|entry| entry.kind == InventoryKind::Field)
-        .count();
-    assert_eq!(result.fields.len(), expected);
+    assert!(result.fields.is_empty());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(
         Config::load_from(&path)
             .unwrap()
@@ -66,6 +66,26 @@ fn test_v31_settings_document_exposes_only_asr_token_status() {
             .as_deref(),
         Some("asr-secret")
     );
+}
+
+#[tokio::test]
+async fn no_change_async_save_skips_disk_and_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let config = Config::default();
+    config.save_to(&path).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let calls = AtomicUsize::new(0);
+    let result = SettingsService::new(&path)
+        .save_with_async(SaveSettingsRequest { config }, |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }
+        })
+        .await
+        .unwrap();
+    assert!(result.fields.is_empty());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(std::fs::read(path).unwrap(), before);
 }
 
 #[test]
@@ -389,10 +409,59 @@ fn save_reports_each_field_disposition() {
             .status,
         ApplyStatus::Applied
     );
+    assert_eq!(result.fields.len(), 2);
     assert!(result
         .fields
         .iter()
-        .any(|field| field.status == ApplyStatus::Unavailable));
+        .all(|field| field.status == ApplyStatus::Applied));
+}
+
+#[test]
+fn theme_and_language_save_reports_only_those_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let original = Config::default();
+    original.save_to(&path).unwrap();
+    let mut candidate = original;
+    candidate.ui.theme = openvoice_desktop::core::config::Theme::Dark;
+    candidate.ui.language = "es".to_string();
+
+    let result = SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+    let fields = result
+        .fields
+        .iter()
+        .map(|field| (field.field.as_str(), field.status))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        fields,
+        vec![
+            ("ui.language", ApplyStatus::Applied),
+            ("ui.theme", ApplyStatus::Applied)
+        ]
+    );
+    let saved = Config::load_from(&path).unwrap().config;
+    assert_eq!(saved.ui.language, "es");
+    assert_eq!(saved.ui.theme, openvoice_desktop::core::config::Theme::Dark);
+}
+
+#[test]
+fn clearing_existing_asr_language_omits_language_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let mut previous = Config::default();
+    previous.asr.language = Some("en".to_string());
+    previous.save_to(&path).unwrap();
+    let mut candidate = previous;
+    candidate.asr.language = Some(" ".to_string());
+
+    let result = SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+    assert_eq!(result.fields.len(), 1);
+    assert_eq!(result.fields[0].field, "asr.language");
+    assert_eq!(Config::load_from(&path).unwrap().config.asr.language, None);
 }
 
 #[test]

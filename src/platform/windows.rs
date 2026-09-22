@@ -295,10 +295,6 @@ pub enum TrayCommand {
     TestEndpoint,
     OpenLogs,
     OpenConfigFolder,
-    ReloadLifecycle {
-        show_tray_icon: bool,
-        popup: WindowsPopupConfig,
-    },
     Quit,
 }
 
@@ -695,7 +691,7 @@ pub fn run_tray_loop_with_config(
         }
 
         if TRAY_ICON_VISIBLE.swap(false, Ordering::Relaxed) {
-            remove_tray_icon(hwnd);
+            let _ = remove_tray_icon(hwnd);
         }
         KillTimer(hwnd, HOTKEY_TIMER_ID);
         unregister_hotkey_set(hwnd);
@@ -960,12 +956,15 @@ unsafe fn add_tray_icon(hwnd: HWND) -> Result<()> {
     Ok(())
 }
 
-unsafe fn remove_tray_icon(hwnd: HWND) {
+unsafe fn remove_tray_icon(hwnd: HWND) -> Result<()> {
     let mut data: NOTIFYICONDATAW = std::mem::zeroed();
     data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     data.hWnd = hwnd;
     data.uID = TRAY_ID;
-    let _ = Shell_NotifyIconW(NIM_DELETE, &mut data);
+    if Shell_NotifyIconW(NIM_DELETE, &mut data) == 0 {
+        return Err(anyhow!("removing Windows tray icon failed"));
+    }
+    Ok(())
 }
 
 pub fn show_status_popup(text: &str, timeout_ms: Option<u32>) -> Result<()> {
@@ -1482,16 +1481,13 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
             tokio::task::spawn_blocking(open_config_folder).await??;
             Ok(false)
         }
-        TrayCommand::ReloadLifecycle {
-            show_tray_icon,
-            popup,
-        } => {
-            set_tray_visibility(show_tray_icon)?;
-            set_popup_config(popup)?;
-            Ok(false)
-        }
         TrayCommand::Quit => Ok(false),
     }
+}
+
+pub fn apply_lifecycle(show_tray_icon: bool, popup: WindowsPopupConfig) -> Result<()> {
+    set_tray_visibility(show_tray_icon)?;
+    set_popup_config(popup)
 }
 
 fn set_tray_visibility(visible: bool) -> Result<()> {
@@ -1500,13 +1496,15 @@ fn set_tray_visibility(visible: bool) -> Result<()> {
         .ok_or_else(|| anyhow!("Windows tray window is not initialized"))?;
     unsafe {
         if visible {
-            if !TRAY_ICON_VISIBLE.swap(true, Ordering::Relaxed) {
+            if !TRAY_ICON_VISIBLE.load(Ordering::Relaxed) {
                 add_tray_icon(hwnd)?;
+                TRAY_ICON_VISIBLE.store(true, Ordering::Relaxed);
             }
             Ok(())
         } else {
-            if TRAY_ICON_VISIBLE.swap(false, Ordering::Relaxed) {
-                remove_tray_icon(hwnd);
+            if TRAY_ICON_VISIBLE.load(Ordering::Relaxed) {
+                remove_tray_icon(hwnd)?;
+                TRAY_ICON_VISIBLE.store(false, Ordering::Relaxed);
             }
             Ok(())
         }

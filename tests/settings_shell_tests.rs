@@ -6,6 +6,7 @@ const TAURI_CONFIG: &str = include_str!("../tauri.conf.json");
 const SETTINGS_JS: &str = include_str!("../ui/settings.js");
 const SETTINGS_HTML: &str = include_str!("../ui/index.html");
 const SETTINGS_CSS: &str = include_str!("../ui/styles.css");
+const SETTINGS_LOGIC: &str = include_str!("../ui/settings_logic.mjs");
 const DAEMON_RS: &str = include_str!("../src/daemon.rs");
 const IPC_RS: &str = include_str!("../src/ipc.rs");
 const OVERLAY_JS: &str = include_str!("../ui/overlay.js");
@@ -64,7 +65,7 @@ fn test_v26_save_keeps_settings_open_and_reports_result() {
     assert!(SETTINGS_JS.contains("await settingsWindow.show()"));
     assert!(SETTINGS_JS.contains("await settingsWindow.setFocus()"));
     assert!(SETTINGS_JS.contains("activeSection = activeSectionBeforeSave"));
-    assert!(SETTINGS_JS.contains("Saved. ${applied} applied; ${restart} restart-required."));
+    assert!(SETTINGS_JS.contains("summarizeSave(result.fields, labels)"));
     assert!(!SETTINGS_JS.contains("settingsWindow.close()"));
     assert!(!SETTINGS_JS.contains("settingsWindow.hide()"));
 }
@@ -98,8 +99,7 @@ fn test_v42_save_defers_runtime_when_onboarding_or_daemon_is_absent() {
     assert!(SHELL_RS.contains("candidate.onboarding.completed"));
     assert!(SHELL_RS.contains("DaemonApplyOutcome::Deferred"));
     assert!(SHELL_RS.contains("mark_runtime_deferred(&mut result)"));
-    assert!(SETTINGS_JS.contains("const runtimeReasons"));
-    assert!(SETTINGS_JS.contains("runtimeReasons.join"));
+    assert!(SETTINGS_LOGIC.contains("No changes to save."));
 }
 
 #[test]
@@ -119,18 +119,33 @@ fn test_v37_save_button_has_busy_success_error_and_duplicate_guard() {
 }
 
 #[test]
+fn p1_settings_controls_apply_live_and_validate_before_save() {
+    assert!(SETTINGS_JS.contains("path === \"ui.language\") applyLocale()"));
+    assert!(SETTINGS_JS.contains("path === \"ui.theme\") applyTheme(select.value)"));
+    assert!(SETTINGS_JS.contains("if (!form.reportValidity()) return"));
+    assert!(SETTINGS_JS.contains("path === \"debug.log_level\""));
+    assert!(SETTINGS_JS.contains("control.kind === \"slider\" ? \"range\" : \"number\""));
+    assert!(SETTINGS_JS.contains("refresh_audio_devices"));
+    assert!(SETTINGS_JS.contains("read_live_logs"));
+    assert!(SETTINGS_LOGIC.contains("path === \"asr.language\""));
+    assert!(SHELL_RS.contains(".kill_on_drop(true)"));
+    assert!(SHELL_RS.contains("Audio-device refresh timed out"));
+    assert!(MAIN_RS.contains("DeviceInventory"));
+}
+
+#[test]
 fn test_v40_delay_inputs_have_bounds_and_disable_when_irrelevant() {
     assert!(SETTINGS_JS.contains("function outputDelayUnavailable(path)"));
     assert!(SETTINGS_JS.contains("output.paste_method !== \"clipboard-paste\""));
     assert!(SETTINGS_JS.contains("output.clipboard_handling !== \"restore-after-paste\""));
-    assert!(SETTINGS_JS.contains("input.min = \"0\""));
-    assert!(SETTINGS_JS.contains("input.max = \"2000\""));
+    assert!(SETTINGS_LOGIC.contains("\"output.paste_delay_ms\": { min: 0, max: 2000, step: 1 }"));
+    assert!(SETTINGS_JS.contains("input.min = String(spec.min)"));
 }
 
 #[test]
 fn test_v36_prompt_editor_maps_blank_to_absent_without_rewriting_text() {
-    assert!(SETTINGS_JS.contains("path === \"asr.prompt\""));
-    assert!(SETTINGS_JS.contains("input.value.trim().length === 0 ? null : input.value"));
+    assert!(SETTINGS_LOGIC.contains("path === \"asr.prompt\""));
+    assert!(SETTINGS_LOGIC.contains("raw.trim() === \"\" ? null : raw"));
 }
 
 #[test]

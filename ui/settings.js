@@ -1,3 +1,5 @@
+import { deviceFallback, normalizeFieldValue, numericSpecs, summarizeSave } from "./settings_logic.mjs";
+
 const { invoke } = window.__TAURI__.core;
 const settingsWindow = window.__TAURI__.window.getCurrentWindow();
 
@@ -12,23 +14,23 @@ const layoutSectionIds = {
 const translations = {
   en: {
     general: "General", asr: "ASR Endpoint", advanced: "Advanced", history: "History", debug: "Debug", about: "About",
-    save: "Save settings", loading: "Loading settings…", loaded: "Settings loaded.",
+    save: "Save settings", settings: "Settings", loading: "Loading settings…", loaded: "Settings loaded.",
   },
   de: {
     general: "Allgemein", asr: "ASR-Endpunkt", advanced: "Erweitert", history: "Verlauf", debug: "Debug", about: "Über",
-    save: "Einstellungen speichern", loading: "Einstellungen werden geladen…", loaded: "Einstellungen geladen.",
+    save: "Einstellungen speichern", settings: "Einstellungen", loading: "Einstellungen werden geladen…", loaded: "Einstellungen geladen.",
   },
   es: {
     general: "General", asr: "Endpoint ASR", advanced: "Avanzado", history: "Historial", debug: "Depuración", about: "Acerca de",
-    save: "Guardar configuración", loading: "Cargando configuración…", loaded: "Configuración cargada.",
+    save: "Guardar configuración", settings: "Configuración", loading: "Cargando configuración…", loaded: "Configuración cargada.",
   },
   fr: {
     general: "Général", asr: "Point de terminaison ASR", advanced: "Avancé", history: "Historique", debug: "Débogage", about: "À propos",
-    save: "Enregistrer les paramètres", loading: "Chargement des paramètres…", loaded: "Paramètres chargés.",
+    save: "Enregistrer les paramètres", settings: "Paramètres", loading: "Chargement des paramètres…", loaded: "Paramètres chargés.",
   },
   ja: {
     general: "一般", asr: "ASR エンドポイント", advanced: "詳細", history: "履歴", debug: "デバッグ", about: "情報",
-    save: "設定を保存", loading: "設定を読み込み中…", loaded: "設定を読み込みました。",
+    save: "設定を保存", settings: "設定", loading: "設定を読み込み中…", loaded: "設定を読み込みました。",
   },
 };
 
@@ -39,7 +41,11 @@ const form = document.querySelector("#settings-form");
 const status = document.querySelector("#status");
 const saveButton = document.querySelector("#save");
 const saveResult = document.querySelector("#save-result");
+const saveDetails = document.querySelector("#save-details");
+const saveDetailList = document.querySelector("#save-detail-list");
 let saveInProgress = false;
+let saveFeedbackTimer;
+let logReadInProgress = false;
 
 function locale() {
   return translations[documentModel?.config?.ui?.language] ? documentModel.config.ui.language : "en";
@@ -52,12 +58,25 @@ function translate(key) {
 function applyLocale() {
   const selected = locale();
   document.documentElement.lang = selected;
-  document.title = `OpenVoiceDesktop ${translate("about")}`;
+  document.title = `OpenVoiceDesktop ${translate("settings")}`;
   for (const button of document.querySelectorAll("nav button")) {
     button.textContent = translate(button.dataset.section);
   }
   content.querySelector("h2").textContent = translate(activeSection);
   if (!saveInProgress) saveButton.textContent = translate("save");
+}
+
+function clearTransientSaveFeedback(keepDetails = false) {
+  clearTimeout(saveFeedbackTimer);
+  if (saveResult.dataset.state === "success") {
+    saveResult.textContent = "";
+    saveResult.removeAttribute("data-state");
+    if (!keepDetails) {
+      saveDetails.hidden = true;
+      saveDetails.open = false;
+      saveDetailList.replaceChildren();
+    }
+  }
 }
 
 function applyTheme(theme) {
@@ -143,6 +162,7 @@ function selectOptions(path) {
   if (path === "output.typing_tool") return (documentModel.supported_typing_tools ?? []).map((tool) => String(tool));
   if (path === "output.clipboard_handling") return ["restore-after-paste", "leave-transcript", "copy-only"];
   if (path === "history.retention") return ["never", "failed-only", "always"];
+  if (path === "debug.log_level") return ["error", "warn", "info", "debug", "trace"];
   if (path === "audio.selected_output_device") {
     return ["", ...(documentModel.output_devices ?? []).map((device) => device.name)];
   }
@@ -192,17 +212,24 @@ function render() {
         option.selected = value === device.name;
         select.append(option);
       }
+      const devices = path === "audio.selected_microphone"
+        ? documentModel.input_devices ?? []
+        : documentModel.output_devices ?? [];
+      if (value && !devices.some((device) => device.name === value)) {
+        const missing = document.createElement("option");
+        missing.value = value;
+        missing.textContent = `${value} (unavailable; using default)`;
+        missing.selected = true;
+        select.append(missing);
+      }
       select.addEventListener("change", () => {
+        clearTransientSaveFeedback();
         setPath(documentModel.config, path, select.value || null);
+        render();
       });
       row.append(fieldCopy(control), select);
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
-      if (documentModel.input_device_fallback) {
-        addFieldNote(row, documentModel.input_device_fallback);
-      }
-      if (documentModel.output_device_fallback && path === "audio.selected_output_device") {
-        addFieldNote(row, documentModel.output_device_fallback);
-      }
+      addFieldNote(row, deviceFallback(value, devices, path === "audio.selected_microphone" ? "Microphone" : "Output device"));
       form.append(row);
       continue;
     }
@@ -226,8 +253,11 @@ function render() {
         select.append(option);
       }
       select.addEventListener("change", () => {
+        clearTransientSaveFeedback();
         setPath(documentModel.config, path, select.value);
-        if (["audio.recording_output_mode", "output.paste_method", "output.clipboard_handling"].includes(path)) render();
+        if (path === "ui.language") applyLocale();
+        if (path === "ui.theme") applyTheme(select.value);
+        if (["audio.recording_output_mode", "output.paste_method", "output.clipboard_handling", "ui.language"].includes(path)) render();
       });
       row.append(fieldCopy(control), select);
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
@@ -241,14 +271,15 @@ function render() {
       input.type = "checkbox";
       input.checked = displayValue;
     } else if (typeof displayValue === "number") {
-      input.type = "number";
-      input.step = "any";
-      input.value = displayValue;
-      if (["output.paste_delay_ms", "output.restore_delay_ms"].includes(path)) {
-        input.min = "0";
-        input.max = "2000";
-        input.step = "1";
+      input.type = control.kind === "slider" ? "range" : "number";
+      const spec = numericSpecs[path];
+      if (spec) {
+        input.min = String(spec.min);
+        input.max = String(spec.max);
+        input.step = String(spec.step);
       }
+      input.value = displayValue;
+      if (input.type === "number") input.required = true;
     } else if (Array.isArray(displayValue)) {
       input.type = "text";
       input.value = displayValue.join(", ");
@@ -257,29 +288,46 @@ function render() {
       input.value = displayValue ?? "";
     }
     if (input.disabled) input.title = unavailableReason;
-    input.addEventListener("change", () => {
-      let next = input.value;
-      if (input.type === "checkbox") next = input.checked;
-      else if (typeof value === "number") next = Number(input.value);
-      else if (Array.isArray(value)) next = input.value.split(",").map((part) => part.trim()).filter(Boolean);
-      else if (path === "asr.prompt") next = input.value.trim().length === 0 ? null : input.value;
-      else if (value === null && input.value === "") next = null;
-      setPath(documentModel.config, path, next);
-      if (path === "audio.audio_feedback") render();
-      if (path === "ui.language") {
-        applyLocale();
-        render();
+    const errorNote = document.createElement("small");
+    errorNote.className = "field-error";
+    errorNote.hidden = true;
+    const commitValue = () => {
+      clearTransientSaveFeedback();
+      try {
+        const next = normalizeFieldValue(path, value, input.value, input.checked);
+        input.setCustomValidity("");
+        errorNote.textContent = "";
+        errorNote.hidden = true;
+        setPath(documentModel.config, path, next);
+        if (path === "audio.audio_feedback" || path === "debug.live_log_viewer") render();
+      } catch (error) {
+        input.setCustomValidity(error.message);
+        errorNote.textContent = error.message;
+        errorNote.hidden = false;
       }
-      if (path === "ui.theme") applyTheme(documentModel.config.ui.theme);
-    });
-    row.append(fieldCopy(control), input);
+    };
+    input.addEventListener("change", commitValue);
+    if (input.type === "number" || input.type === "range") input.addEventListener("input", commitValue);
+    if (input.type === "range") {
+      const slider = document.createElement("span");
+      slider.className = "slider-control";
+      const output = document.createElement("output");
+      output.textContent = String(displayValue);
+      input.addEventListener("input", () => { output.textContent = input.value; });
+      slider.append(input, output);
+      row.append(fieldCopy(control), slider);
+    } else {
+      row.append(fieldCopy(control), input);
+    }
     addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
+    row.append(errorNote);
     form.append(row);
   }
   if (activeSection === "history") renderHistoryActions();
   if (activeSection === "debug") renderDebugActions();
   if (activeSection === "asr") renderAsrActions();
   if (activeSection === "about") renderAbout();
+  if (activeSection === "general") renderDeviceRefresh();
   renderOnboarding();
 }
 
@@ -298,6 +346,44 @@ function actionButton(label, command, args = {}) {
   });
   return button;
 }
+
+function renderDeviceRefresh() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Refresh audio devices";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    status.textContent = "Refreshing audio devices…";
+    try {
+      const inventory = await invoke("refresh_audio_devices");
+      documentModel.input_devices = inventory.input_devices;
+      documentModel.output_devices = inventory.output_devices;
+      status.textContent = "Audio devices refreshed. Unsaved selections were kept.";
+      render();
+    } catch (error) {
+      status.textContent = `Audio-device refresh failed: ${error}`;
+      button.disabled = false;
+    }
+  });
+  form.append(button);
+}
+
+async function refreshLiveLogs() {
+  const viewer = form.querySelector(".live-log-viewer");
+  if (!viewer || logReadInProgress || document.visibilityState !== "visible") return;
+  logReadInProgress = true;
+  try {
+    viewer.textContent = (await invoke("read_live_logs")).join("\n");
+  } catch (error) {
+    viewer.textContent = `Log refresh failed: ${error}`;
+  } finally {
+    logReadInProgress = false;
+  }
+}
+
+setInterval(() => {
+  if (activeSection === "debug" && documentModel?.config?.debug?.live_log_viewer) refreshLiveLogs();
+}, 2000);
 
 function renderHistoryActions() {
   const toolbar = document.createElement("div");
@@ -335,6 +421,7 @@ function renderDebugActions() {
     viewer.className = "live-log-viewer";
     viewer.textContent = (documentModel.live_log_lines ?? []).join("\n");
     form.append(viewer);
+    refreshLiveLogs();
   }
 }
 
@@ -445,31 +532,36 @@ for (const button of document.querySelectorAll("nav button")) {
 
 saveButton.addEventListener("click", async () => {
   if (saveInProgress) return;
+  if (!form.reportValidity()) return;
   saveInProgress = true;
   const activeSectionBeforeSave = activeSection;
-  status.textContent = "Saving…";
+  clearTimeout(saveFeedbackTimer);
+  status.textContent = "";
   saveResult.textContent = "Saving settings…";
   saveResult.dataset.state = "busy";
+  saveDetails.hidden = true;
+  saveDetailList.replaceChildren();
   saveButton.disabled = true;
   saveButton.setAttribute("aria-busy", "true");
   saveButton.textContent = "Saving…";
   try {
     await new Promise(requestAnimationFrame);
     const result = await invoke("save_settings", { request: { config: documentModel.config } });
-    const applied = result.fields.filter((field) => field.status === "applied").length;
-    const pending = result.fields.filter((field) => field.status === "pending").length;
-    const restart = result.fields.filter((field) => field.status === "restart-required").length;
-    const runtimeReasons = [...new Set(result.fields.map((field) => field.reason).filter(Boolean))];
-    const reasonText = runtimeReasons.length > 0 ? ` ${runtimeReasons.join(" ")}` : "";
-    status.textContent = pending > 0
-      ? "Saved. Changes pending until dictation completes."
-      : `Saved. ${applied} applied; ${restart} restart-required.`;
-    saveResult.textContent = pending > 0
-      ? "Saved. Changes will apply after current dictation completes."
-      : `Saved. ${applied} changes applied; ${restart} require restart.${reasonText}`;
+    const labels = Object.fromEntries(documentModel.layout.sections.flatMap((section) =>
+      section.controls.filter((control) => control.config_key).map((control) => [control.config_key, control.label])));
+    const summary = summarizeSave(result.fields, labels);
+    saveResult.textContent = summary.detail;
     saveResult.dataset.state = "success";
+    saveDetails.hidden = summary.exceptions.length === 0;
+    for (const field of summary.exceptions) {
+      const item = document.createElement("li");
+      item.textContent = `${labels[field.field] ?? field.field}: ${field.reason ?? field.status}`;
+      saveDetailList.append(item);
+    }
+    saveFeedbackTimer = setTimeout(() => clearTransientSaveFeedback(true), 6000);
+    applyLocale();
+    applyTheme(documentModel.config.ui.theme);
   } catch (error) {
-    status.textContent = `Save failed: ${error}`;
     saveResult.textContent = `Save failed: ${error}`;
     saveResult.dataset.state = "error";
   } finally {

@@ -3,16 +3,21 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "windows")]
+use crate::core::audio::AudioDeviceInventory;
 use crate::core::audio::{
     effective_audio_encoding, enumerate_input_devices, enumerate_output_devices,
     resolve_input_device_details, resolve_output_device_details, AudioEncodingSettings,
     InputDeviceInfo, InputDeviceResolution, OutputDeviceInfo, OutputDeviceResolution,
 };
+
+#[cfg(target_os = "windows")]
+static WINDOWS_DEVICE_CACHE: OnceLock<Mutex<AudioDeviceInventory>> = OnceLock::new();
 use crate::core::config::Config;
 use crate::core::settings_inventory::{ControlState, InventoryKind, SETTINGS_INVENTORY};
 use crate::core::settings_ui::{LocaleCatalog, SettingsWindowLayout, ThemeSelection};
@@ -68,7 +73,7 @@ pub struct SaveSettingsResult {
 
 pub fn mark_runtime_deferred(result: &mut SaveSettingsResult) {
     for field in &mut result.fields {
-        if field.status == ApplyStatus::Applied {
+        if field.status == ApplyStatus::Applied && field.field != "app.autostart" {
             field.status = ApplyStatus::RestartRequired;
             field.reason = Some("Saved; applies when resident daemon starts".to_string());
         }
@@ -77,7 +82,7 @@ pub fn mark_runtime_deferred(result: &mut SaveSettingsResult) {
 
 pub fn mark_runtime_pending(result: &mut SaveSettingsResult) {
     for field in &mut result.fields {
-        if field.status == ApplyStatus::Applied {
+        if field.status == ApplyStatus::Applied && field.field != "app.autostart" {
             field.status = ApplyStatus::Pending;
             field.reason = Some("Saved; applies after current dictation completes".to_string());
         }
@@ -96,7 +101,7 @@ impl SettingsService {
 
     pub fn get(&self) -> Result<SettingsDocument> {
         let mut loaded = Config::load_from(&self.path)?.config;
-        let fields = field_results(&loaded, &loaded)?;
+        let fields = field_results(&loaded, &loaded, false)?;
         let (input_devices, output_devices) = settings_device_inventory();
         let input_device_fallback =
             match resolve_input_device_details(&loaded.audio, &input_devices) {
@@ -196,7 +201,15 @@ impl SettingsService {
         // Token editing belongs to the secret-store workflow. A redacted get/save
         // cycle must never erase existing secrets (§V8).
         candidate.asr.bearer_token = previous.asr.bearer_token.clone();
+        candidate.asr.language = candidate
+            .asr
+            .language
+            .take()
+            .and_then(|language| (!language.trim().is_empty()).then_some(language));
         validate_config(&candidate)?;
+        if candidate == previous {
+            return Ok(SaveSettingsResult { fields: Vec::new() });
+        }
 
         candidate.save_to(&self.path)?;
         if let Err(rejection) = apply(&candidate) {
@@ -208,7 +221,7 @@ impl SettingsService {
         }
 
         Ok(SaveSettingsResult {
-            fields: field_results(&previous, &candidate)?,
+            fields: field_results(&previous, &candidate, true)?,
         })
     }
 
@@ -224,7 +237,15 @@ impl SettingsService {
         let previous = Config::load_from(&self.path)?.config;
         let mut candidate = request.config;
         candidate.asr.bearer_token = previous.asr.bearer_token.clone();
+        candidate.asr.language = candidate
+            .asr
+            .language
+            .take()
+            .and_then(|language| (!language.trim().is_empty()).then_some(language));
         validate_config(&candidate)?;
+        if candidate == previous {
+            return Ok(SaveSettingsResult { fields: Vec::new() });
+        }
 
         candidate.save_to(&self.path)?;
         if let Err(rejection) = apply(candidate.clone()).await {
@@ -236,7 +257,7 @@ impl SettingsService {
         }
 
         Ok(SaveSettingsResult {
-            fields: field_results(&previous, &candidate)?,
+            fields: field_results(&previous, &candidate, true)?,
         })
     }
 
@@ -248,15 +269,19 @@ impl SettingsService {
 fn settings_device_inventory() -> (Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>) {
     #[cfg(target_os = "windows")]
     {
-        static CACHE: OnceLock<(Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>)> = OnceLock::new();
-        return CACHE
-            .get_or_init(|| {
-                (
-                    enumerate_input_devices().unwrap_or_default(),
-                    enumerate_output_devices().unwrap_or_default(),
-                )
+        let cache = WINDOWS_DEVICE_CACHE.get_or_init(|| {
+            Mutex::new(AudioDeviceInventory {
+                input_devices: enumerate_input_devices().unwrap_or_default(),
+                output_devices: enumerate_output_devices().unwrap_or_default(),
             })
-            .clone();
+        });
+        let inventory = cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        return (
+            inventory.input_devices.clone(),
+            inventory.output_devices.clone(),
+        );
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -266,6 +291,14 @@ fn settings_device_inventory() -> (Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>) 
             enumerate_output_devices().unwrap_or_default(),
         )
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn update_cached_device_inventory(inventory: AudioDeviceInventory) {
+    let cache = WINDOWS_DEVICE_CACHE.get_or_init(|| Mutex::new(inventory.clone()));
+    *cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = inventory;
 }
 
 pub fn validate_config(config: &Config) -> Result<()> {
@@ -372,7 +405,10 @@ pub fn validate_config(config: &Config) -> Result<()> {
             "ipc.socket_path must be absolute on Linux"
         );
         #[cfg(not(target_os = "linux"))]
-        anyhow::bail!("ipc.socket_path is unavailable on this platform");
+        {
+            let _ = socket_path;
+            anyhow::bail!("ipc.socket_path is unavailable on this platform");
+        }
     }
     if matches!(
         config.output.paste_method,
@@ -457,7 +493,11 @@ fn range_u64(field: &str, value: u64, min: u64, max: u64) -> Result<()> {
     Ok(())
 }
 
-fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApplyResult>> {
+fn field_results(
+    previous: &Config,
+    candidate: &Config,
+    changed_only: bool,
+) -> Result<Vec<FieldApplyResult>> {
     let old = flatten_config(previous)?;
     let new = flatten_config(candidate)?;
     let mut results = Vec::new();
@@ -467,6 +507,9 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
             continue;
         }
         let changed = old.get(entry.id) != new.get(entry.id);
+        if changed_only && !changed {
+            continue;
+        }
         if changed
             && matches!(
                 entry.id,
@@ -483,8 +526,8 @@ fn field_results(previous: &Config, candidate: &Config) -> Result<Vec<FieldApply
         let (status, reason) = match entry.state {
             ControlState::Working { .. } => (ApplyStatus::Applied, None),
             ControlState::Unavailable { reason } if changed => (
-                ApplyStatus::RestartRequired,
-                Some(format!("saved; {reason}; restart may be required")),
+                ApplyStatus::Unavailable,
+                Some(format!("Saved, but unavailable: {reason}")),
             ),
             ControlState::Unavailable { reason } => {
                 (ApplyStatus::Unavailable, Some(reason.to_string()))

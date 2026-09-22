@@ -400,12 +400,27 @@ pub fn validate_external_script(path: &std::path::Path) -> Result<()> {
 
 pub async fn run_external_script(path: &std::path::Path, transcript: &str) -> Result<()> {
     validate_external_script(path)?;
-    let mut child = tokio::process::Command::new(path)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| anyhow!("starting external script {}: {error}", path.display()))?;
+    let mut retries = 0;
+    let mut child = loop {
+        match tokio::process::Command::new(path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => break child,
+            Err(error) if cfg!(unix) && error.raw_os_error() == Some(26) && retries < 5 => {
+                retries += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(error) => {
+                return Err(anyhow!(
+                    "starting external script {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    };
     if let Some(mut stdin) = child.stdin.take() {
         use tokio::io::AsyncWriteExt;
         stdin

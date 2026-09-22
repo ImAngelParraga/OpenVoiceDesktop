@@ -72,7 +72,6 @@ impl InventoryEntry {
 }
 
 const NOT_RUNTIME: &str = "not consumed by current runtime";
-const NOT_IMPLEMENTED: &str = "operation not implemented";
 
 macro_rules! w {
     ($id:literal) => {
@@ -90,11 +89,6 @@ macro_rules! u {
     };
     ($id:literal, $reason:expr) => {
         InventoryEntry::unavailable($id, InventoryKind::Field, $reason)
-    };
-}
-macro_rules! a {
-    ($id:literal) => {
-        InventoryEntry::unavailable($id, InventoryKind::Action, NOT_IMPLEMENTED)
     };
 }
 macro_rules! wr {
@@ -132,7 +126,10 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("asr.bearer_token"),
     wa!("test-endpoint"),
     // I.settings.app
-    w!("app.start_hidden"),
+    u!(
+        "app.start_hidden",
+        "saved value does not control launch visibility on this platform"
+    ),
     w!("app.autostart"),
     w!("app.show_tray_icon"),
     w!("app.show_overlay"),

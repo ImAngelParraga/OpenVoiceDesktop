@@ -2,7 +2,7 @@
 
 Scope: static review of Windows daemon, native popup, settings shell, settings UI, configuration, and relevant tests. Reviewed on Ubuntu; no Windows executable was run. “Confirmed” means the code path establishes the behavior. “Verify on Windows” means the code shows a plausible failure path whose user-visible effect needs a native check.
 
-Progress (2026-09-22): W01–W03 implemented in source and Windows MSVC cross-checked; native Windows behavior remains unverified. W04 works for the user after a manual restart, so its audio path was not changed. Save now reloads audio settings without a manual restart; native verification remains needed. W05–W12 remain open.
+Progress (2026-09-22): W01–W03 implemented and published in v0.1.22; native Windows behavior remains unverified. W04 works for the user after a manual restart, so its audio path was not changed. Save now reloads audio settings without a manual restart; native verification remains needed. W05–W09 are implemented for v0.1.23, with native Windows checks still outstanding. W12's transient executable-busy error has a bounded retry and regression test because it blocked the release gate. W10–W11 remain open.
 
 Baseline: `node --check ui/settings.js` and `node --check ui/overlay.js` passed. `cargo test --locked` reported 139 passed and one failure: `external_script_receives_transcript_on_stdin` hit `Text file busy (os error 26)`. That test passed when rerun alone. Windows smoke coverage currently checks only that Settings opens and a second launch reuses its window.
 

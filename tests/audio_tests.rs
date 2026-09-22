@@ -2,8 +2,8 @@ use openvoice_desktop::core::audio::{
     apply_vad, audio_feedback_plan, effective_audio_encoding, feedback_sound,
     recording_output_plan, resolve_input_device, resolve_input_device_details,
     resolve_output_device, resolve_output_device_details, vad_decision, write_wav,
-    AudioFeedbackEvent, DeviceSelection, FeedbackSound, InputDeviceInfo, InputDeviceResolution,
-    OutputDeviceInfo, OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS,
+    AudioDeviceInventory, AudioFeedbackEvent, DeviceSelection, FeedbackSound, InputDeviceInfo,
+    InputDeviceResolution, OutputDeviceInfo, OutputDeviceResolution, VadDecision, DEFAULT_CHANNELS,
     DEFAULT_SAMPLE_RATE_HZ, PCM_BITS_PER_SAMPLE,
 };
 use openvoice_desktop::core::config::{AudioConfig, RecordingOutputMode, TextConfig};
@@ -33,6 +33,25 @@ fn effective_asr_encoding_is_fixed_and_read_only() {
     assert_eq!(encoding.sample_rate_hz, DEFAULT_SAMPLE_RATE_HZ);
     assert_eq!(encoding.channels, DEFAULT_CHANNELS);
     assert!(!encoding.editable);
+}
+
+#[test]
+fn audio_device_inventory_round_trips_for_isolated_refresh() {
+    let inventory = AudioDeviceInventory {
+        input_devices: vec![InputDeviceInfo {
+            name: "USB Mic".to_string(),
+            is_default: false,
+        }],
+        output_devices: vec![OutputDeviceInfo {
+            name: "Speakers".to_string(),
+            is_default: true,
+        }],
+    };
+    let json = serde_json::to_vec(&inventory).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<AudioDeviceInventory>(&json).unwrap(),
+        inventory
+    );
 }
 
 #[test]

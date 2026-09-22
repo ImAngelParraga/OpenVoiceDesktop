@@ -61,6 +61,57 @@ async fn external_script_receives_transcript_on_stdin() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn external_script_retries_temporary_text_file_busy() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("capture.sh");
+    let captured = dir.path().join("captured.txt");
+    fs::write(
+        &script,
+        format!("#!/bin/sh\ncat > '{}'\n", captured.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+    let writer = OpenOptions::new().write(true).open(&script).unwrap();
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        drop(writer);
+    });
+
+    run_external_script(&script, "retry transcript")
+        .await
+        .unwrap();
+    release.await.unwrap();
+    assert_eq!(fs::read_to_string(captured).unwrap(), "retry transcript");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn external_script_busy_retry_is_bounded() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("busy.sh");
+    fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+    let writer = OpenOptions::new().write(true).open(&script).unwrap();
+    let started = Instant::now();
+
+    let error = run_external_script(&script, "transcript")
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Text file busy"));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    drop(writer);
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn external_script_nonzero_exit_is_reported_without_stderr_leak() {
     use std::os::unix::fs::PermissionsExt;
 

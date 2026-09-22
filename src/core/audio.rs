@@ -125,6 +125,19 @@ pub struct OutputDeviceInfo {
     pub is_default: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioDeviceInventory {
+    pub input_devices: Vec<InputDeviceInfo>,
+    pub output_devices: Vec<OutputDeviceInfo>,
+}
+
+pub fn enumerate_audio_device_inventory() -> Result<AudioDeviceInventory> {
+    Ok(AudioDeviceInventory {
+        input_devices: enumerate_input_devices()?,
+        output_devices: enumerate_output_devices()?,
+    })
+}
+
 pub fn enumerate_input_devices() -> Result<Vec<InputDeviceInfo>> {
     let host = cpal::default_host();
     let default_name = host

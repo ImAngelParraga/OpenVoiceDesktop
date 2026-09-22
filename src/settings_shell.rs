@@ -209,6 +209,8 @@ pub fn run(start_hidden: bool) -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            refresh_audio_devices,
+            read_live_logs,
             cancel_transcription,
             cycle_transcription_language,
             open_recordings_folder,
@@ -234,6 +236,48 @@ fn get_settings() -> std::result::Result<crate::core::settings_service::Settings
     crate::core::settings_service::SettingsService::new(path)
         .get()
         .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn refresh_audio_devices(
+) -> std::result::Result<crate::core::audio::AudioDeviceInventory, String> {
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    let exe = std::env::current_exe().map_err(safe_error)?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .arg("device-inventory")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        .await
+        .map_err(|_| "Audio-device refresh timed out; current list was kept".to_string())?
+        .map_err(safe_error)?;
+    if !output.status.success() {
+        return Err("Audio-device refresh failed; current list was kept".to_string());
+    }
+    let inventory: crate::core::audio::AudioDeviceInventory =
+        serde_json::from_slice(&output.stdout).map_err(safe_error)?;
+    #[cfg(target_os = "windows")]
+    crate::core::settings_service::update_cached_device_inventory(inventory.clone());
+    Ok(inventory)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn read_live_logs() -> std::result::Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = crate::core::config::Config::default_path()?;
+        let config = crate::core::config::Config::load_from(&path)?.config;
+        crate::core::logging::FileLogger::for_config_path(&path, &config)?.read_tail(200)
+    })
+    .await
+    .map_err(safe_error)?
+    .map_err(safe_error)
 }
 
 #[cfg(feature = "desktop-shell")]
@@ -275,15 +319,11 @@ async fn save_settings(
                 })
                 .await
                 .context("joining autostart synchronization")??;
-                // A rejected shortcut registration must not roll back an
-                // otherwise valid Save; the CLI and tray still drive recording.
                 tauri::async_runtime::spawn_blocking(move || {
-                    if let Err(error) = crate::core::lifecycle::apply_shortcuts(&shortcut_config) {
-                        eprintln!("openvoice-desktop shortcut registration failed: {error}");
-                    }
+                    crate::core::lifecycle::apply_shortcuts(&shortcut_config)
                 })
                 .await
-                .context("joining shortcut synchronization")?;
+                .context("joining shortcut synchronization")??;
                 Ok(())
             }
         })
@@ -324,18 +364,47 @@ async fn reload_or_start_daemon(
         Ok(Ok(response)) if response.trim() == "Pending" => return Ok(DaemonApplyOutcome::Pending),
         Ok(Ok(response)) => anyhow::bail!(response.trim().to_string()),
         Err(_) => anyhow::bail!("timed out waiting for daemon config reload"),
-        Ok(Err(_unreachable)) => {}
+        Ok(Err(error)) => {
+            if daemon_reachable(socket_path).await {
+                return Err(error);
+            }
+        }
     }
 
     if !candidate.onboarding.completed {
         return Ok(DaemonApplyOutcome::Deferred);
     }
-    let _ = spawn_resident_daemon();
-    Ok(DaemonApplyOutcome::Deferred)
+    let mut child = spawn_resident_daemon()?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(exit) = child.try_wait()? {
+            anyhow::bail!("resident daemon exited during startup: {exit}");
+        }
+        if daemon_reachable(socket_path).await {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            if child.try_wait()?.is_none() && daemon_reachable(socket_path).await {
+                return Ok(DaemonApplyOutcome::Applied);
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("resident daemon did not become ready within 5 seconds");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 #[cfg(feature = "desktop-shell")]
-fn spawn_resident_daemon() -> anyhow::Result<()> {
+async fn daemon_reachable(socket_path: &std::path::Path) -> bool {
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        crate::ipc::send_status(socket_path),
+    )
+    .await
+    .is_ok_and(|result| result.is_ok())
+}
+
+#[cfg(feature = "desktop-shell")]
+fn spawn_resident_daemon() -> anyhow::Result<std::process::Child> {
     use std::process::{Command, Stdio};
 
     let exe = std::env::current_exe()?;
@@ -351,8 +420,7 @@ fn spawn_resident_daemon() -> anyhow::Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    command.spawn()?;
-    Ok(())
+    Ok(command.spawn()?)
 }
 
 #[cfg(feature = "desktop-shell")]
@@ -738,4 +806,25 @@ pub fn run(_start_hidden: bool) -> Result<()> {
     anyhow::bail!(
         "native settings shell is not included in this build; rebuild with --features desktop-shell"
     )
+}
+
+#[cfg(all(test, feature = "desktop-shell", target_os = "linux"))]
+mod tests {
+    use super::{reload_or_start_daemon, DaemonApplyOutcome};
+    use crate::core::config::Config;
+
+    #[tokio::test]
+    async fn save_without_resident_process_defers_only_during_incomplete_onboarding() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("missing.sock");
+        let mut config = Config::default();
+        assert_eq!(
+            reload_or_start_daemon(&config, &socket).await.unwrap(),
+            DaemonApplyOutcome::Deferred
+        );
+
+        config.onboarding.completed = true;
+        let error = reload_or_start_daemon(&config, &socket).await.unwrap_err();
+        assert!(error.to_string().contains("resident daemon"));
+    }
 }
