@@ -1072,10 +1072,12 @@ async fn serve_windows_pipe(
     };
     use crate::platform::windows::set_tray_state;
     use std::sync::atomic::Ordering;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let mut command = String::new();
-    server.read_to_string(&mut command).await?;
+    if BufReader::new(&mut server).read_line(&mut command).await? == 0 {
+        return Ok(());
+    }
     let response = if command == STATUS_COMMAND {
         serde_json::to_string(&crate::ipc::DaemonStatus {
             state: snapshot.state(),
@@ -1310,6 +1312,60 @@ mod tests {
         let mut response = String::new();
         client.read_to_string(&mut response).await.unwrap();
         assert_eq!(response, "Reloaded\n");
+        task.await.unwrap();
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_pipe_tests {
+    use super::{serve_windows_pipe, ControllerRequest};
+    use crate::core::config::Config;
+    use crate::core::state::RecordingState;
+    use crate::core::status::StatusSnapshot;
+    use crate::ipc::{send_command_to, DaemonStatus, STATUS_COMMAND};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
+
+    static NEXT_PIPE_ID: AtomicUsize = AtomicUsize::new(0);
+
+    #[tokio::test]
+    async fn test_v67_windows_pipe_replies_without_eof() {
+        let pipe_name = format!(
+            r"\\.\pipe\openvoice-desktop-test-{}-{}",
+            std::process::id(),
+            NEXT_PIPE_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let server = ServerOptions::new()
+            .pipe_mode(PipeMode::Message)
+            .create(&pipe_name)
+            .unwrap();
+        let (controller_tx, _controller_rx) = std::sync::mpsc::channel::<ControllerRequest>();
+        let (reload_tx, _reload_rx) =
+            tokio::sync::mpsc::unbounded_channel::<(Config, tokio::sync::oneshot::Sender<String>)>(
+            );
+        let task = tokio::spawn(async move {
+            server.connect().await.unwrap();
+            serve_windows_pipe(
+                server,
+                controller_tx,
+                Arc::new(StatusSnapshot::new()),
+                Arc::new(AtomicBool::new(false)),
+                reload_tx,
+            )
+            .await
+            .unwrap();
+        });
+
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            send_command_to(&pipe_name, STATUS_COMMAND),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let status: DaemonStatus = serde_json::from_str(response.trim()).unwrap();
+        assert_eq!(status.state, RecordingState::Idle);
         task.await.unwrap();
     }
 }

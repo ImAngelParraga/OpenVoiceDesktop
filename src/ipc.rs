@@ -105,16 +105,23 @@ pub async fn send_shutdown(_socket_path: &std::path::Path) -> anyhow::Result<Str
 
 #[cfg(target_os = "windows")]
 async fn send_command(command: &str) -> anyhow::Result<String> {
+    send_command_to(WINDOWS_PIPE_NAME, command).await
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) async fn send_command_to(pipe_name: &str, command: &str) -> anyhow::Result<String> {
     use anyhow::Context;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::windows::named_pipe::ClientOptions;
 
     let mut client = ClientOptions::new()
-        .open(WINDOWS_PIPE_NAME)
-        .with_context(|| format!("connecting to daemon pipe {WINDOWS_PIPE_NAME}"))?;
+        .open(pipe_name)
+        .with_context(|| format!("connecting to daemon pipe {pipe_name}"))?;
     client.write_all(command.as_bytes()).await?;
-    client.shutdown().await?;
+    // NamedPipeClient::shutdown only flushes. It does not send EOF, so the
+    // request and response must use line framing on this duplex pipe.
     let mut response = String::new();
-    client.read_to_string(&mut response).await?;
+    let bytes = BufReader::new(client).read_line(&mut response).await?;
+    anyhow::ensure!(bytes > 0, "daemon pipe closed without response");
     Ok(response)
 }
