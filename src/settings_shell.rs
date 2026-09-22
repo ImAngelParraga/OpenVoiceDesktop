@@ -313,17 +313,11 @@ async fn save_settings(
                     DaemonApplyOutcome::Applied => {}
                 }
                 let autostart = candidate.app.autostart;
-                let shortcut_config = candidate.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     crate::core::lifecycle::apply_autostart(autostart)
                 })
                 .await
                 .context("joining autostart synchronization")??;
-                tauri::async_runtime::spawn_blocking(move || {
-                    crate::core::lifecycle::apply_shortcuts(&shortcut_config)
-                })
-                .await
-                .context("joining shortcut synchronization")??;
                 Ok(())
             }
         })

@@ -87,6 +87,7 @@ pub async fn run(config: Config) -> Result<()> {
     // work that needs the controller is handed to the loop below.
     let (command_tx, mut command_rx) =
         tokio::sync::mpsc::unbounded_channel::<(String, tokio::sync::oneshot::Sender<String>)>();
+    let deferred_reload_tx = command_tx.clone();
     {
         let snapshot = Arc::clone(&snapshot);
         let cancel_flag = Arc::clone(&cancel_flag);
@@ -141,6 +142,7 @@ pub async fn run(config: Config) -> Result<()> {
     // Sticky until the next dictation succeeds, so the tray keeps showing that
     // the last attempt failed.
     let mut last_dictation_failed = false;
+    let mut pending_reload = false;
     sync_tray(
         &tray,
         &mut tray_view,
@@ -163,7 +165,8 @@ pub async fn run(config: Config) -> Result<()> {
                         Err(error) => format!("error: {error}\n"),
                     }
                 } else if command == RELOAD_CONFIG_COMMAND && controller.state() != crate::core::state::RecordingState::Idle {
-                    format!("error: rejected config: controller busy in {:?}\n", controller.state())
+                    pending_reload = true;
+                    "Pending\n".to_string()
                 } else if command == RELOAD_CONFIG_COMMAND {
                     match Config::load_default().and_then(|loaded| {
                         crate::core::settings_service::validate_config(&loaded.config)?;
@@ -235,6 +238,11 @@ pub async fn run(config: Config) -> Result<()> {
                 if command != RELOAD_CONFIG_COMMAND {
                     let _ = responder.take().unwrap().send(response.clone());
                 }
+                if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
+                    // The controller has accepted the saved config. GNOME and
+                    // tray reconciliation can outlast the Settings timeout.
+                    let _ = responder.take().unwrap().send(response.clone());
+                }
                 sync_cancel_shortcut(&shortcut_config, &mut cancel_grabbed, controller.state()).await;
                 if command == RELOAD_CONFIG_COMMAND && response == "Reloaded\n" {
                     if let Ok(loaded) = Config::load_default() {
@@ -244,7 +252,6 @@ pub async fn run(config: Config) -> Result<()> {
                             eprintln!(
                                 "openvoice-desktop shortcut registration failed: {error}"
                             );
-                            response = format!("error: applying shortcuts: {error}\n");
                         }
                         let desired_overlay = loaded.config.app.show_overlay;
                         if desired_overlay != show_overlay {
@@ -286,6 +293,9 @@ pub async fn run(config: Config) -> Result<()> {
                 )
                 .await;
                 if let Some(responder) = responder {
+                    if responder.is_closed() && response.starts_with("error:") {
+                        eprintln!("openvoice-desktop deferred config reload failed: {}", response.trim());
+                    }
                     let _ = responder.send(response);
                 }
             }
@@ -384,12 +394,19 @@ pub async fn run(config: Config) -> Result<()> {
                 return Ok(());
             }
         }
+        // Dictation may finish through either the socket or tray. Schedule a
+        // pending reload after either path returns the controller to idle.
+        if pending_reload && controller.state() == crate::core::state::RecordingState::Idle {
+            pending_reload = false;
+            let (reply, receiver) = tokio::sync::oneshot::channel();
+            drop(receiver);
+            let _ = deferred_reload_tx.send((RELOAD_CONFIG_COMMAND.to_string(), reply));
+        }
     }
 }
 
-/// Serve one socket connection. Status is answered from the snapshot and cancel
-/// raises the flag here, so neither waits for the controller; everything else
-/// is forwarded to the daemon loop and answered when it gets there.
+/// Serve one socket connection. Status and a busy reload are answered from the
+/// snapshot; cancel raises its flag here. Other work reaches the daemon loop.
 #[cfg(target_os = "linux")]
 async fn serve_connection(
     mut stream: tokio::net::UnixStream,
@@ -418,13 +435,19 @@ async fn serve_connection(
         if command == crate::ipc::CANCEL_COMMAND {
             cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
+        let busy_reload = command == crate::ipc::RELOAD_CONFIG_COMMAND
+            && snapshot.state() != crate::core::state::RecordingState::Idle;
         let (responder, response) = tokio::sync::oneshot::channel();
         if commands.send((command, responder)).is_err() {
             return;
         }
-        response
-            .await
-            .unwrap_or_else(|_| "error: daemon stopped\n".to_string())
+        if busy_reload {
+            "Pending\n".to_string()
+        } else {
+            response
+                .await
+                .unwrap_or_else(|_| "error: daemon stopped\n".to_string())
+        }
     };
     let _ = stream.write_all(response.as_bytes()).await;
 }
@@ -1216,5 +1239,77 @@ fn prepare_socket(socket_path: &std::path::Path) -> Result<()> {
 fn cleanup_socket(socket_path: &std::path::Path) {
     if socket_path.exists() {
         let _ = std::fs::remove_file(socket_path);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::serve_connection;
+    use crate::core::state::RecordingState;
+    use crate::core::status::StatusSnapshot;
+    use crate::ipc::RELOAD_CONFIG_COMMAND;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn test_v66_busy_reload_returns_pending_without_waiting_for_controller() {
+        let (server, mut client) = tokio::net::UnixStream::pair().unwrap();
+        let snapshot = Arc::new(StatusSnapshot::new());
+        snapshot.set_state(RecordingState::Transcribing);
+        let (commands, mut queued) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(serve_connection(
+            server,
+            snapshot,
+            Arc::new(AtomicBool::new(false)),
+            commands,
+        ));
+
+        client
+            .write_all(RELOAD_CONFIG_COMMAND.as_bytes())
+            .await
+            .unwrap();
+        client.shutdown().await.unwrap();
+        let mut response = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            client.read_to_string(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response, "Pending\n");
+
+        let (command, reply) = queued.recv().await.unwrap();
+        assert_eq!(command, RELOAD_CONFIG_COMMAND);
+        assert!(reply.is_closed());
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_v66_idle_reload_waits_for_controller_acceptance() {
+        let (server, mut client) = tokio::net::UnixStream::pair().unwrap();
+        let (commands, mut queued) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(serve_connection(
+            server,
+            Arc::new(StatusSnapshot::new()),
+            Arc::new(AtomicBool::new(false)),
+            commands,
+        ));
+
+        client
+            .write_all(RELOAD_CONFIG_COMMAND.as_bytes())
+            .await
+            .unwrap();
+        client.shutdown().await.unwrap();
+        let (command, reply) = queued.recv().await.unwrap();
+        assert_eq!(command, RELOAD_CONFIG_COMMAND);
+        assert!(!reply.is_closed());
+        reply.send("Reloaded\n".to_string()).unwrap();
+
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        assert_eq!(response, "Reloaded\n");
+        task.await.unwrap();
     }
 }
