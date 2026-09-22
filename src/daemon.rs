@@ -156,7 +156,7 @@ pub async fn run(config: Config) -> Result<()> {
         tokio::select! {
             Some((command, responder)) = command_rx.recv() => {
                 let mut shutdown_requested = false;
-                let mut response = if command == CYCLE_LANGUAGE_COMMAND {
+                let response = if command == CYCLE_LANGUAGE_COMMAND {
                     match controller.cycle_language() {
                         Ok(language) => {
                             snapshot.set_language(language.clone());
