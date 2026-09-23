@@ -1181,7 +1181,7 @@ pub fn toggle_status_popup(response: &str) -> ToggleStatusPopup {
     }
     if response.starts_with("error: ") {
         return ToggleStatusPopup::ShowText {
-            text: "OpenVoiceDesktop error. Check configuration.",
+            text: "Error. Open Logs.",
             timeout_ms: Some(4_000),
         };
     }

@@ -193,7 +193,12 @@ where
                     .await
                 {
                     Ok(state) => self.output_state = state,
-                    Err(error) => return Err(self.fail_operation(error).await),
+                    Err(error) => {
+                        // Playback output is optional. A missing or locked
+                        // output endpoint must not prevent microphone capture.
+                        eprintln!("openvoice-desktop output adjustment unavailable: {error}");
+                        self.output_state = None;
+                    }
                 }
                 if let Err(error) = self.recorder.start().await {
                     return Err(self.fail_operation(error).await);

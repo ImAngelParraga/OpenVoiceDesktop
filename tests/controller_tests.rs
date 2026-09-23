@@ -306,6 +306,41 @@ async fn test_v28_v29_reduced_output_applies_level_and_restores_exact_state() {
 }
 
 #[tokio::test]
+async fn test_v68_output_adjustment_failure_does_not_block_recording() {
+    let mut config = Config::default();
+    config.audio.recording_output_mode = RecordingOutputMode::Reduced;
+    config.audio.recording_output_volume = 0.25;
+    config.output.paste_delay_ms = 0;
+    config.output.restore_delay_ms = 0;
+    let platform = FakePlatform::new(None).with_adjustment_failure();
+    let adjustments = platform.adjustments.clone();
+    let restores = platform.restores.clone();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".to_string(),
+            observations: Arc::new(Mutex::new(Vec::new())),
+        },
+        platform,
+        config,
+    );
+
+    assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+    assert_eq!(controller.state(), RecordingState::Recording);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::Inserted {
+            text: "hello".to_string()
+        }
+    );
+    assert_eq!(
+        *adjustments.lock().unwrap(),
+        vec![(RecordingOutputMode::Reduced, 0.25)]
+    );
+    assert!(restores.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn shutdown_restores_active_mute_session() {
     let mut config = Config::default();
     config.audio.recording_output_mode = RecordingOutputMode::Muted;
@@ -826,6 +861,7 @@ struct FakePlatform {
     restores: Arc<Mutex<Vec<AudioOutputState>>>,
     fail_paste: bool,
     fail_selection: bool,
+    fail_adjustment: bool,
 }
 
 impl FakePlatform {
@@ -837,6 +873,7 @@ impl FakePlatform {
             restores: Arc::new(Mutex::new(Vec::new())),
             fail_paste: false,
             fail_selection: false,
+            fail_adjustment: false,
         }
     }
 
@@ -847,6 +884,11 @@ impl FakePlatform {
 
     fn with_selection_failure(mut self) -> Self {
         self.fail_selection = true;
+        self
+    }
+
+    fn with_adjustment_failure(mut self) -> Self {
+        self.fail_adjustment = true;
         self
     }
 
@@ -938,6 +980,9 @@ impl PlatformAdapter for FakePlatform {
         volume: f32,
     ) -> Result<Option<AudioOutputState>> {
         self.adjustments.lock().unwrap().push((mode, volume));
+        if self.fail_adjustment {
+            anyhow::bail!("Windows output adjustment unavailable");
+        }
         Ok((mode != RecordingOutputMode::Unchanged).then(fake_output_state))
     }
 

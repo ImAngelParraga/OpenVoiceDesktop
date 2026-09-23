@@ -140,6 +140,8 @@ V64: XWayland-authorization invariant: the overlay shell reaches the X server on
 V65: Package-upgrade invariant: dpkg replaces `/usr/lib/systemd/user/openvoice-desktop.service` under user managers that keep serving what they read at login, so the package reloads them itself. `postinst` walks `loginctl list-users` and runs `daemon-reload` in each manager, then `try-restart` so a user already running the daemon gets the new binary and a user who had it stopped does not get it started. Every step is best-effort: a chroot or a machine with nobody logged in must still install.
 V66: Linux-save-reload invariant: Settings Save during dictation receives `Pending` without waiting for controller work, and daemon applies the saved config after returning to idle. Once an idle controller accepts a reload, the daemon replies `Reloaded` before GNOME shortcut, overlay, or tray reconciliation can consume the Settings timeout. Noncritical shortcut registration failure is logged without rejecting the accepted Save.
 V67: Windows-pipe invariant: each daemon command and response ends with a newline, and both named-pipe peers read through that newline without waiting for EOF. A status or Settings reload round trip completes while both pipe handles remain open; `NamedPipeClient::shutdown` is flush-only and cannot delimit a request.
+V68: Recording-start invariant: failure to query or adjust playback output is logged but does not block microphone capture or trigger restoration without saved output state; microphone-start failure remains fatal.
+V69: Windows-error-popup invariant: shortcut failure text fits the compact native popup and directs the user to Logs, where the underlying error remains available.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -311,3 +313,4 @@ B61|2026-08-25|The login-race import refreshed `DISPLAY` but not `XAUTHORITY`, s
 B62|2026-08-25|The package shipped no maintainer script, so every upgrade left the old binary running under a user manager that had not re-read the unit; the v0.1.20 overlay fix appeared not to work until the unit was reloaded and the service restarted by hand|V65
 B63|2026-09-22|Linux reload waited behind dictation and GNOME or tray reconciliation, exceeding the Settings five-second timeout and rolling back a valid Save|V66
 B64|2026-09-22|Windows named-pipe client and server both waited for EOF; Tokio `NamedPipeClient::shutdown` only flushed, so reload never reached daemon and Settings timed out after five seconds|V67
+B65|2026-09-23|Windows playback-output adjustment error aborted recording before microphone start, while native 180-pixel popup clipped generic error text|V68,V69

@@ -4,7 +4,7 @@ const WINDOWS_RS: &str = include_str!("../src/platform/windows.rs");
 const WINDOWS_RUNTIME_SMOKE: &str = include_str!("../scripts/test-windows-runtime.ps1");
 
 #[test]
-fn test_v5_hotkey_toggle_responses_have_quiet_status_popup_feedback() {
+fn test_v5_v69_hotkey_toggle_responses_have_quiet_status_popup_feedback() {
     assert_eq!(
         toggle_status_popup("Started\n"),
         ToggleStatusPopup::ShowRecording
@@ -30,7 +30,7 @@ fn test_v5_hotkey_toggle_responses_have_quiet_status_popup_feedback() {
     assert_eq!(
         toggle_status_popup("error: missing token\n"),
         ToggleStatusPopup::ShowText {
-            text: "OpenVoiceDesktop error. Check configuration.",
+            text: "Error. Open Logs.",
             timeout_ms: Some(4_000),
         }
     );
