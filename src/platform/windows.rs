@@ -12,7 +12,9 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::mpsc;
 use windows_sys::core::{GUID, HRESULT};
-use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{
+    COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, RPC_E_CHANGED_MODE, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
     FillRect, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, RoundRect, SelectObject,
@@ -488,20 +490,35 @@ const IID_AUDIO_ENDPOINT_VOLUME: GUID = GUID {
     data4: [0x97, 0x22, 0x0c, 0xf7, 0x40, 0x78, 0x22, 0x9a],
 };
 
-struct ComApartment;
+struct ComApartment {
+    should_uninitialize: bool,
+}
 
 impl ComApartment {
     fn initialize() -> Result<Self> {
         let result = unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) };
-        check_hresult(result, "initializing Windows audio COM session")?;
-        Ok(Self)
+        Ok(Self {
+            should_uninitialize: com_init_owns_apartment(result)?,
+        })
     }
 }
 
 impl Drop for ComApartment {
     fn drop(&mut self) {
-        unsafe { CoUninitialize() };
+        if self.should_uninitialize {
+            unsafe { CoUninitialize() };
+        }
     }
+}
+
+fn com_init_owns_apartment(result: HRESULT) -> Result<bool> {
+    if result == RPC_E_CHANGED_MODE {
+        // CPAL initializes reused worker threads as STA. COM is already usable
+        // there; this call did not acquire an initialization to release.
+        return Ok(false);
+    }
+    check_hresult(result, "initializing Windows audio COM session")?;
+    Ok(true)
 }
 
 #[derive(Default)]
@@ -627,6 +644,14 @@ fn check_hresult(value: HRESULT, operation: &str) -> Result<()> {
 mod com_ownership_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_v71_feedback_sta_allows_output_adjustment_without_releasing_its_com_apartment() {
+        assert_eq!(com_init_owns_apartment(RPC_E_CHANGED_MODE).unwrap(), false);
+        assert_eq!(com_init_owns_apartment(0).unwrap(), true);
+        assert_eq!(com_init_owns_apartment(1).unwrap(), true);
+        assert!(com_init_owns_apartment(-1).is_err());
+    }
 
     #[repr(C)]
     struct FakeComObject {

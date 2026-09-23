@@ -240,6 +240,7 @@ where
         });
         self.wait_for_recording_buffer().await;
         let audio = self.recorder.stop().await?;
+        self.restore_audio_session().await?;
         let record_duration = self
             .recording_started_at
             .take()

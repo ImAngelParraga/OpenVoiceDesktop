@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use openvoice_desktop::core::asr::{AsrClient, Transcription};
+use openvoice_desktop::core::audio::{AudioFeedbackEvent, AudioFeedbackPlan};
 use openvoice_desktop::core::config::{Config, RecordingOutputMode};
 use openvoice_desktop::core::controller::VoiceController;
 use openvoice_desktop::core::events::{AppEventSink, AppShellEvent};
@@ -303,6 +304,51 @@ async fn test_v28_v29_reduced_output_applies_level_and_restores_exact_state() {
         vec![(RecordingOutputMode::Reduced, 0.25)]
     );
     assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
+}
+
+#[tokio::test]
+async fn test_v70_feedback_keeps_reduction_during_capture_and_restores_before_upload() {
+    for feedback_enabled in [true, false] {
+        let mut config = Config::default();
+        config.audio.recording_output_mode = RecordingOutputMode::Reduced;
+        config.audio.recording_output_volume = 0.25;
+        config.audio.audio_feedback = feedback_enabled;
+        config.output.paste_delay_ms = 0;
+        config.output.restore_delay_ms = 0;
+        let platform = FakePlatform::new(None);
+        let adjustments = platform.adjustments.clone();
+        let restores = platform.restores.clone();
+        let feedback_events = platform.feedback_events.clone();
+        let asr = RestoreCheckingAsr {
+            restores: restores.clone(),
+        };
+        let mut controller = VoiceController::new(FakeRecorder::default(), asr, platform, config);
+
+        assert_eq!(controller.toggle().await.unwrap(), ToggleOutcome::Started);
+        assert_eq!(
+            *adjustments.lock().unwrap(),
+            vec![(RecordingOutputMode::Reduced, 0.25)]
+        );
+        assert!(restores.lock().unwrap().is_empty());
+        assert_eq!(
+            *feedback_events.lock().unwrap(),
+            if feedback_enabled {
+                vec![AudioFeedbackEvent::Start]
+            } else {
+                vec![]
+            }
+        );
+        controller.toggle().await.unwrap();
+        assert_eq!(*restores.lock().unwrap(), vec![fake_output_state()]);
+        assert_eq!(
+            *feedback_events.lock().unwrap(),
+            if feedback_enabled {
+                vec![AudioFeedbackEvent::Start, AudioFeedbackEvent::Stop]
+            } else {
+                vec![]
+            }
+        );
+    }
 }
 
 #[tokio::test]
@@ -785,6 +831,25 @@ struct FakeAsr {
     observations: Arc<Mutex<Vec<String>>>,
 }
 
+struct RestoreCheckingAsr {
+    restores: Arc<Mutex<Vec<AudioOutputState>>>,
+}
+
+#[async_trait]
+impl AsrClient for RestoreCheckingAsr {
+    async fn transcribe_file(
+        &self,
+        _path: &Path,
+        _language: Option<&str>,
+    ) -> Result<Transcription> {
+        assert_eq!(*self.restores.lock().unwrap(), vec![fake_output_state()]);
+        Ok(Transcription {
+            text: "hello".to_string(),
+            elapsed: Duration::from_millis(12),
+        })
+    }
+}
+
 #[async_trait]
 impl AsrClient for FakeAsr {
     async fn transcribe_file(&self, _path: &Path, language: Option<&str>) -> Result<Transcription> {
@@ -859,6 +924,7 @@ struct FakePlatform {
     observations: Arc<Mutex<Vec<String>>>,
     adjustments: Arc<Mutex<Vec<(RecordingOutputMode, f32)>>>,
     restores: Arc<Mutex<Vec<AudioOutputState>>>,
+    feedback_events: Arc<Mutex<Vec<AudioFeedbackEvent>>>,
     fail_paste: bool,
     fail_selection: bool,
     fail_adjustment: bool,
@@ -871,6 +937,7 @@ impl FakePlatform {
             observations: Arc::new(Mutex::new(Vec::new())),
             adjustments: Arc::new(Mutex::new(Vec::new())),
             restores: Arc::new(Mutex::new(Vec::new())),
+            feedback_events: Arc::new(Mutex::new(Vec::new())),
             fail_paste: false,
             fail_selection: false,
             fail_adjustment: false,
@@ -988,6 +1055,11 @@ impl PlatformAdapter for FakePlatform {
 
     async fn restore_output_after_recording(&self, state: AudioOutputState) -> Result<()> {
         self.restores.lock().unwrap().push(state);
+        Ok(())
+    }
+
+    async fn play_audio_feedback(&self, plan: &AudioFeedbackPlan) -> Result<()> {
+        self.feedback_events.lock().unwrap().push(plan.event);
         Ok(())
     }
 }

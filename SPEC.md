@@ -142,6 +142,8 @@ V66: Linux-save-reload invariant: Settings Save during dictation receives `Pendi
 V67: Windows-pipe invariant: each daemon command and response ends with a newline, and both named-pipe peers read through that newline without waiting for EOF. A status or Settings reload round trip completes while both pipe handles remain open; `NamedPipeClient::shutdown` is flush-only and cannot delimit a request.
 V68: Recording-start invariant: failure to query or adjust playback output is logged but does not block microphone capture or trigger restoration without saved output state; microphone-start failure remains fatal.
 V69: Windows-error-popup invariant: shortcut failure text fits the compact native popup and directs the user to Logs, where the underlying error remains available.
+V70: Recording-output timing invariant: with audio feedback enabled or disabled, reduced or muted output remains active through microphone capture and returns to saved mute and volume state immediately after capture stops, before ASR upload begins.
+V71: Windows feedback-output invariant: CPAL feedback may initialize a reused worker thread as STA; output adjustment still works on that thread after `RPC_E_CHANGED_MODE`, and COM uninitializes only when this adjustment acquired an initialization.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -246,6 +248,7 @@ T97|x|Survive the login race and stop failing silently|Retry StatusNotifierItem 
 T98|x|Unblock the overlay and make Escape cancel on Linux|Serve `status` from a controller-state snapshot and raise cancel on the spot from a socket task instead of the busy daemon loop, report idle at insertion rather than after the clipboard restore, drive the overlay window and its waveform from change instead of from the clock, and hold the GNOME cancel keybinding only for the length of a dictation.|—|I.platform,I.shell,V3,V5,V38,V62,V63
 T99|x|Give the overlay shell an X cookie|Import `XAUTHORITY` with the other graphical variables, drop a cookie path left over from a previous login, and keep the Wayland backend when no cookie is reachable so the shell cannot panic in GTK init.|—|I.shell,I.platform,V60,V64
 T100|x|Make a package upgrade take effect|Ship a `postinst` that reloads every running systemd user manager and restarts an already-running daemon, wire it into the deb bundle config, and verify the maintainer script in the payload check.|—|I.build,V65
+T101|x|Keep output reduction with Windows feedback|Allow adjustment after CPAL initializes COM as STA, retain correct COM ownership, and restore output when microphone capture stops; cover both audio feedback states.|—|I.platform,I.controller,V70,V71
 
 §B
 id|date|cause|fix
@@ -314,3 +317,5 @@ B62|2026-08-25|The package shipped no maintainer script, so every upgrade left t
 B63|2026-09-22|Linux reload waited behind dictation and GNOME or tray reconciliation, exceeding the Settings five-second timeout and rolling back a valid Save|V66
 B64|2026-09-22|Windows named-pipe client and server both waited for EOF; Tokio `NamedPipeClient::shutdown` only flushed, so reload never reached daemon and Settings timed out after five seconds|V67
 B65|2026-09-23|Windows playback-output adjustment error aborted recording before microphone start, while native 180-pixel popup clipped generic error text|V68,V69
+B66|2026-09-23|Recording output stayed reduced through WAV writing, ASR upload, and paste because restoration ran only at the end of processing, obscuring whether feedback and reduction worked during capture|V70
+B67|2026-09-23|CPAL feedback initialized a reusable Windows worker thread as STA, but output adjustment required MTA on the same thread; `RPC_E_CHANGED_MODE` made reduction fail and recording silently continued at full volume|V71
