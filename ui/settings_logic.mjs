@@ -8,6 +8,16 @@ export const numericSpecs = Object.freeze({
   "debug.recording_buffer_ms": { min: 0, max: 1500, step: 1 },
 });
 
+export const CUSTOM_ASR_MODEL = "__custom_asr_model__";
+export const asrModelChoices = Object.freeze([
+  { value: "whisper-1", label: "Whisper (whisper-1)" },
+  { value: "qwen3-asr-1.7b", label: "Qwen3-ASR 1.7B (qwen3-asr-1.7b)" },
+]);
+
+export function selectedAsrModelChoice(model) {
+  return asrModelChoices.some((choice) => choice.value === model) ? model : CUSTOM_ASR_MODEL;
+}
+
 export function normalizeFieldValue(path, previous, raw, checked = false) {
   if (typeof previous === "boolean") return checked;
   if (typeof previous === "number") {

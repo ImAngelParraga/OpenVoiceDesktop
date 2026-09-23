@@ -127,7 +127,7 @@ fn asr_endpoint_settings_exposes_t5_endpoint_controls() {
         controls,
         vec![
             ("base-url", Some("asr.base_url"), SettingsControlKind::Text),
-            ("model", Some("asr.model"), SettingsControlKind::Text),
+            ("model", Some("asr.model"), SettingsControlKind::Select),
             ("language", Some("asr.language"), SettingsControlKind::Text),
             (
                 "language-options",

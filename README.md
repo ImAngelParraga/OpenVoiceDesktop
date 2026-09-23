@@ -26,6 +26,8 @@ Use it when:
 
 Press `Ctrl+Alt+L` while idle or recording to cycle configured transcription languages. Recording overlay shows current language and offers same action. Selection applies when recording stops; audio remains one clip.
 
+In Settings → **ASR Endpoint**, choose **Model** from the list: `whisper-1` or `qwen3-asr-1.7b`. Choose **Custom model…** to keep using another server's model ID. Save applies the selected model to later dictations; the configured ASR server must support it.
+
 On Windows, the tray app shows a compact bottom-of-screen popup: animated bars while recording, `processing` while uploading/transcribing, and short feedback only for empty transcript, busy, or error states. Successful insertion stays quiet.
 
 WAV is the default because short desktop dictation clips are usually under 10 seconds. The payload is about 32 KB/sec, so a 10 second phrase is roughly 320 KB plus the WAV header. Opus can be added later if benchmarks show it improves end-to-end latency for long clips or slow networks.

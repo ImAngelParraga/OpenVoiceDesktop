@@ -1,4 +1,4 @@
-import { deviceFallback, normalizeFieldValue, numericSpecs, summarizeSave } from "./settings_logic.mjs";
+import { asrModelChoices, CUSTOM_ASR_MODEL, deviceFallback, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "./settings_logic.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const settingsWindow = window.__TAURI__.window.getCurrentWindow();
@@ -180,7 +180,8 @@ function render() {
     const contract = availability.get(path);
     if (!contract) continue;
     const value = getPath(documentModel.config, path);
-    const row = document.createElement("label");
+    const row = document.createElement(path === "asr.model" ? "div" : "label");
+    if (path === "asr.model") row.className = "model-row";
     row.dataset.field = path;
     row.title = control.description;
     const unavailableReason = contract.status === "unavailable"
@@ -194,6 +195,54 @@ function render() {
     const input = document.createElement(isTextArea ? "textarea" : "input");
     input.name = path;
     input.disabled = unavailableReason !== null;
+    if (path === "asr.model") {
+      const picker = document.createElement("div");
+      picker.className = "model-picker";
+      const select = document.createElement("select");
+      select.name = path;
+      select.setAttribute("aria-label", "ASR model");
+      select.disabled = input.disabled;
+      for (const choice of asrModelChoices) {
+        const option = document.createElement("option");
+        option.value = choice.value;
+        option.textContent = choice.label;
+        select.append(option);
+      }
+      const customOption = document.createElement("option");
+      customOption.value = CUSTOM_ASR_MODEL;
+      customOption.textContent = "Custom model…";
+      select.append(customOption);
+      select.value = selectedAsrModelChoice(value);
+      const customInput = document.createElement("input");
+      customInput.type = "text";
+      customInput.setAttribute("aria-label", "Custom ASR model ID");
+      customInput.placeholder = "Model ID from your ASR server";
+      customInput.value = select.value === CUSTOM_ASR_MODEL ? value : "";
+      customInput.hidden = select.value !== CUSTOM_ASR_MODEL;
+      customInput.required = select.value === CUSTOM_ASR_MODEL;
+      customInput.disabled = select.disabled || customInput.hidden;
+      if (!customInput.disabled && !customInput.value.trim()) customInput.setCustomValidity("Enter a model ID.");
+      select.addEventListener("change", () => {
+        clearTransientSaveFeedback();
+        const custom = select.value === CUSTOM_ASR_MODEL;
+        customInput.hidden = !custom;
+        customInput.disabled = select.disabled || !custom;
+        customInput.required = custom;
+        customInput.setCustomValidity(custom && !customInput.value.trim() ? "Enter a model ID." : "");
+        setPath(documentModel.config, path, custom ? customInput.value.trim() : select.value);
+        if (custom) customInput.focus();
+      });
+      customInput.addEventListener("input", () => {
+        clearTransientSaveFeedback();
+        customInput.setCustomValidity(customInput.value.trim() ? "" : "Enter a model ID.");
+        setPath(documentModel.config, path, customInput.value.trim());
+      });
+      picker.append(select, customInput);
+      row.append(fieldCopy(control), picker);
+      addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
+      form.append(row);
+      continue;
+    }
     if (path === "audio.selected_microphone" || path === "audio.selected_output_device") {
       const select = document.createElement("select");
       select.name = path;

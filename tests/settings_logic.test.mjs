@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deviceFallback, normalizeFieldValue, numericSpecs, summarizeSave } from "../ui/settings_logic.mjs";
+import { asrModelChoices, CUSTOM_ASR_MODEL, deviceFallback, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "../ui/settings_logic.mjs";
+
+test("ASR model picker lists deployed engines and preserves custom IDs", () => {
+  assert.deepEqual(asrModelChoices.map((choice) => choice.value), ["whisper-1", "qwen3-asr-1.7b"]);
+  assert.equal(selectedAsrModelChoice("whisper-1"), "whisper-1");
+  assert.equal(selectedAsrModelChoice("qwen3-asr-1.7b"), "qwen3-asr-1.7b");
+  assert.equal(selectedAsrModelChoice("my-custom-model"), CUSTOM_ASR_MODEL);
+  assert.equal(normalizeFieldValue("asr.model", "whisper-1", "my-custom-model"), "my-custom-model");
+});
 
 test("Save summary counts changed fields only and handles no-change Save", () => {
   assert.equal(summarizeSave([]).short, "No changes");
