@@ -1,4 +1,4 @@
-import { asrModelChoices, CUSTOM_ASR_MODEL, deviceFallback, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "./settings_logic.mjs";
+import { CUSTOM_ASR_MODEL, deviceFallback, modelCatalogIsCurrent, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "./settings_logic.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const settingsWindow = window.__TAURI__.window.getCurrentWindow();
@@ -46,6 +46,10 @@ const saveDetailList = document.querySelector("#save-detail-list");
 let saveInProgress = false;
 let saveFeedbackTimer;
 let logReadInProgress = false;
+let asrModels = [];
+let asrModelsEndpoint = "";
+let asrModelStatus = "Loading available models…";
+let asrModelRequest = 0;
 
 function locale() {
   return translations[documentModel?.config?.ui?.language] ? documentModel.config.ui.language : "en";
@@ -169,6 +173,55 @@ function selectOptions(path) {
   return null;
 }
 
+function updateAsrModelPicker() {
+  const row = form.querySelector('[data-field="asr.model"]');
+  if (!row) return;
+  const select = row.querySelector("select");
+  const customInput = row.querySelector("input");
+  const model = documentModel.config.asr.model;
+  select.replaceChildren();
+  for (const id of asrModels) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    select.append(option);
+  }
+  const customOption = document.createElement("option");
+  customOption.value = CUSTOM_ASR_MODEL;
+  customOption.textContent = "Custom model…";
+  select.append(customOption);
+  select.value = selectedAsrModelChoice(model, asrModels);
+  const custom = select.value === CUSTOM_ASR_MODEL;
+  customInput.value = custom ? model : "";
+  customInput.hidden = !custom;
+  customInput.required = custom;
+  customInput.disabled = select.disabled || !custom;
+  customInput.setCustomValidity(custom && !model.trim() ? "Enter a model ID." : "");
+  row.querySelector(".model-status").textContent = asrModelStatus;
+}
+
+async function refreshAsrModels() {
+  const baseUrl = documentModel.config.asr.base_url.trim();
+  const request = ++asrModelRequest;
+  if (baseUrl !== asrModelsEndpoint) {
+    asrModels = [];
+    asrModelsEndpoint = baseUrl;
+  }
+  asrModelStatus = "Loading available models…";
+  updateAsrModelPicker();
+  try {
+    const models = await invoke("list_asr_models", { baseUrl });
+    if (!modelCatalogIsCurrent(request, asrModelRequest, baseUrl, documentModel.config.asr.base_url)) return;
+    asrModels = models;
+    asrModelStatus = `${models.length} transcription model${models.length === 1 ? "" : "s"} available from server.`;
+  } catch (error) {
+    if (!modelCatalogIsCurrent(request, asrModelRequest, baseUrl, documentModel.config.asr.base_url)) return;
+    asrModels = [];
+    asrModelStatus = `Model list unavailable: ${error}. Your saved model is still editable.`;
+  }
+  updateAsrModelPicker();
+}
+
 function render() {
   form.replaceChildren();
   const availability = new Map(documentModel.fields.map((field) => [field.field, field]));
@@ -202,26 +255,10 @@ function render() {
       select.name = path;
       select.setAttribute("aria-label", "ASR model");
       select.disabled = input.disabled;
-      for (const choice of asrModelChoices) {
-        const option = document.createElement("option");
-        option.value = choice.value;
-        option.textContent = choice.label;
-        select.append(option);
-      }
-      const customOption = document.createElement("option");
-      customOption.value = CUSTOM_ASR_MODEL;
-      customOption.textContent = "Custom model…";
-      select.append(customOption);
-      select.value = selectedAsrModelChoice(value);
       const customInput = document.createElement("input");
       customInput.type = "text";
       customInput.setAttribute("aria-label", "Custom ASR model ID");
       customInput.placeholder = "Model ID from your ASR server";
-      customInput.value = select.value === CUSTOM_ASR_MODEL ? value : "";
-      customInput.hidden = select.value !== CUSTOM_ASR_MODEL;
-      customInput.required = select.value === CUSTOM_ASR_MODEL;
-      customInput.disabled = select.disabled || customInput.hidden;
-      if (!customInput.disabled && !customInput.value.trim()) customInput.setCustomValidity("Enter a model ID.");
       select.addEventListener("change", () => {
         clearTransientSaveFeedback();
         const custom = select.value === CUSTOM_ASR_MODEL;
@@ -237,10 +274,16 @@ function render() {
         customInput.setCustomValidity(customInput.value.trim() ? "" : "Enter a model ID.");
         setPath(documentModel.config, path, customInput.value.trim());
       });
-      picker.append(select, customInput);
+      const refresh = document.createElement("button");
+      refresh.type = "button";
+      refresh.textContent = "Refresh models";
+      refresh.addEventListener("click", refreshAsrModels);
+      picker.append(select, customInput, refresh);
       row.append(fieldCopy(control), picker);
+      addFieldNote(row, asrModelStatus, "field-note model-status");
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
       form.append(row);
+      updateAsrModelPicker();
       continue;
     }
     if (path === "audio.selected_microphone" || path === "audio.selected_output_device") {
@@ -348,6 +391,7 @@ function render() {
         errorNote.textContent = "";
         errorNote.hidden = true;
         setPath(documentModel.config, path, next);
+        if (path === "asr.base_url") refreshAsrModels();
         if (path === "audio.audio_feedback" || path === "debug.live_log_viewer") render();
       } catch (error) {
         input.setCustomValidity(error.message);
@@ -496,6 +540,7 @@ function renderAsrActions() {
       token.value = "";
       documentModel = await invoke("get_settings");
       render();
+      refreshAsrModels();
     } catch (error) {
       status.textContent = `Token save failed: ${error}`;
     }
@@ -575,9 +620,14 @@ for (const button of document.querySelectorAll("nav button")) {
     activeSection = button.dataset.section;
     content.querySelector("h2").textContent = translate(activeSection);
     render();
+    if (activeSection === "asr") refreshAsrModels();
     content.focus();
   });
 }
+
+window.addEventListener("focus", () => {
+  if (documentModel && activeSection === "asr") refreshAsrModels();
+});
 
 saveButton.addEventListener("click", async () => {
   if (saveInProgress) return;

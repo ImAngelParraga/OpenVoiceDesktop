@@ -1,6 +1,6 @@
 use openvoice_desktop::core::asr::{
-    asr_diagnostic, parse_transcription_text, request_fields, request_fields_for_language,
-    sanitize_error_body, test_endpoint,
+    asr_diagnostic, discover_models, parse_transcription_text, request_fields,
+    request_fields_for_language, sanitize_error_body, test_endpoint,
 };
 use openvoice_desktop::core::config::Config;
 use std::time::Duration;
@@ -90,6 +90,65 @@ async fn endpoint_test_uses_configured_request_and_sanitizes_response() {
     assert_eq!(diagnostic.http_status, 503);
     assert!(!diagnostic.sanitized_body.contains("secret-token"));
     assert!(diagnostic.sanitized_body.contains("down"));
+}
+
+#[tokio::test]
+async fn model_discovery_uses_bearer_token_and_accepts_future_server_ids() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = vec![0; 4096];
+        let count = stream.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..count]).to_string();
+        let body = r#"{"object":"list","data":[{"id":"whisper-1"},{"id":"future-asr-4b"},{"id":"future-asr-4b"},{"id":" "}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+        request
+    });
+    openvoice_desktop::core::config::set_ambient_token_lookup(false);
+    let mut config = Config::default();
+    config.asr.bearer_token = Some("test-token".to_string());
+
+    let models = discover_models(&config, &format!("http://{address}/"))
+        .await
+        .unwrap();
+    let request = server.await.unwrap();
+    assert!(request.starts_with("GET /v1/audio/models HTTP/1.1"));
+    assert!(request
+        .to_ascii_lowercase()
+        .contains("authorization: bearer test-token"));
+    assert_eq!(models, ["whisper-1", "future-asr-4b"]);
+}
+
+#[tokio::test]
+async fn model_discovery_reports_http_failure_without_response_body() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        stream.read(&mut request).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 19\r\nConnection: close\r\n\r\nsecret-token denied")
+            .await
+            .unwrap();
+    });
+    openvoice_desktop::core::config::set_ambient_token_lookup(false);
+    let mut config = Config::default();
+    config.asr.bearer_token = Some("secret-token".to_string());
+
+    let error = discover_models(&config, &format!("http://{address}"))
+        .await
+        .unwrap_err();
+    server.await.unwrap();
+    assert!(error.to_string().contains("403"));
+    assert!(!error.to_string().contains("secret-token"));
 }
 
 #[test]

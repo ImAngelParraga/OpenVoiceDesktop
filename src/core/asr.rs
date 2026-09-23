@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
@@ -28,6 +28,16 @@ pub struct AsrDiagnostic {
     pub http_status: u16,
     pub latency_ms: u128,
     pub sanitized_body: String,
+}
+
+#[derive(Deserialize)]
+struct AsrModelCatalog {
+    data: Vec<AsrModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct AsrModelEntry {
+    id: String,
 }
 
 #[async_trait]
@@ -123,6 +133,33 @@ pub fn request_fields_for_language(config: &Config, language: Option<&str>) -> A
         temperature: 0.0,
         timeout: Duration::from_secs(config.asr.timeout_seconds),
     }
+}
+
+pub async fn discover_models(config: &Config, base_url: &str) -> Result<Vec<String>> {
+    let token = resolve_bearer_token(config).ok_or_else(|| anyhow!("missing ASR bearer token"))?;
+    let url = format!("{}/v1/audio/models", base_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .get(url)
+        .timeout(Duration::from_secs(8))
+        .bearer_auth(token)
+        .send()
+        .await
+        .context("requesting ASR model list")?;
+    if !response.status().is_success() {
+        bail!("ASR model list returned HTTP {}", response.status());
+    }
+    let catalog: AsrModelCatalog = response.json().await.context("parsing ASR model list")?;
+    let mut models = Vec::new();
+    for entry in catalog.data {
+        let id = entry.id.trim();
+        if !id.is_empty() && !models.iter().any(|existing| existing == id) {
+            models.push(id.to_string());
+        }
+    }
+    if models.is_empty() {
+        bail!("ASR server returned no transcription models");
+    }
+    Ok(models)
 }
 
 pub async fn test_endpoint(config: &Config) -> Result<AsrDiagnostic> {

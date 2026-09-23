@@ -26,7 +26,7 @@ Use it when:
 
 Press `Ctrl+Alt+L` while idle or recording to cycle configured transcription languages. Recording overlay shows current language and offers same action. Selection applies when recording stops; audio remains one clip.
 
-In Settings → **ASR Endpoint**, choose **Model** from the list: `whisper-1` or `qwen3-asr-1.7b`. Choose **Custom model…** to keep using another server's model ID. Save applies the selected model to later dictations; the configured ASR server must support it.
+In Settings → **ASR Endpoint**, choose **Model** from the server's current `GET /v1/audio/models` list. The list refreshes when the ASR section opens, the endpoint changes, or **Refresh models** is pressed; the request uses your stored bearer token. Choose **Custom model…** for a server without model discovery or an unlisted ID. A saved custom ID remains editable if discovery fails. Save applies the selected model to later dictations.
 
 On Windows, the tray app shows a compact bottom-of-screen popup: animated bars while recording, `processing` while uploading/transcribing, and short feedback only for empty transcript, busy, or error states. Successful insertion stays quiet.
 

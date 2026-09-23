@@ -9,13 +9,13 @@ export const numericSpecs = Object.freeze({
 });
 
 export const CUSTOM_ASR_MODEL = "__custom_asr_model__";
-export const asrModelChoices = Object.freeze([
-  { value: "whisper-1", label: "Whisper (whisper-1)" },
-  { value: "qwen3-asr-1.7b", label: "Qwen3-ASR 1.7B (qwen3-asr-1.7b)" },
-]);
 
-export function selectedAsrModelChoice(model) {
-  return asrModelChoices.some((choice) => choice.value === model) ? model : CUSTOM_ASR_MODEL;
+export function selectedAsrModelChoice(model, availableModels) {
+  return availableModels.includes(model) ? model : CUSTOM_ASR_MODEL;
+}
+
+export function modelCatalogIsCurrent(request, latestRequest, endpoint, currentEndpoint) {
+  return request === latestRequest && endpoint === currentEndpoint.trim();
 }
 
 export function normalizeFieldValue(path, previous, raw, checked = false) {

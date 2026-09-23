@@ -144,7 +144,8 @@ V68: Recording-start invariant: failure to query or adjust playback output is lo
 V69: Windows-error-popup invariant: shortcut failure text fits the compact native popup and directs the user to Logs, where the underlying error remains available.
 V70: Recording-output timing invariant: with audio feedback enabled or disabled, reduced or muted output remains active through microphone capture and returns to saved mute and volume state immediately after capture stops, before ASR upload begins.
 V71: Windows feedback-output invariant: CPAL feedback may initialize a reused worker thread as STA; output adjustment still works on that thread after `RPC_E_CHANGED_MODE`, and COM uninitializes only when this adjustment acquired an initialization.
-V72: ASR Endpoint offers selectable Whisper and Qwen3-ASR model IDs plus editable custom IDs; a saved choice remains visible and reaches the multipart `model` field on later transcription requests.
+V72: ASR Endpoint offers selectable server-advertised transcription model IDs plus editable custom IDs; a saved choice remains visible and reaches the multipart `model` field on later transcription requests.
+V73: ASR model choices come from authenticated `GET /v1/audio/models` on the configured endpoint when ASR settings open, regain focus, change endpoint, or request refresh. New server model IDs appear without client changes; cleanup-only models stay absent, failed discovery preserves the editable saved model, and stale responses cannot replace a newer endpoint's list.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -251,6 +252,7 @@ T99|x|Give the overlay shell an X cookie|Import `XAUTHORITY` with the other grap
 T100|x|Make a package upgrade take effect|Ship a `postinst` that reloads every running systemd user manager and restarts an already-running daemon, wire it into the deb bundle config, and verify the maintainer script in the payload check.|—|I.build,V65
 T101|x|Keep output reduction with Windows feedback|Allow adjustment after CPAL initializes COM as STA, retain correct COM ownership, and restore output when microphone capture stops; cover both audio feedback states.|—|I.platform,I.controller,V70,V71
 T102|x|Select remote ASR model from list|Show Whisper and Qwen3-ASR in ASR Endpoint model picker, retain custom model entry, persist chosen ID, and test request mapping.|—|I.asr,C2,V15,V24,V72
+T103|x|Discover remote ASR models|Fetch the authenticated ASR-only model catalog on settings entry, focus, endpoint change, and manual refresh; keep custom and saved values when discovery fails.|—|I.asr,C2,V72,V73
 
 §B
 id|date|cause|fix
@@ -321,3 +323,4 @@ B64|2026-09-22|Windows named-pipe client and server both waited for EOF; Tokio `
 B65|2026-09-23|Windows playback-output adjustment error aborted recording before microphone start, while native 180-pixel popup clipped generic error text|V68,V69
 B66|2026-09-23|Recording output stayed reduced through WAV writing, ASR upload, and paste because restoration ran only at the end of processing, obscuring whether feedback and reduction worked during capture|V70
 B67|2026-09-23|CPAL feedback initialized a reusable Windows worker thread as STA, but output adjustment required MTA on the same thread; `RPC_E_CHANGED_MODE` made reduction fail and recording silently continued at full volume|V71
+B68|2026-09-23|Desktop model choices were hardcoded, so a changed server catalog required a new client release before users could select a new model|V73

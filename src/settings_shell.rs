@@ -222,6 +222,7 @@ pub fn run(start_hidden: bool) -> Result<()> {
             open_app_data_directory,
             set_asr_token,
             test_endpoint,
+            list_asr_models,
             complete_onboarding,
             repair_permissions
         ])
@@ -511,6 +512,18 @@ async fn test_endpoint() -> std::result::Result<crate::core::asr::AsrDiagnostic,
         config.save_to(&path).map_err(safe_error)?;
     }
     Ok(diagnostic)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn list_asr_models(base_url: String) -> std::result::Result<Vec<String>, String> {
+    let path = crate::core::config::Config::default_path().map_err(safe_error)?;
+    let config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    crate::core::asr::discover_models(&config, &base_url)
+        .await
+        .map_err(safe_error)
 }
 
 #[cfg(feature = "desktop-shell")]

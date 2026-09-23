@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { asrModelChoices, CUSTOM_ASR_MODEL, deviceFallback, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "../ui/settings_logic.mjs";
+import { CUSTOM_ASR_MODEL, deviceFallback, modelCatalogIsCurrent, normalizeFieldValue, numericSpecs, selectedAsrModelChoice, summarizeSave } from "../ui/settings_logic.mjs";
 
-test("ASR model picker lists deployed engines and preserves custom IDs", () => {
-  assert.deepEqual(asrModelChoices.map((choice) => choice.value), ["whisper-1", "qwen3-asr-1.7b"]);
-  assert.equal(selectedAsrModelChoice("whisper-1"), "whisper-1");
-  assert.equal(selectedAsrModelChoice("qwen3-asr-1.7b"), "qwen3-asr-1.7b");
-  assert.equal(selectedAsrModelChoice("my-custom-model"), CUSTOM_ASR_MODEL);
+test("ASR model picker follows server models and preserves custom IDs", () => {
+  const availableModels = ["whisper-1", "future-asr-4b"];
+  assert.equal(selectedAsrModelChoice("whisper-1", availableModels), "whisper-1");
+  assert.equal(selectedAsrModelChoice("future-asr-4b", availableModels), "future-asr-4b");
+  assert.equal(selectedAsrModelChoice("my-custom-model", availableModels), CUSTOM_ASR_MODEL);
+  assert.equal(selectedAsrModelChoice("whisper-1", []), CUSTOM_ASR_MODEL);
   assert.equal(normalizeFieldValue("asr.model", "whisper-1", "my-custom-model"), "my-custom-model");
+});
+
+test("stale model responses cannot replace a newer endpoint catalog", () => {
+  assert.equal(modelCatalogIsCurrent(2, 2, "https://asr.example", " https://asr.example "), true);
+  assert.equal(modelCatalogIsCurrent(1, 2, "https://asr.example", "https://asr.example"), false);
+  assert.equal(modelCatalogIsCurrent(2, 2, "https://old.example", "https://new.example"), false);
 });
 
 test("Save summary counts changed fields only and handles no-change Save", () => {

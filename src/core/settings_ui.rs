@@ -1287,7 +1287,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "audio.sample_rate_hz" => "Sample rate sent to ASR. Current encoder always uses 16000 Hz.",
         "audio.channels" => "Audio channel count sent to ASR. Current encoder always uses mono.",
         "asr.base_url" => "Server root URL. Transcriptions are sent to /v1/audio/transcriptions.",
-        "asr.model" => "Choose Whisper or Qwen3-ASR on this ASR service, or enter a custom model ID for another server.",
+        "asr.model" => "Choose a transcription model advertised by your ASR server, or enter a custom model ID.",
         "asr.language" => "Optional spoken-language code such as en, de, es, fr, or ja. Leave empty for auto-detection.",
         "asr.language_options" => "Comma-separated languages available from shortcut and recording overlay. Use auto to omit the ASR language hint.",
         "asr.prompt" => "Optional context sent to the ASR service for spelling and style. Use natural text, or separate distinct names and terms with commas, for example: OpenVoiceDesktop, Whisper, Acme Corp.",
