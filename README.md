@@ -2,9 +2,21 @@
 
 Desktop dictation client for an OpenAI-compatible transcription server. Records your microphone, uploads audio, and pastes the returned text into the focused app. Supports Linux GNOME Wayland and Windows 10/11.
 
+## OpenVoice family
+
+Three projects for dictation across devices. Use them together for a self-hosted setup, or use each with other compatible clients and services.
+
+| Project | Role |
+| --- | --- |
+| [Portable ASR](https://github.com/ImAngelParraga/portable-asr) | Self-hosted transcription server with optional transcript cleanup |
+| [OpenVoiceIME](https://github.com/ImAngelParraga/OpenVoiceIME) | Android voice keyboard |
+| [OpenVoiceDesktop](https://github.com/ImAngelParraga/OpenVoiceDesktop) | Dictation client for Linux and Windows |
+
+[Explore the OpenVoice family](https://imangelparraga.github.io/OpenVoiceIME/#openvoice-family).
+
 ## Install
 
-Download the package for your system from [GitHub Releases](https://github.com/ImAngelParraga/OpenVoiceDesktop/releases/latest). No source build is required. Downloads require repository access while this repository is private.
+Download the package for your system from [GitHub Releases](https://github.com/ImAngelParraga/OpenVoiceDesktop/releases/latest). No source build or GitHub sign-in is required.
 
 | Platform | Package | Install |
 | --- | --- | --- |
@@ -41,5 +53,3 @@ cd OpenVoiceDesktop
 ```
 
 Build packages locally with `./scripts/build-linux-local.sh` or `./scripts/build-windows-local.sh`. See [development and releases](docs/development.md) for manual builds, local packaging, and verification. Releases are built locally; there is no remote CI build.
-
-[OpenVoiceIME](https://github.com/ImAngelParraga/OpenVoiceIME) provides an Android voice keyboard for the same backend.

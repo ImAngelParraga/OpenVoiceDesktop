@@ -4,7 +4,7 @@ OpenVoiceDesktop on Windows runs as a resident tray app. It registers the config
 
 ## Install
 
-Because the repository is private, sign in to GitHub before opening its **Releases** page. Download `OpenVoiceDesktop_<version>_x64-setup.exe`, then double-click it.
+Open [GitHub Releases](https://github.com/ImAngelParraga/OpenVoiceDesktop/releases/latest) and download `OpenVoiceDesktop_<version>_x64-setup.exe`, then double-click it.
 
 Setup installs for the current user, so no administrator prompt is needed. It creates a Start menu shortcut and Windows uninstall entry, then opens the first-run panel. Configure endpoint, token, microphone, shortcut, and autostart there.
 
