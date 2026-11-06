@@ -36,6 +36,7 @@ const EXPECTED_CONFIG_FIELDS: &[&str] = &[
     "behavior.cancel_shortcut",
     "behavior.clipboard_restore_delay_ms",
     "behavior.language_shortcut",
+    "behavior.pause_shortcut",
     "behavior.push_to_talk",
     "behavior.restore_clipboard",
     "behavior.shortcut",

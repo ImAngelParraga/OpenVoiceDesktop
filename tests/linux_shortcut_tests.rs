@@ -77,7 +77,7 @@ fn merging_keeps_other_applications_keybindings() {
         merged[0], other,
         "another app's binding must survive and keep its slot"
     );
-    assert_eq!(merged.len(), 3);
+    assert_eq!(merged.len(), 4);
 
     // Applying twice must not duplicate our entries.
     assert_eq!(merged_keybinding_paths(&merged, &owned), merged);
@@ -163,4 +163,17 @@ fn releasing_the_cancel_key_leaves_every_other_keybinding_alone() {
         remaining,
         "releasing a key that is not held must change nothing"
     );
+}
+
+#[test]
+fn pause_binding_uses_the_configured_shortcut_and_shared_daemon_command() {
+    let mut config = Config::default();
+    config.behavior.pause_shortcut = "Ctrl+Shift+P".into();
+    let bindings = desired_bindings(&config, "/usr/bin/openvoice-desktop").unwrap();
+    let pause = bindings
+        .iter()
+        .find(|binding| binding.slug == "openvoice-pause")
+        .unwrap();
+    assert_eq!(pause.command, "/usr/bin/openvoice-desktop pause-resume");
+    assert_eq!(pause.accelerator, "<Control><Shift>p");
 }

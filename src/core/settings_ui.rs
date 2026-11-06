@@ -124,6 +124,7 @@ pub struct OverlayView {
 pub enum OverlayMode {
     Hidden,
     Recording,
+    Paused,
     LiveStreaming,
     WritingAudio,
     Uploading,
@@ -347,6 +348,12 @@ impl SettingsWindowLayout {
                             "Cancel shortcut",
                             SettingsControlKind::Text,
                             "behavior.cancel_shortcut",
+                        ),
+                        SettingsControl::bound(
+                            "pause-shortcut",
+                            "Pause/resume shortcut",
+                            SettingsControlKind::Text,
+                            "behavior.pause_shortcut",
                         ),
                         SettingsControl::bound(
                             "language-shortcut",
@@ -852,6 +859,7 @@ impl OverlayView {
     ) -> Self {
         let event = match state {
             RecordingState::Idle => AppShellEvent::Idle,
+            RecordingState::Paused => AppShellEvent::Paused,
             RecordingState::Recording => AppShellEvent::MicLevel {
                 bucket: level_bucket.unwrap_or(0),
             },
@@ -874,6 +882,14 @@ impl OverlayView {
         }
 
         match event {
+            AppShellEvent::Paused => {
+                let mut view = Self::from_event(config, &AppShellEvent::Recording);
+                view.mode = OverlayMode::Paused;
+                view.show_waveform = false;
+                view.show_timer = false;
+                view.message = localized_overlay_message(config, "Paused");
+                view
+            }
             AppShellEvent::Recording => Self {
                 visible: true,
                 mode: OverlayMode::Recording,
@@ -998,7 +1014,9 @@ impl LiveOverlayCapability {
 impl TrayIconState {
     pub fn from_event(event: &AppShellEvent) -> Self {
         match event {
-            AppShellEvent::Recording | AppShellEvent::MicLevel { .. } => Self::Recording,
+            AppShellEvent::Paused | AppShellEvent::Recording | AppShellEvent::MicLevel { .. } => {
+                Self::Recording
+            }
             AppShellEvent::Processing { .. } | AppShellEvent::Busy { .. } => Self::Processing,
             AppShellEvent::Error { .. } => Self::Error,
             AppShellEvent::Inserted
@@ -1011,7 +1029,7 @@ impl TrayIconState {
     pub fn from_recording_state(state: RecordingState) -> Self {
         match state {
             RecordingState::Idle => Self::Idle,
-            RecordingState::Recording => Self::Recording,
+            RecordingState::Recording | RecordingState::Paused => Self::Recording,
             RecordingState::WritingAudio
             | RecordingState::Transcribing
             | RecordingState::InsertingText => Self::Processing,
@@ -1218,6 +1236,11 @@ fn localized_overlay_message(config: &Config, message: &str) -> &'static str {
         ("ja", "Inserting") => "挿入中",
         ("ja", "Error") => "エラー",
         ("ja", "Busy") => "処理中",
+        ("es", "Paused") => "En pausa",
+        ("de", "Paused") => "Pausiert",
+        ("fr", "Paused") => "En pause",
+        ("ja", "Paused") => "一時停止中",
+        (_, "Paused") => "Paused",
         (_, "Recording") => "Recording",
         (_, "Writing audio") => "Writing audio",
         (_, "Transcribing") => "Transcribing",
@@ -1275,6 +1298,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "behavior.shortcut" => "Global shortcut that starts or stops recording, for example Ctrl+Space.",
         "behavior.push_to_talk" => "Record only while the main shortcut is held; release it to stop.",
         "behavior.cancel_shortcut" => "Global shortcut that discards active recording or pending transcription.",
+        "behavior.pause_shortcut" => "Pause or resume the current recording without sending it. Paused audio is excluded. Default: Ctrl+Alt+P.",
         "behavior.language_shortcut" => "Cycle transcription language while idle or recording. On GNOME, bind this key to openvoice-desktop cycle-language.",
         "audio.selected_microphone" => "Microphone used for dictation. System default follows OS selection.",
         "audio.recording_output_mode" => "Leave output unchanged, reduce its volume, or mute it while recording; prior state is restored afterward.",
@@ -1343,5 +1367,29 @@ fn settings_control_description(id: &str) -> &'static str {
         "repository" => "Project source repository.",
         "handy-acknowledgement" => "Handy project used as UX reference.",
         _ => "Configure this option.",
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordingPopupAction {
+    Language,
+    PauseResume,
+    Cancel,
+    None,
+}
+
+pub fn recording_popup_action(x: i32, width: i32) -> RecordingPopupAction {
+    if width <= 0 || x < 0 || x >= width {
+        return RecordingPopupAction::None;
+    }
+    let control_width = width * 24 / 180;
+    if x >= width - control_width {
+        RecordingPopupAction::Cancel
+    } else if x >= width - control_width * 2 {
+        RecordingPopupAction::PauseResume
+    } else if x < width * 52 / 180 {
+        RecordingPopupAction::Language
+    } else {
+        RecordingPopupAction::None
     }
 }

@@ -510,3 +510,25 @@ fn language_shortcut_change_applies_without_restart() {
         openvoice_desktop::core::settings_service::ApplyStatus::Applied
     );
 }
+
+#[test]
+fn pause_shortcut_change_applies_without_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let previous = Config::default();
+    previous.save_to(&path).unwrap();
+    let mut candidate = previous;
+    candidate.behavior.pause_shortcut = "Ctrl+Shift+P".to_string();
+    let result = SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: candidate }, |_| Ok(()))
+        .unwrap();
+    let pause = result
+        .fields
+        .iter()
+        .find(|field| field.field == "behavior.pause_shortcut")
+        .unwrap();
+    assert_eq!(
+        pause.status,
+        openvoice_desktop::core::settings_service::ApplyStatus::Applied
+    );
+}

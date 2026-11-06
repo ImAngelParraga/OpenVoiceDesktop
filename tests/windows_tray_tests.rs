@@ -127,3 +127,13 @@ fn tray_menu_uses_dynamic_model_and_real_actions() {
     assert!(WINDOWS_RS.contains("open_logs_folder"));
     assert!(!WINDOWS_RS.contains("Action available in settings UI."));
 }
+
+#[test]
+fn pause_hotkey_and_popup_route_to_the_same_controller_action() {
+    assert!(WINDOWS_RS.contains("windows_hotkey(&config.behavior.pause_shortcut)"));
+    assert!(WINDOWS_RS.contains("PAUSE_HOTKEY_ID => send_command(TrayCommand::PauseResume)"));
+    assert!(WINDOWS_RS.contains("UnregisterHotKey(hwnd, PAUSE_HOTKEY_ID)"));
+    assert!(WINDOWS_RS.contains("recording_popup_action(x, rect.right)"));
+    let daemon = include_str!("../src/daemon.rs");
+    assert!(daemon.contains("ControllerCommand::PauseResume => controller.pause_resume().await"));
+}

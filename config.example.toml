@@ -41,6 +41,7 @@ shortcut = "Ctrl+Alt+Space"
 push_to_talk = false
 cancel_shortcut = "Escape"
 language_shortcut = "Ctrl+Alt+L"
+pause_shortcut = "Ctrl+Alt+P"
 
 [output]
 paste_method = "clipboard-paste"

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const TOGGLE_COMMAND: &str = "toggle\n";
 pub const CANCEL_COMMAND: &str = "cancel\n";
+pub const PAUSE_RESUME_COMMAND: &str = "pause-resume\n";
 pub const CYCLE_LANGUAGE_COMMAND: &str = "cycle-language\n";
 pub const RELOAD_CONFIG_COMMAND: &str = "reload-config\n";
 pub const STATUS_COMMAND: &str = "status\n";
@@ -28,6 +29,11 @@ pub async fn send_toggle(socket_path: &std::path::Path) -> anyhow::Result<String
 #[cfg(target_os = "linux")]
 pub async fn send_cancel(socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(socket_path, CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "linux")]
+pub async fn send_pause_resume(socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(socket_path, PAUSE_RESUME_COMMAND).await
 }
 
 #[cfg(target_os = "linux")]
@@ -75,6 +81,11 @@ pub async fn send_toggle(_socket_path: &std::path::Path) -> anyhow::Result<Strin
 #[cfg(target_os = "windows")]
 pub async fn send_cancel(_socket_path: &std::path::Path) -> anyhow::Result<String> {
     send_command(CANCEL_COMMAND).await
+}
+
+#[cfg(target_os = "windows")]
+pub async fn send_pause_resume(_socket_path: &std::path::Path) -> anyhow::Result<String> {
+    send_command(PAUSE_RESUME_COMMAND).await
 }
 
 #[cfg(target_os = "windows")]

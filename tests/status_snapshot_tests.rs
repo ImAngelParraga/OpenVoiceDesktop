@@ -121,3 +121,17 @@ fn language_survives_until_it_is_cycled_again() {
     snapshot.set_language(None);
     assert_eq!(snapshot.language(), None);
 }
+
+#[test]
+fn paused_snapshot_stays_active_but_silences_the_meter() {
+    let snapshot = Arc::new(StatusSnapshot::new());
+    let level = Arc::new(std::sync::atomic::AtomicU8::new(9));
+    snapshot.attach_level(level);
+    snapshot.emit(AppShellEvent::Recording);
+    assert_eq!(snapshot.level_bucket(), 9);
+    snapshot.emit(AppShellEvent::Paused);
+    assert_eq!(snapshot.state(), RecordingState::Paused);
+    assert_eq!(snapshot.level_bucket(), 0);
+    snapshot.emit(AppShellEvent::Recording);
+    assert_eq!(snapshot.level_bucket(), 9);
+}

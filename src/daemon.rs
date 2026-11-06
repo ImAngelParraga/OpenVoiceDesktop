@@ -22,8 +22,8 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::core::settings_ui::{TrayIconState, TrayMenuAction};
     use crate::core::status::StatusSnapshot;
     use crate::ipc::{
-        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
-        TOGGLE_COMMAND,
+        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, PAUSE_RESUME_COMMAND, RELOAD_CONFIG_COMMAND,
+        SHUTDOWN_COMMAND, TOGGLE_COMMAND,
     };
     use crate::platform::linux::LinuxPlatformAdapter;
     use crate::platform::linux_tray::LinuxTrayCommand;
@@ -207,9 +207,11 @@ pub async fn run(config: Config) -> Result<()> {
                         Ok(()) => "Shutdown\n".to_string(),
                         Err(error) => format!("error: {error}\n"),
                     }
-                } else if command == TOGGLE_COMMAND || command == CANCEL_COMMAND {
+                } else if command == TOGGLE_COMMAND || command == CANCEL_COMMAND || command == PAUSE_RESUME_COMMAND {
                     let result = if command == TOGGLE_COMMAND {
                         controller.toggle().await
+                    } else if command == PAUSE_RESUME_COMMAND {
+                        controller.pause_resume().await
                     } else {
                         controller.cancel().await
                     };
@@ -780,13 +782,18 @@ pub async fn run(config: Config) -> Result<()> {
                 let result = match request.command {
                     ControllerCommand::Toggle => controller.toggle().await,
                     ControllerCommand::StopIfRecording => {
-                        if controller.state() == crate::core::state::RecordingState::Recording {
+                        if matches!(
+                            controller.state(),
+                            crate::core::state::RecordingState::Recording
+                                | crate::core::state::RecordingState::Paused
+                        ) {
                             controller.toggle().await
                         } else {
                             Ok(crate::core::state::ToggleOutcome::Canceled)
                         }
                     }
                     ControllerCommand::Cancel => controller.cancel().await,
+                    ControllerCommand::PauseResume => controller.pause_resume().await,
                     ControllerCommand::CycleLanguage => {
                         let response = match controller.cycle_language() {
                             Ok(language) => {
@@ -1011,6 +1018,16 @@ pub async fn run(config: Config) -> Result<()> {
                     eprint!("{response}");
                     hide_status_popup().ok();
                 }
+                Ok(false) if matches!(command, TrayCommand::PauseResume) => {
+                    let response =
+                        request_controller(&tray_controller_tx, ControllerCommand::PauseResume)
+                            .await;
+                    if matches!(response.trim(), "Paused" | "Resumed") {
+                        show_recording_popup().ok();
+                    } else if response.starts_with("error:") {
+                        show_status_popup("Could not pause/resume recording", Some(2_500)).ok();
+                    }
+                }
                 Ok(false) if matches!(command, TrayCommand::CycleLanguage) => {
                     let response =
                         request_controller(&tray_controller_tx, ControllerCommand::CycleLanguage)
@@ -1025,7 +1042,11 @@ pub async fn run(config: Config) -> Result<()> {
                         let recording =
                             serde_json::from_str::<crate::ipc::DaemonStatus>(status.trim())
                                 .is_ok_and(|status| {
-                                    status.state == crate::core::state::RecordingState::Recording
+                                    matches!(
+                                        status.state,
+                                        crate::core::state::RecordingState::Recording
+                                            | crate::core::state::RecordingState::Paused
+                                    )
                                 });
                         if recording {
                             show_recording_popup().ok();
@@ -1067,8 +1088,8 @@ async fn serve_windows_pipe(
     reload_tx: tokio::sync::mpsc::UnboundedSender<(Config, tokio::sync::oneshot::Sender<String>)>,
 ) -> anyhow::Result<()> {
     use crate::ipc::{
-        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, RELOAD_CONFIG_COMMAND, SHUTDOWN_COMMAND,
-        STATUS_COMMAND, TOGGLE_COMMAND,
+        CANCEL_COMMAND, CYCLE_LANGUAGE_COMMAND, PAUSE_RESUME_COMMAND, RELOAD_CONFIG_COMMAND,
+        SHUTDOWN_COMMAND, STATUS_COMMAND, TOGGLE_COMMAND,
     };
     use crate::platform::windows::set_tray_state;
     use std::sync::atomic::Ordering;
@@ -1093,6 +1114,8 @@ async fn serve_windows_pipe(
         let response = request_controller(&controller_tx, ControllerCommand::Toggle).await;
         set_tray_state(tray_state_from_response(&response));
         response
+    } else if command == PAUSE_RESUME_COMMAND {
+        request_controller(&controller_tx, ControllerCommand::PauseResume).await
     } else if command == CYCLE_LANGUAGE_COMMAND {
         request_controller(&controller_tx, ControllerCommand::CycleLanguage).await
     } else if command == RELOAD_CONFIG_COMMAND {
@@ -1195,6 +1218,7 @@ enum ControllerCommand {
     StopIfRecording,
     Cancel,
     CycleLanguage,
+    PauseResume,
     Reload(Config),
     Status,
     Shutdown,

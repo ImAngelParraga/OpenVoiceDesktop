@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub enum RecordingState {
     Idle,
     Recording,
+    Paused,
     WritingAudio,
     Transcribing,
     InsertingText,
@@ -12,6 +13,8 @@ pub enum RecordingState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToggleOutcome {
     Started,
+    Paused,
+    Resumed,
     Busy { state: RecordingState },
     Inserted { text: String },
     EmptyTranscript,

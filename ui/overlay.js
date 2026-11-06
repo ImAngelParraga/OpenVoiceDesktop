@@ -4,6 +4,7 @@ const root = document.querySelector("#overlay");
 const message = document.querySelector("#message");
 const waveform = document.querySelector("#waveform");
 const language = document.querySelector("#language");
+const pause = document.querySelector("#pause");
 const cancel = document.querySelector("#cancel");
 
 // Rebuilding the bars on every poll threw away the CSS transition with the
@@ -20,6 +21,12 @@ function render(view) {
   root.classList.toggle("bottom", view.position === "bottom");
   message.textContent = view.message;
   cancel.hidden = !view.show_cancel;
+  const paused = view.mode === "paused";
+  pause.hidden = !(paused || view.mode === "recording");
+  pause.textContent = paused ? "▶" : "Ⅱ";
+  const pauseLabel = paused ? "Resume recording" : "Pause recording";
+  pause.setAttribute("aria-label", pauseLabel);
+  pause.title = pauseLabel;
   language.hidden = !view.show_language_control;
   language.textContent = view.language_label ?? "AUTO";
   waveform.hidden = !view.show_waveform;
@@ -30,6 +37,18 @@ function render(view) {
   });
 }
 
+pause.addEventListener("click", async () => {
+  pause.disabled = true;
+  try {
+    const response = await invoke("pause_resume_recording");
+    if (response.startsWith("error:")) throw new Error(response);
+  } catch (error) {
+    message.textContent = "Could not pause/resume";
+    pause.title = String(error);
+  } finally {
+    pause.disabled = false;
+  }
+});
 cancel.addEventListener("click", () => invoke("cancel_transcription"));
 language.addEventListener("click", () => invoke("cycle_transcription_language"));
 await listen("overlay-state", (event) => render(event.payload));

@@ -46,6 +46,8 @@ enum Command {
     Cancel,
     /// Cycle configured transcription languages.
     CycleLanguage,
+    /// Pause or resume the current recording without sending it.
+    PauseResume,
     /// Print the default config path.
     ConfigPath,
     /// Open or focus the native settings window.
@@ -86,6 +88,7 @@ fn resolve_command(cli: &Cli) -> Result<Option<Command>> {
         Some(Command::Daemon) => Ok(Some(Command::Daemon)),
         Some(Command::Toggle) => Ok(Some(Command::Toggle)),
         Some(Command::Cancel) => Ok(Some(Command::Cancel)),
+        Some(Command::PauseResume) => Ok(Some(Command::PauseResume)),
         Some(Command::CycleLanguage) => Ok(Some(Command::CycleLanguage)),
         Some(Command::ConfigPath) => Ok(Some(Command::ConfigPath)),
         Some(Command::Settings) => Ok(Some(Command::Settings)),
@@ -157,6 +160,12 @@ async fn run_command(cli: Cli, command: Option<Command>) -> Result<()> {
             let loaded = Config::load_default()?;
             let socket_path = loaded.config.socket_path()?;
             let response = ipc::send_cancel(&socket_path).await?;
+            print!("{response}");
+            Ok(())
+        }
+        Command::PauseResume => {
+            let loaded = Config::load_default()?;
+            let response = ipc::send_pause_resume(&loaded.config.socket_path()?).await?;
             print!("{response}");
             Ok(())
         }

@@ -80,7 +80,15 @@ pub fn desired_bindings(config: &Config, executable: &str) -> Result<Vec<GnomeKe
         .context("parsing behavior.shortcut for the GNOME keybinding")?;
     let language = ParsedShortcut::parse(&config.behavior.language_shortcut)
         .context("parsing behavior.language_shortcut for the GNOME keybinding")?;
+    let pause = ParsedShortcut::parse(&config.behavior.pause_shortcut)
+        .context("parsing behavior.pause_shortcut for the GNOME keybinding")?;
     Ok(vec![
+        GnomeKeybinding {
+            slug: "openvoice-pause",
+            name: "OpenVoiceDesktop Pause/Resume".to_string(),
+            command: format!("{executable} pause-resume"),
+            accelerator: gnome_accelerator(&pause)?,
+        },
         GnomeKeybinding {
             slug: "openvoice-toggle",
             name: "OpenVoiceDesktop Toggle".to_string(),

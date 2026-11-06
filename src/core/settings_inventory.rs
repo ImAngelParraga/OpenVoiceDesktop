@@ -103,6 +103,7 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     w!("behavior.push_to_talk"),
     w!("behavior.cancel_shortcut"),
     w!("behavior.language_shortcut"),
+    w!("behavior.pause_shortcut"),
     w!("audio.selected_microphone"),
     w!("audio.recording_output_mode"),
     w!("audio.recording_output_volume"),

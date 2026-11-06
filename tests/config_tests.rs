@@ -36,6 +36,7 @@ fn missing_config_uses_defaults() {
     assert!(!loaded.config.behavior.push_to_talk);
     assert_eq!(loaded.config.behavior.cancel_shortcut, "Escape");
     assert_eq!(loaded.config.behavior.language_shortcut, "Ctrl+Alt+L");
+    assert_eq!(loaded.config.behavior.pause_shortcut, "Ctrl+Alt+P");
     assert!(!loaded.config.app.start_hidden);
     assert!(!loaded.config.app.autostart);
     assert!(loaded.config.app.show_tray_icon);
@@ -620,4 +621,20 @@ fn portable_resolution_migrates_switches_and_preserves_config() {
         restored.config.asr.bearer_token.as_deref(),
         Some("portable-secret")
     );
+}
+
+#[test]
+fn pause_shortcut_round_trips_and_rejects_conflicts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let mut config = Config::default();
+    config.behavior.pause_shortcut = "Ctrl+Shift+P".to_string();
+    config.save_to(&path).unwrap();
+    let mut loaded = Config::load_from(&path).unwrap().config;
+    assert_eq!(loaded.behavior.pause_shortcut, "Ctrl+Shift+P");
+    openvoice_desktop::core::settings_service::validate_config(&loaded).unwrap();
+    loaded.behavior.pause_shortcut = loaded.behavior.shortcut.clone();
+    assert!(openvoice_desktop::core::settings_service::validate_config(&loaded).is_err());
+    loaded.behavior.pause_shortcut = "Ctrl+".into();
+    assert!(openvoice_desktop::core::settings_service::validate_config(&loaded).is_err());
 }

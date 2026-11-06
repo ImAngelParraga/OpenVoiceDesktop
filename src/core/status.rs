@@ -75,6 +75,7 @@ impl StatusSnapshot {
 impl AppEventSink for Arc<StatusSnapshot> {
     fn emit(&self, event: AppShellEvent) {
         match event {
+            AppShellEvent::Paused => self.set_state(RecordingState::Paused),
             AppShellEvent::Recording => self.set_state(RecordingState::Recording),
             AppShellEvent::Processing { stage } => self.set_state(match stage {
                 ProcessingStage::WritingAudio => RecordingState::WritingAudio,
@@ -104,6 +105,7 @@ fn encode_state(state: RecordingState) -> u8 {
     match state {
         RecordingState::Idle => 0,
         RecordingState::Recording => 1,
+        RecordingState::Paused => 5,
         RecordingState::WritingAudio => 2,
         RecordingState::Transcribing => 3,
         RecordingState::InsertingText => 4,
@@ -113,6 +115,7 @@ fn encode_state(state: RecordingState) -> u8 {
 fn decode_state(value: u8) -> RecordingState {
     match value {
         1 => RecordingState::Recording,
+        5 => RecordingState::Paused,
         2 => RecordingState::WritingAudio,
         3 => RecordingState::Transcribing,
         4 => RecordingState::InsertingText,

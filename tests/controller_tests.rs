@@ -790,6 +790,8 @@ async fn app_shell_event_reports_empty_transcript() {
 
 struct FakeRecorder {
     running: bool,
+    fail_pause: bool,
+    fail_resume: bool,
     samples: Vec<i16>,
     observations: Arc<Mutex<Vec<String>>>,
 }
@@ -798,6 +800,8 @@ impl Default for FakeRecorder {
     fn default() -> Self {
         Self {
             running: false,
+            fail_pause: false,
+            fail_resume: false,
             samples: vec![0; 160],
             observations: Arc::new(Mutex::new(Vec::new())),
         }
@@ -806,6 +810,30 @@ impl Default for FakeRecorder {
 
 #[async_trait(?Send)]
 impl Recorder for FakeRecorder {
+    async fn pause(&mut self) -> Result<()> {
+        if self.fail_pause {
+            anyhow::bail!("pause failed");
+        }
+        assert!(self.running);
+        self.observations
+            .lock()
+            .unwrap()
+            .push("recorder:pause".to_string());
+        Ok(())
+    }
+
+    async fn resume(&mut self) -> Result<()> {
+        if self.fail_resume {
+            anyhow::bail!("resume failed");
+        }
+        assert!(self.running);
+        self.observations
+            .lock()
+            .unwrap()
+            .push("recorder:resume".to_string());
+        Ok(())
+    }
+
     async fn start(&mut self) -> Result<()> {
         self.observations
             .lock()
@@ -1128,4 +1156,142 @@ async fn test_v61_unreachable_endpoint_notifies_the_desktop() {
         notification.contains("Dictation failed") && notification.contains("error sending request"),
         "the notification must name the failure: {notification}"
     );
+}
+
+#[tokio::test]
+async fn pause_resume_preserves_one_capture_and_restores_output_between_segments() {
+    let recorder = FakeRecorder::default();
+    let capture = recorder.observations.clone();
+    let platform = FakePlatform::new(None);
+    let adjustments = platform.adjustments.clone();
+    let restores = platform.restores.clone();
+    let uploads = Arc::new(Mutex::new(Vec::new()));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let mut config = Config::default();
+    config.audio.recording_output_mode = RecordingOutputMode::Reduced;
+    config.output.restore_delay_ms = 0;
+    let mut controller = VoiceController::with_event_sink(
+        recorder,
+        FakeAsr {
+            text: "one recording".into(),
+            observations: uploads.clone(),
+        },
+        platform,
+        config,
+        FakeEventSink {
+            observations: events.clone(),
+        },
+    );
+    assert_eq!(
+        controller.pause_resume().await.unwrap(),
+        ToggleOutcome::Busy {
+            state: RecordingState::Idle
+        }
+    );
+    controller.toggle().await.unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            controller.pause_resume().await.unwrap(),
+            ToggleOutcome::Paused
+        );
+        assert_eq!(controller.state(), RecordingState::Paused);
+        assert!(uploads.lock().unwrap().is_empty());
+        controller.cycle_language().unwrap();
+        assert_eq!(
+            controller.pause_resume().await.unwrap(),
+            ToggleOutcome::Resumed
+        );
+        assert_eq!(controller.state(), RecordingState::Recording);
+    }
+    assert_eq!(
+        controller.pause_resume().await.unwrap(),
+        ToggleOutcome::Paused
+    );
+    assert_eq!(adjustments.lock().unwrap().len(), 3);
+    assert_eq!(restores.lock().unwrap().len(), 3);
+    assert_eq!(
+        controller.toggle().await.unwrap(),
+        ToggleOutcome::Inserted {
+            text: "one recording".into()
+        }
+    );
+    assert_eq!(controller.state(), RecordingState::Idle);
+    assert_eq!(
+        capture
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| *event == "recorder:start")
+            .count(),
+        1
+    );
+    assert_eq!(capture.lock().unwrap().last().unwrap(), "recorder:stop");
+    assert_eq!(uploads.lock().unwrap().len(), 1);
+    assert!(events.lock().unwrap().contains(&"event:Paused".to_string()));
+}
+
+#[tokio::test]
+async fn paused_capture_can_be_canceled_or_shut_down_without_upload() {
+    for shutdown in [false, true] {
+        let recorder = FakeRecorder::default();
+        let capture = recorder.observations.clone();
+        let mut controller = VoiceController::new(
+            recorder,
+            UnreachableAsr,
+            FakePlatform::new(None),
+            Config::default(),
+        );
+        controller.toggle().await.unwrap();
+        controller.pause_resume().await.unwrap();
+        if shutdown {
+            controller.shutdown().await.unwrap();
+        } else {
+            assert_eq!(controller.cancel().await.unwrap(), ToggleOutcome::Canceled);
+        }
+        assert_eq!(controller.state(), RecordingState::Idle);
+        assert_eq!(capture.lock().unwrap().last().unwrap(), "recorder:stop");
+        controller.toggle().await.unwrap();
+        assert_eq!(controller.state(), RecordingState::Recording);
+        controller.cancel().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn failed_pause_or_resume_keeps_capture_available_for_finish() {
+    for fail_pause in [false, true] {
+        let recorder = FakeRecorder {
+            fail_pause,
+            fail_resume: !fail_pause,
+            ..FakeRecorder::default()
+        };
+        let platform = FakePlatform::new(None);
+        let restores = platform.restores.clone();
+        let mut config = Config::default();
+        config.audio.recording_output_mode = RecordingOutputMode::Reduced;
+        let mut controller = VoiceController::new(
+            recorder,
+            FakeAsr {
+                text: "kept".into(),
+                observations: Arc::new(Mutex::new(Vec::new())),
+            },
+            platform,
+            config,
+        );
+        controller.toggle().await.unwrap();
+        if fail_pause {
+            assert!(controller.pause_resume().await.is_err());
+            assert_eq!(controller.state(), RecordingState::Recording);
+        } else {
+            controller.pause_resume().await.unwrap();
+            assert!(controller.pause_resume().await.is_err());
+            assert_eq!(controller.state(), RecordingState::Paused);
+            assert_eq!(restores.lock().unwrap().len(), 2);
+        }
+        assert_eq!(
+            controller.toggle().await.unwrap(),
+            ToggleOutcome::Inserted {
+                text: "kept".into()
+            }
+        );
+    }
 }

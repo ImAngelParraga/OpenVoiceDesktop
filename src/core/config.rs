@@ -78,6 +78,7 @@ pub struct BehaviorConfig {
     pub push_to_talk: bool,
     pub cancel_shortcut: String,
     pub language_shortcut: String,
+    pub pause_shortcut: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -334,6 +335,7 @@ impl Default for BehaviorConfig {
             push_to_talk: false,
             cancel_shortcut: "Escape".to_string(),
             language_shortcut: "Ctrl+Alt+L".to_string(),
+            pause_shortcut: "Ctrl+Alt+P".to_string(),
         }
     }
 }

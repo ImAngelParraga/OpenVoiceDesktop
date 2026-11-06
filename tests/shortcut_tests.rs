@@ -105,7 +105,7 @@ fn shortcut_runtime_rolls_back_previous_registration_on_conflict() {
         runtime.bindings().unwrap().bindings()[0].shortcut.as_str(),
         "Ctrl+Space"
     );
-    assert_eq!(runtime.into_registrar().registered.len(), 4);
+    assert_eq!(runtime.into_registrar().registered.len(), 5);
 }
 
 #[derive(Default, Debug)]
@@ -125,4 +125,35 @@ impl ShortcutRegistrar for FakeRegistrar {
         self.registered.remove(shortcut.as_str());
         Ok(())
     }
+}
+
+#[test]
+fn pause_shortcut_maps_press_only_and_push_to_talk_release_finishes_paused_capture() {
+    let mut config = Config::default();
+    config.behavior.pause_shortcut = "Ctrl+Shift+P".into();
+    let bindings =
+        openvoice_desktop::core::shortcut::ShortcutBindings::from_config(&config).unwrap();
+    let pause = ParsedShortcut::parse("Ctrl+Shift+P").unwrap();
+    assert_eq!(
+        bindings.input_for(&pause, ShortcutEvent::Pressed),
+        Some(CoordinatorInput::PauseShortcut)
+    );
+    assert_eq!(bindings.input_for(&pause, ShortcutEvent::Released), None);
+    let mut coordinator = ShortcutCoordinator::default();
+    assert_eq!(
+        coordinator.action(
+            CoordinatorInput::PauseShortcut,
+            RecordingState::Recording,
+            Instant::now()
+        ),
+        CoordinatorAction::PauseResume
+    );
+    assert_eq!(
+        coordinator.action(
+            CoordinatorInput::PushToTalkReleased,
+            RecordingState::Paused,
+            Instant::now()
+        ),
+        CoordinatorAction::Toggle
+    );
 }

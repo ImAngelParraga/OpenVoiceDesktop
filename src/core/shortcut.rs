@@ -18,6 +18,7 @@ pub enum CoordinatorInput {
     CancelTray,
     DebugShortcut,
     LanguageShortcut,
+    PauseShortcut,
     Signal,
 }
 
@@ -27,6 +28,7 @@ pub enum CoordinatorAction {
     Cancel,
     Debug,
     CycleLanguage,
+    PauseResume,
     IgnoreDebounce,
     IgnoreReleaseGrace,
     Quit,
@@ -39,6 +41,7 @@ pub enum ShortcutAction {
     Cancel,
     Debug,
     CycleLanguage,
+    PauseResume,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +138,10 @@ impl ShortcutBindings {
                 shortcut: ParsedShortcut::parse(&behavior.language_shortcut)?,
                 action: ShortcutAction::CycleLanguage,
             },
+            ShortcutBinding {
+                shortcut: ParsedShortcut::parse(&behavior.pause_shortcut)?,
+                action: ShortcutAction::PauseResume,
+            },
         ];
         #[cfg(not(target_os = "windows"))]
         let mut bindings = bindings;
@@ -181,6 +188,9 @@ impl ShortcutBindings {
                 }
                 (ShortcutAction::Debug, ShortcutEvent::Pressed) => {
                     Some(CoordinatorInput::DebugShortcut)
+                }
+                (ShortcutAction::PauseResume, ShortcutEvent::Pressed) => {
+                    Some(CoordinatorInput::PauseShortcut)
                 }
                 (ShortcutAction::CycleLanguage, ShortcutEvent::Pressed) => {
                     Some(CoordinatorInput::LanguageShortcut)
@@ -345,9 +355,10 @@ impl ShortcutCoordinator {
             | CoordinatorInput::CancelTray => CoordinatorAction::Cancel,
             CoordinatorInput::DebugShortcut => CoordinatorAction::Debug,
             CoordinatorInput::LanguageShortcut => CoordinatorAction::CycleLanguage,
+            CoordinatorInput::PauseShortcut => CoordinatorAction::PauseResume,
             CoordinatorInput::Signal => CoordinatorAction::Quit,
             CoordinatorInput::PushToTalkReleased => {
-                if state == RecordingState::Recording {
+                if matches!(state, RecordingState::Recording | RecordingState::Paused) {
                     self.record_toggle(now)
                 } else {
                     CoordinatorAction::IgnoreReleaseGrace

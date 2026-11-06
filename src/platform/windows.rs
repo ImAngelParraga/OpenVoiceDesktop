@@ -59,6 +59,7 @@ const LOGO_ICO: &[u8] = include_bytes!("../../assets/logo.ico");
 const HOTKEY_ID: i32 = 1;
 const CANCEL_HOTKEY_ID: i32 = 2;
 const LANGUAGE_HOTKEY_ID: i32 = 3;
+const PAUSE_HOTKEY_ID: i32 = 4;
 const TRAY_ID: u32 = 1;
 const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_STATUS_POPUP: u32 = WM_APP + 2;
@@ -174,6 +175,7 @@ struct WindowsHotkeys {
     toggle: HotkeySpec,
     cancel: HotkeySpec,
     language: HotkeySpec,
+    pause: HotkeySpec,
     push_to_talk: bool,
 }
 
@@ -183,6 +185,7 @@ impl WindowsHotkeys {
             toggle: windows_hotkey(&config.behavior.shortcut)?,
             cancel: windows_hotkey(&config.behavior.cancel_shortcut)?,
             language: windows_hotkey(&config.behavior.language_shortcut)?,
+            pause: windows_hotkey(&config.behavior.pause_shortcut)?,
             push_to_talk: config.behavior.push_to_talk,
         })
     }
@@ -211,6 +214,11 @@ unsafe fn register_hotkey_set(hwnd: HWND, bindings: &WindowsHotkeys) -> Result<b
         UnregisterHotKey(hwnd, HOTKEY_ID);
         return Err(error);
     }
+    if let Err(error) = register_hotkey(hwnd, PAUSE_HOTKEY_ID, &bindings.pause) {
+        UnregisterHotKey(hwnd, HOTKEY_ID);
+        UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+        return Err(error);
+    }
     let active = STATUS_SNAPSHOT
         .get()
         .is_some_and(|snapshot| snapshot.state() != crate::core::state::RecordingState::Idle);
@@ -218,6 +226,7 @@ unsafe fn register_hotkey_set(hwnd: HWND, bindings: &WindowsHotkeys) -> Result<b
         if let Err(error) = register_hotkey(hwnd, CANCEL_HOTKEY_ID, &bindings.cancel) {
             UnregisterHotKey(hwnd, HOTKEY_ID);
             UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+            UnregisterHotKey(hwnd, PAUSE_HOTKEY_ID);
             return Err(error);
         }
     }
@@ -228,6 +237,7 @@ unsafe fn unregister_hotkey_set(hwnd: HWND) {
     UnregisterHotKey(hwnd, HOTKEY_ID);
     UnregisterHotKey(hwnd, CANCEL_HOTKEY_ID);
     UnregisterHotKey(hwnd, LANGUAGE_HOTKEY_ID);
+    UnregisterHotKey(hwnd, PAUSE_HOTKEY_ID);
 }
 
 unsafe fn replace_hotkey_set(hwnd: HWND, next: WindowsHotkeys) -> Result<()> {
@@ -291,6 +301,7 @@ pub enum TrayCommand {
     Toggle,
     PushToTalkReleased,
     CycleLanguage,
+    PauseResume,
     Settings,
     CopyLastTranscript,
     Cancel,
@@ -964,6 +975,7 @@ unsafe extern "system" fn wnd_proc(
                 }
                 CANCEL_HOTKEY_ID => send_command(TrayCommand::Cancel),
                 LANGUAGE_HOTKEY_ID => send_command(TrayCommand::CycleLanguage),
+                PAUSE_HOTKEY_ID => send_command(TrayCommand::PauseResume),
                 _ => {}
             }
             0
@@ -1262,7 +1274,21 @@ unsafe extern "system" fn status_popup_wnd_proc(
                 .lock()
                 .unwrap();
             if mode == StatusPopupMode::RecordingBars {
-                send_command(TrayCommand::CycleLanguage);
+                let x = (lparam as u16) as i16 as i32;
+                let mut rect: RECT = std::mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+                match crate::core::settings_ui::recording_popup_action(x, rect.right) {
+                    crate::core::settings_ui::RecordingPopupAction::Language => {
+                        send_command(TrayCommand::CycleLanguage)
+                    }
+                    crate::core::settings_ui::RecordingPopupAction::PauseResume => {
+                        send_command(TrayCommand::PauseResume)
+                    }
+                    crate::core::settings_ui::RecordingPopupAction::Cancel => {
+                        send_command(TrayCommand::Cancel)
+                    }
+                    crate::core::settings_ui::RecordingPopupAction::None => {}
+                }
             }
             0
         }
@@ -1373,7 +1399,10 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         .get_or_init(|| Mutex::new(0))
         .lock()
         .unwrap();
-    let heights = [10, 16, 22, 28, 20, 14, 9];
+    let paused = STATUS_SNAPSHOT
+        .get()
+        .is_some_and(|snapshot| snapshot.state() == crate::core::state::RecordingState::Paused);
+    let heights = [8, 14, 20, 12];
     let bar_width = 6;
     let gap = 3;
     SetBkMode(hdc, TRANSPARENT as i32);
@@ -1397,7 +1426,50 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
     let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
-    let mut x = 56 + (width - 56 - total_width) / 2;
+    let control_width = width * 24 / 180;
+    let mut pause_rect = RECT {
+        left: width - control_width * 2,
+        top: 0,
+        right: width - control_width,
+        bottom: height,
+    };
+    DrawTextW(
+        hdc,
+        wide(if paused { "▶" } else { "Ⅱ" }).as_ptr(),
+        -1,
+        &mut pause_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
+    let mut cancel_rect = RECT {
+        left: width - control_width,
+        top: 0,
+        right: width,
+        bottom: height,
+    };
+    DrawTextW(
+        hdc,
+        wide("×").as_ptr(),
+        -1,
+        &mut cancel_rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+    );
+    if paused {
+        let mut paused_rect = RECT {
+            left: 52,
+            top: 0,
+            right: width - control_width * 2,
+            bottom: height,
+        };
+        DrawTextW(
+            hdc,
+            wide("Paused").as_ptr(),
+            -1,
+            &mut paused_rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        return;
+    }
+    let mut x = 52 + (width - control_width * 2 - 52 - total_width) / 2;
     let brush = CreateSolidBrush(foreground);
     for index in 0..heights.len() {
         let bar_height = heights[((index as u32 + frame) as usize) % heights.len()];
@@ -1564,7 +1636,7 @@ pub async fn handle_tray_command(command: TrayCommand) -> Result<bool> {
     match command {
         TrayCommand::Toggle | TrayCommand::PushToTalkReleased => Ok(true),
         TrayCommand::Cancel => Ok(false),
-        TrayCommand::CycleLanguage => Ok(false),
+        TrayCommand::CycleLanguage | TrayCommand::PauseResume => Ok(false),
         TrayCommand::Settings => {
             tokio::task::spawn_blocking(open_settings_panel).await??;
             Ok(false)

@@ -32,7 +32,7 @@ Replace `<version>` with the downloaded release version. Each asset has a `.sha2
 3. Start the daemon; on Linux run `systemctl --user enable --now openvoice-desktop.service`. Enable autostart in Settings for later logins.
 4. Press `Ctrl+Space` to start recording, then press it again to transcribe and paste.
 
-`Ctrl+Alt+L` cycles configured transcription languages. Choose a model from the server's refreshed model list, or enter a custom ID if discovery is unavailable. Cleanup runs on the server when configured there.
+`Ctrl+Alt+L` cycles configured transcription languages. Use the overlay Pause/Resume button or `Ctrl+Alt+P` to take a break within one recording: paused time is excluded from the audio. Change the pause/resume shortcut in Settings → General. The usual recording shortcut finishes and sends even while paused; Escape discards the whole recording. Choose a model from the server's refreshed model list, or enter a custom ID if discovery is unavailable. Cleanup runs on the server when configured there.
 
 On GNOME, Settings manages the global shortcuts. Paste needs a helper supported by the desktop; `wtype` does not work on GNOME itself. Follow [Linux setup](docs/linux.md#shortcuts) to configure a compatible helper such as `ydotool`. If automatic paste fails, the transcript is left in the clipboard for manual paste.
 

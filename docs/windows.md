@@ -116,7 +116,7 @@ The native status popup follows the saved overlay visibility, top/bottom positio
 Cross-compilation cannot verify these interactions. On a Windows desktop, check each item and record pass/fail before calling the setup smoke-tested:
 
 1. Start dictation with Settings closed. Change overlay visibility, position, style, and theme; Save after each change. Check the next popup, including on a secondary monitor with a different scale. Repeat with Settings open; only one popup should appear.
-2. Change recording, cancel, and language shortcuts; Save and use each without restarting. Try a shortcut held by another app: Save should report the conflict, and the previous binding should still work. Confirm `Escape` works normally in other apps while idle.
+2. Change recording, cancel, pause/resume, and language shortcuts; Save and use each without restarting. Try a shortcut held by another app: Save should report the conflict, and the previous binding should still work. Confirm `Escape` works normally in other apps while idle.
 3. Enable push-to-talk, Save, hold the recording chord, then release it. Recording should stop once. Press the chord briefly and release before startup finishes; it must not start another recording.
 4. Use a slow ASR endpoint. During upload, query `openvoice-desktop status`, cancel with the configured shortcut or tray menu, and confirm no transcript is inserted. Save a setting during upload; it should report pending and take effect after dictation ends.
 5. Change recording output mode or volume, Save, and start a new recording without restarting. Confirm output reduction applies and restores on stop. Test the actual playback endpoint used by the user.
@@ -129,6 +129,8 @@ Cross-compilation cannot verify these interactions. On a Windows desktop, check 
 The Windows adapter saves the current clipboard text, sets the transcript, sends `Ctrl+V`, then restores the previous clipboard after the configured delay.
 Paste behavior follows `[output]`: `clipboard-paste` restores or leaves the clipboard according to `clipboard_handling`, `copy-only` never sends `Ctrl+V`, and `direct-type` uses the native `SendInput` path.
 Paste errors are surfaced as user-facing error feedback while the transcript remains available through the clipboard/history path.
+
+Pause and resume a dictation with `Ctrl+Alt+P` or the pause/resume control on the recording popup. Change the shortcut in Settings → General. The popup shows **Paused** and a resume button during a break. Paused audio is excluded from the single recording sent when you press the usual recording shortcut; Escape or the popup × cancels the whole recording. The language badge remains clickable while paused. `openvoice-desktop pause-resume` provides the same action from the CLI.
 
 ## Uninstall
 

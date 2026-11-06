@@ -31,6 +31,7 @@ I.cli: Existing CLI: `openvoice-desktop daemon|toggle|config-path`. Add Handy-li
 I.config: Existing TOML config. Add schema version and settings UI backing store. Current fields: `[asr]`, `[audio]`, `[behavior]`.
 I.asr: Remote ASR client in `src/core/asr.rs`. Must keep multipart `file`, `model`, `temperature`, optional `language`, optional `prompt`, bearer auth.
 I.controller: State machine in `src/core/controller.rs`. Extend with cancel/busy/error/feedback states, not local model states.
+I.recording-pause: `behavior.pause_shortcut` (default `Ctrl+Alt+P`), overlay control, and CLI/IPC `pause-resume` share one controller action; Paused retains one capture, finish submits it, cancel/shutdown discard it.
 I.runtime-language: `asr.language_options` configures runtime cycle; `behavior.language_shortcut`, overlay badge, and `openvoice-desktop cycle-language` invoke same daemon action.
 I.platform: Platform adapters in `src/platform/linux.rs` and `src/platform/windows.rs`. Extend paste, tray, notification, permission, autostart.
 I.handy.settings: `H:src-tauri/src/settings.rs` contains settings schema and defaults. Use as settings inventory reference.
@@ -147,6 +148,8 @@ V71: Windows feedback-output invariant: CPAL feedback may initialize a reused wo
 V72: ASR Endpoint offers selectable server-advertised transcription model IDs plus editable custom IDs; a saved choice remains visible and reaches the multipart `model` field on later transcription requests.
 V73: ASR model choices come from authenticated `GET /v1/audio/models` on the configured endpoint when ASR settings open, regain focus, change endpoint, or request refresh. New server model IDs appear without client changes; cleanup-only models stay absent, failed discovery preserves the editable saved model, and stale responses cannot replace a newer endpoint's list.
 
+V74: Pause invariant: paused capture retains previous samples, appends no samples or silence, reports Paused with silent meter and resume/cancel controls, never uploads until finish, and survives repeated resume, finish, cancel, shutdown. Output attenuation applies only to active capture. Pause shortcut persists, validates conflicts, reloads on both platforms, and preserves primary shortcut registration order.
+
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller
@@ -254,6 +257,8 @@ T101|x|Keep output reduction with Windows feedback|Allow adjustment after CPAL i
 T102|x|Select remote ASR model from list|Show Whisper and Qwen3-ASR in ASR Endpoint model picker, retain custom model entry, persist chosen ID, and test request mapping.|—|I.asr,C2,V15,V24,V72
 T103|x|Discover remote ASR models|Fetch the authenticated ASR-only model catalog on settings entry, focus, endpoint change, and manual refresh; keep custom and saved values when discovery fails.|—|I.asr,C2,V72,V73
 
+T104|x|Pause and resume one recording|Add paused capture state and sample gate, overlay/native buttons, configurable pause shortcut, CLI/IPC routing, output restoration, cancellation and focused regression tests; publish both installers.|—|I.recording-pause,I.controller,I.config,I.platform,V12,V74
+
 §B
 id|date|cause|fix
 B1|2026-07-10|Settings work built config/UI contract but no user-invokable settings surface existed|V14
@@ -324,3 +329,5 @@ B65|2026-09-23|Windows playback-output adjustment error aborted recording before
 B66|2026-09-23|Recording output stayed reduced through WAV writing, ASR upload, and paste because restoration ran only at the end of processing, obscuring whether feedback and reduction worked during capture|V70
 B67|2026-09-23|CPAL feedback initialized a reusable Windows worker thread as STA, but output adjustment required MTA on the same thread; `RPC_E_CHANGED_MODE` made reduction fail and recording silently continued at full volume|V71
 B68|2026-09-23|Desktop model choices were hardcoded, so a changed server catalog required a new client release before users could select a new model|V73
+B69|2026-11-06|Pause binding inserted before the primary binding, changing the public registration order and failing shortcut mapping/rollback assertions|V74
+B70|2026-11-06|Resume-failure fixture expected two output restores while leaving recording output mode Unchanged, which captures no output state|V74

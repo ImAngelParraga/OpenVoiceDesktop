@@ -575,6 +575,7 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
             ("shortcut", Some("behavior.shortcut")),
             ("push-to-talk", Some("behavior.push_to_talk")),
             ("cancel-shortcut", Some("behavior.cancel_shortcut")),
+            ("pause-shortcut", Some("behavior.pause_shortcut")),
             ("language-shortcut", Some("behavior.language_shortcut")),
             ("microphone", Some("audio.selected_microphone")),
             ("recording-output-mode", Some("audio.recording_output_mode")),
@@ -630,4 +631,38 @@ fn locale_catalog_and_theme_selection_cover_all_desktop_surfaces() {
     let overlay = OverlayView::from_event(&config, &AppShellEvent::Recording);
     assert_eq!(overlay.theme, Theme::Dark);
     assert_eq!(overlay.message, "Grabando");
+}
+
+#[test]
+fn paused_overlay_keeps_resume_language_and_cancel_available() {
+    let config = Config::default();
+    let view = OverlayView::from_recording_state(
+        &config,
+        openvoice_desktop::core::state::RecordingState::Paused,
+        Some(10),
+    );
+    assert!(view.visible);
+    assert_eq!(
+        view.mode,
+        openvoice_desktop::core::settings_ui::OverlayMode::Paused
+    );
+    assert_eq!(view.message, "Paused");
+    assert!(!view.show_waveform);
+    assert!(!view.show_timer);
+    assert!(view.show_cancel);
+    assert!(view.show_language_control);
+}
+
+#[test]
+fn native_recording_controls_have_distinct_scaled_hit_regions() {
+    use openvoice_desktop::core::settings_ui::{recording_popup_action, RecordingPopupAction::*};
+    for scale in [1, 2, 3] {
+        let width = 180 * scale;
+        assert_eq!(recording_popup_action(20 * scale, width), Language);
+        assert_eq!(recording_popup_action(90 * scale, width), None);
+        assert_eq!(recording_popup_action(140 * scale, width), PauseResume);
+        assert_eq!(recording_popup_action(170 * scale, width), Cancel);
+        assert_eq!(recording_popup_action(-1, width), None);
+        assert_eq!(recording_popup_action(width, width), None);
+    }
 }

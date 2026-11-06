@@ -40,7 +40,7 @@ and Quit.
 
 While a dictation is in flight a small panel appears near the top of the screen with
 the state (`Recording` / `Transcribing`), a level meter, the transcription language,
-and a cancel button. Clicking the language badge cycles it, same as `Ctrl+Alt+L`.
+and pause/resume and cancel buttons. Clicking the language badge cycles it, same as `Ctrl+Alt+L`. Pause with the overlay button or `Ctrl+Alt+P` (configurable in Settings → General), then resume the same recording. Paused audio is discarded; finishing while paused sends the recorded segments together. `openvoice-desktop pause-resume` invokes the same action.
 
 The panel belongs to the shell process the daemon starts, so it only appears while
 `openvoice-desktop daemon` is running with `app.show_overlay = true`. On a Wayland
@@ -121,6 +121,7 @@ shortcut in Settings is enough and the old one stops working:
 | dconf entry | Command | From |
 | --- | --- | --- |
 | `openvoice-toggle` | `openvoice-desktop toggle` | `behavior.shortcut` |
+| `openvoice-pause` | `openvoice-desktop pause-resume` | `behavior.pause_shortcut` |
 | `openvoice-language` | `openvoice-desktop cycle-language` | `behavior.language_shortcut` |
 | `openvoice-cancel` | `openvoice-desktop cancel` | `behavior.cancel_shortcut`, only while dictating |
 

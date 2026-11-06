@@ -24,6 +24,7 @@ pub struct VoiceController<R, A, P, E = NoopEventSink> {
     config: Config,
     state: RecordingState,
     recording_started_at: Option<Instant>,
+    recorded_duration: Duration,
     cancel_requested: Arc<AtomicBool>,
     output_state: Option<AudioOutputState>,
     history: Option<HistoryStore>,
@@ -63,6 +64,7 @@ where
             config,
             state: RecordingState::Idle,
             recording_started_at: None,
+            recorded_duration: Duration::ZERO,
             cancel_requested: Arc::new(AtomicBool::new(false)),
             output_state: None,
             history: None,
@@ -104,7 +106,10 @@ where
     }
 
     pub fn cycle_language(&mut self) -> Result<Option<String>> {
-        if !matches!(self.state, RecordingState::Idle | RecordingState::Recording) {
+        if !matches!(
+            self.state,
+            RecordingState::Idle | RecordingState::Recording | RecordingState::Paused
+        ) {
             anyhow::bail!(
                 "language cannot change while controller is in {:?}",
                 self.state
@@ -136,7 +141,7 @@ where
                 self.events.emit(AppShellEvent::Idle);
                 Ok(ToggleOutcome::Canceled)
             }
-            RecordingState::Recording => {
+            RecordingState::Recording | RecordingState::Paused => {
                 self.recording_started_at = None;
                 let stop_result = self.recorder.stop().await;
                 let restore_result = self.restore_audio_session().await;
@@ -161,7 +166,10 @@ where
     /// shutdown. This is the async half of the audio-session lifecycle; Drop
     /// cannot safely await platform work.
     pub async fn shutdown(&mut self) -> Result<()> {
-        let stop_result = if self.state == RecordingState::Recording {
+        let stop_result = if matches!(
+            self.state,
+            RecordingState::Recording | RecordingState::Paused
+        ) {
             self.recorder.stop().await.map(|_| ())
         } else {
             Ok(())
@@ -184,25 +192,11 @@ where
                 self.events.emit(AppShellEvent::Recording);
 
                 self.play_feedback(AudioFeedbackEvent::Start).await;
-                match self
-                    .platform
-                    .adjust_output_for_recording(
-                        self.config.audio.recording_output_mode,
-                        self.config.audio.recording_output_volume,
-                    )
-                    .await
-                {
-                    Ok(state) => self.output_state = state,
-                    Err(error) => {
-                        // Playback output is optional. A missing or locked
-                        // output endpoint must not prevent microphone capture.
-                        eprintln!("openvoice-desktop output adjustment unavailable: {error}");
-                        self.output_state = None;
-                    }
-                }
+                self.adjust_audio_session().await;
                 if let Err(error) = self.recorder.start().await {
                     return Err(self.fail_operation(error).await);
                 }
+                self.recorded_duration = Duration::ZERO;
                 self.recording_started_at = Some(Instant::now());
                 self.log_event(
                     crate::core::config::LogLevel::Info,
@@ -212,7 +206,7 @@ where
                 eprintln!("openvoice-desktop recording started");
                 Ok(ToggleOutcome::Started)
             }
-            RecordingState::Recording => {
+            RecordingState::Recording | RecordingState::Paused => {
                 let result = self.finish_recording().await;
                 if let Err(error) = &result {
                     let error = anyhow::anyhow!(error.to_string());
@@ -232,19 +226,50 @@ where
         result
     }
 
+    pub async fn pause_resume(&mut self) -> Result<ToggleOutcome> {
+        match self.state {
+            RecordingState::Recording => {
+                self.recorder.pause().await?;
+                if let Some(start) = self.recording_started_at.take() {
+                    self.recorded_duration += start.elapsed();
+                }
+                self.state = RecordingState::Paused;
+                self.events.emit(AppShellEvent::Paused);
+                self.restore_audio_session().await?;
+                Ok(ToggleOutcome::Paused)
+            }
+            RecordingState::Paused => {
+                self.adjust_audio_session().await;
+                if let Err(error) = self.recorder.resume().await {
+                    self.restore_audio_session().await?;
+                    return Err(error);
+                }
+                self.recording_started_at = Some(Instant::now());
+                self.state = RecordingState::Recording;
+                self.events.emit(AppShellEvent::Recording);
+                Ok(ToggleOutcome::Resumed)
+            }
+            _ => Ok(ToggleOutcome::Busy { state: self.state }),
+        }
+    }
+
     async fn finish_recording(&mut self) -> Result<ToggleOutcome> {
         let request_language = self.selected_language.clone();
         self.state = RecordingState::WritingAudio;
         self.events.emit(AppShellEvent::Processing {
             stage: ProcessingStage::WritingAudio,
         });
-        self.wait_for_recording_buffer().await;
+        if self.recording_started_at.is_some() {
+            self.wait_for_recording_buffer().await;
+        }
         let audio = self.recorder.stop().await?;
         self.restore_audio_session().await?;
         let record_duration = self
             .recording_started_at
             .take()
-            .map(|start| start.elapsed());
+            .map(|start| start.elapsed())
+            .unwrap_or_default()
+            + self.recorded_duration;
         self.emit_mic_level(&audio.samples);
         if self.is_cancel_requested() {
             return Ok(self.finish_canceled().await);
@@ -259,7 +284,7 @@ where
         }
         eprintln!(
             "openvoice-desktop audio: record_ms={} wav_write_ms={} wav_bytes={}",
-            ms(record_duration.unwrap_or_default()),
+            ms(record_duration),
             ms(wav_stats.elapsed),
             wav_stats.bytes
         );
@@ -480,6 +505,23 @@ where
         });
         self.events.emit(AppShellEvent::Idle);
         anyhow::anyhow!(message)
+    }
+
+    async fn adjust_audio_session(&mut self) {
+        match self
+            .platform
+            .adjust_output_for_recording(
+                self.config.audio.recording_output_mode,
+                self.config.audio.recording_output_volume,
+            )
+            .await
+        {
+            Ok(state) => self.output_state = state,
+            Err(error) => {
+                eprintln!("openvoice-desktop output adjustment unavailable: {error}");
+                self.output_state = None;
+            }
+        }
     }
 
     async fn restore_audio_session(&mut self) -> Result<()> {

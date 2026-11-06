@@ -213,6 +213,7 @@ pub fn run(start_hidden: bool) -> Result<()> {
             read_live_logs,
             cancel_transcription,
             cycle_transcription_language,
+            pause_resume_recording,
             open_recordings_folder,
             delete_transcript,
             retry_transcript,
@@ -426,6 +427,16 @@ async fn cancel_transcription() -> std::result::Result<String, String> {
         .and_then(|loaded| loaded.config.socket_path())
         .map_err(safe_error)?;
     crate::ipc::send_cancel(&socket_path)
+        .await
+        .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn pause_resume_recording() -> std::result::Result<String, String> {
+    let loaded = crate::core::config::Config::load_default().map_err(safe_error)?;
+    let socket_path = loaded.config.socket_path().map_err(safe_error)?;
+    crate::ipc::send_pause_resume(&socket_path)
         .await
         .map_err(safe_error)
 }
