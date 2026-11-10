@@ -302,11 +302,11 @@ where
     } else {
         None
     };
+    platform.set_clipboard_text(transcript).await?;
+    let clipboard_written_at = Instant::now();
     if output.paste_delay_ms > 0 {
         tokio::time::sleep(Duration::from_millis(output.paste_delay_ms)).await;
     }
-    platform.set_clipboard_text(transcript).await?;
-    let clipboard_written_at = Instant::now();
     if let Err(error) = platform.trigger_paste_with_tool(output.typing_tool).await {
         platform
             .notify(

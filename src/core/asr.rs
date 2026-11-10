@@ -95,7 +95,7 @@ impl AsrClient for ReqwestAsrClient {
             .client
             .post(fields.url)
             .timeout(fields.timeout)
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .multipart(form)
             .send()
             .await?;
@@ -104,7 +104,7 @@ impl AsrClient for ReqwestAsrClient {
         if !status.is_success() {
             return Err(anyhow!(
                 "ASR request failed with HTTP {status}: {}",
-                sanitize_error_body(&body, resolve_bearer_token(&self.config).as_deref())
+                sanitize_error_body(&body, Some(&token))
             ));
         }
 
@@ -251,30 +251,47 @@ pub fn sanitize_error_body(body: &str, token: Option<&str>) -> String {
     for key in ["bearer_token", "api_key", "authorization"] {
         sanitized = redact_jsonish_value(&sanitized, key);
     }
-    sanitized.truncate(MAX);
+    let mut end = sanitized.len().min(MAX);
+    while !sanitized.is_char_boundary(end) {
+        end -= 1;
+    }
+    sanitized.truncate(end);
     sanitized
 }
 
 fn redact_jsonish_value(input: &str, key: &str) -> String {
     let needle = format!("\"{key}\"");
-    let Some(start) = input.to_ascii_lowercase().find(&needle) else {
-        return input.to_string();
-    };
-    let Some(colon) = input[start..].find(':').map(|offset| start + offset) else {
-        return input.to_string();
-    };
-    let Some(open_quote) = input[colon..].find('"').map(|offset| colon + offset) else {
-        return input.to_string();
-    };
-    let Some(close_quote) = input[open_quote + 1..]
-        .find('"')
-        .map(|offset| open_quote + 1 + offset)
-    else {
-        return input.to_string();
-    };
+    let lower = input.to_ascii_lowercase();
     let mut output = String::with_capacity(input.len());
-    output.push_str(&input[..open_quote + 1]);
-    output.push_str("[redacted]");
-    output.push_str(&input[close_quote..]);
+    let mut cursor = 0;
+    while let Some(offset) = lower[cursor..].find(&needle) {
+        let key_end = cursor + offset + needle.len();
+        output.push_str(&input[cursor..key_end]);
+        cursor = key_end;
+        let rest = input[key_end..].trim_start();
+        let Some(value) = rest.strip_prefix(':').map(str::trim_start) else {
+            continue;
+        };
+        if !value.starts_with('"') {
+            continue;
+        }
+        let value_start = input.len() - value.len();
+        let mut escaped = false;
+        let mut value_end = input.len();
+        for (offset, ch) in input[value_start + 1..].char_indices() {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                value_end = value_start + 1 + offset;
+                break;
+            }
+        }
+        output.push_str(&input[key_end..value_start + 1]);
+        output.push_str("[redacted]");
+        cursor = value_end;
+    }
+    output.push_str(&input[cursor..]);
     output
 }

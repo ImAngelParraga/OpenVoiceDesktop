@@ -196,3 +196,24 @@ fn asr_diagnostic_keeps_status_latency_and_safe_body() {
     assert!(!diagnostic.sanitized_body.contains("abc"));
     assert!(diagnostic.sanitized_body.contains("unavailable"));
 }
+
+#[test]
+fn test_v75_error_sanitization_handles_unicode_boundaries() {
+    for prefix in ["a".repeat(499), "a".repeat(498), String::new()] {
+        let body = format!("{prefix}{}", "界".repeat(200));
+        let sanitized = sanitize_error_body(&body, None);
+        assert!(sanitized.len() <= 500);
+        assert!(body.starts_with(&sanitized));
+    }
+}
+
+#[test]
+fn test_v75_error_sanitization_redacts_repeated_and_escaped_secrets() {
+    let body = r#"{"api_key":"first","nested":{"API_KEY":"second"},"authorization":"prefix\"secret-suffix","bearer_token":null,"message":"keep me"}"#;
+    let sanitized = sanitize_error_body(body, None);
+    for secret in ["first", "second", "prefix", "secret-suffix"] {
+        assert!(!sanitized.contains(secret), "leaked {secret}: {sanitized}");
+    }
+    assert!(sanitized.contains("keep me"));
+    serde_json::from_str::<serde_json::Value>(&sanitized).unwrap();
+}

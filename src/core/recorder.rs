@@ -182,12 +182,14 @@ impl Recorder for CpalRecorder {
             .take()
             .ok_or_else(|| anyhow!("recorder is not running"))?;
         drop(capture.stream);
-        let samples = capture
-            .samples
-            .lock()
-            .map_err(|_| anyhow!("audio sample buffer lock poisoned"))?
-            .samples
-            .clone();
+        let samples = std::mem::take(
+            &mut capture
+                .samples
+                .lock()
+                .map_err(|_| anyhow!("audio sample buffer lock poisoned"))?
+                .samples,
+        );
+        self.level_bucket.store(0, Ordering::Relaxed);
         Ok(downmix_resample_to_i16(
             &samples,
             capture.source_rate_hz,

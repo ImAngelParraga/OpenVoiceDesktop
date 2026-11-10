@@ -215,3 +215,33 @@ impl PlatformAdapter for TimingPlatform {
         Ok(())
     }
 }
+
+#[tokio::test]
+async fn test_v40_settling_delay_runs_after_clipboard_write() {
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let platform = TimingPlatform(observations.clone());
+    let mut output = Config::default().output;
+    output.paste_delay_ms = 100;
+    output.restore_delay_ms = 0;
+    let mut paste = Box::pin(paste_with_output_config(
+        &platform,
+        "hello",
+        &output,
+        Instant::now(),
+        || {},
+    ));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut paste)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        observations.lock().unwrap().as_slice(),
+        ["read", "write:hello"]
+    );
+    let report = paste.await.unwrap();
+    assert!(
+        report.timings.clipboard_write_to_paste_input.unwrap()
+            >= std::time::Duration::from_millis(100)
+    );
+}

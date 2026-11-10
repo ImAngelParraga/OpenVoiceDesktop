@@ -150,6 +150,8 @@ V73: ASR model choices come from authenticated `GET /v1/audio/models` on the con
 
 V74: Pause invariant: paused capture retains previous samples, appends no samples or silence, reports Paused with silent meter and resume/cancel controls, never uploads until finish, and survives repeated resume, finish, cancel, shutdown. Output attenuation applies only to active capture. Pause shortcut persists, validates conflicts, reloads on both platforms, and preserves primary shortcut registration order.
 
+V75: ASR error sanitization stays within 500 UTF-8 bytes without panic; repeated case-insensitive credential fields and escaped quotes remain redacted. Redaction uses the token sent on the request.
+
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller
@@ -331,3 +333,7 @@ B67|2026-09-23|CPAL feedback initialized a reusable Windows worker thread as STA
 B68|2026-09-23|Desktop model choices were hardcoded, so a changed server catalog required a new client release before users could select a new model|V73
 B69|2026-11-06|Pause binding inserted before the primary binding, changing the public registration order and failing shortcut mapping/rollback assertions|V74
 B70|2026-11-06|Resume-failure fixture expected two output restores while leaving recording output mode Unchanged, which captures no output state|V74
+
+B71|2026-11-10|ASR error truncation split UTF-8 at byte 500 and panicked; credential redaction handled only first key and mistook escaped quotes or null values for string boundaries|V75
+B72|2026-11-10|Pre-paste settling delay ran before clipboard write, leaving no settling time between new clipboard data and paste input|V40
+B73|2026-11-10|Output restoration consumed saved state before OS success, so transient failure prevented retry and later capture could replace the original state|V29

@@ -168,38 +168,42 @@ pub async fn run(config: Config) -> Result<()> {
                     pending_reload = true;
                     "Pending\n".to_string()
                 } else if command == RELOAD_CONFIG_COMMAND {
-                    match Config::load_default().and_then(|loaded| {
-                        crate::core::settings_service::validate_config(&loaded.config)?;
-                        Ok(loaded.config)
-                    }) {
-                        Ok(updated) => {
-                            let recorder = CpalRecorder::with_audio_config(&updated.audio);
-                            // The new recorder owns a new level counter, and the
-                            // new controller must keep reporting into the same
-                            // snapshot the socket task reads.
-                            snapshot.attach_level(recorder.level_handle());
-                            let asr = ReqwestAsrClient::new(updated.clone());
-                            let history = crate::core::history::HistoryStore::from_config(&updated).ok();
-                            let logger = logger_from_config(&updated);
-                            shortcut_config = updated.clone();
-                            controller = VoiceController::with_event_sink(
-                                recorder,
-                                asr,
-                                LinuxPlatformAdapter,
-                                updated,
-                                Arc::clone(&snapshot),
-                            )
-                            .with_cancel_flag(Arc::clone(&cancel_flag));
-                            if let Some(history) = history {
-                                controller = controller.with_history_store(history);
+                    if let Err(error) = controller.restore_audio_session().await {
+                        format!("error: restoring audio before reload: {error}\n")
+                    } else {
+                        match Config::load_default().and_then(|loaded| {
+                            crate::core::settings_service::validate_config(&loaded.config)?;
+                            Ok(loaded.config)
+                        }) {
+                            Ok(updated) => {
+                                let recorder = CpalRecorder::with_audio_config(&updated.audio);
+                                // The new recorder owns a new level counter, and the
+                                // new controller must keep reporting into the same
+                                // snapshot the socket task reads.
+                                snapshot.attach_level(recorder.level_handle());
+                                let asr = ReqwestAsrClient::new(updated.clone());
+                                let history = crate::core::history::HistoryStore::from_config(&updated).ok();
+                                let logger = logger_from_config(&updated);
+                                shortcut_config = updated.clone();
+                                controller = VoiceController::with_event_sink(
+                                    recorder,
+                                    asr,
+                                    LinuxPlatformAdapter,
+                                    updated,
+                                    Arc::clone(&snapshot),
+                                )
+                                .with_cancel_flag(Arc::clone(&cancel_flag));
+                                if let Some(history) = history {
+                                    controller = controller.with_history_store(history);
+                                }
+                                if let Some(logger) = logger {
+                                    controller = controller.with_logger(logger);
+                                }
+                                snapshot.set_language(controller.selected_language().map(str::to_string));
+                                "Reloaded\n".to_string()
                             }
-                            if let Some(logger) = logger {
-                                controller = controller.with_logger(logger);
-                            }
-                            snapshot.set_language(controller.selected_language().map(str::to_string));
-                            "Reloaded\n".to_string()
+                            Err(error) => format!("error: rejected config: {error}\n"),
                         }
-                        Err(error) => format!("error: rejected config: {error}\n"),
                     }
                 } else if command == SHUTDOWN_COMMAND {
                     shutdown_requested = true;
@@ -811,6 +815,12 @@ pub async fn run(config: Config) -> Result<()> {
                                 "error: rejected config: controller busy in {:?}\n",
                                 controller.state()
                             ));
+                            continue;
+                        }
+                        if let Err(error) = controller.restore_audio_session().await {
+                            let _ = request
+                                .reply_tx
+                                .send(format!("error: restoring audio before reload: {error}\n"));
                             continue;
                         }
                         let recorder = CpalRecorder::with_audio_config(&updated.audio);

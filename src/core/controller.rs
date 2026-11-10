@@ -508,6 +508,10 @@ where
     }
 
     async fn adjust_audio_session(&mut self) {
+        if let Err(error) = self.restore_audio_session().await {
+            eprintln!("openvoice-desktop pending output restore failed: {error}");
+            return;
+        }
         match self
             .platform
             .adjust_output_for_recording(
@@ -524,11 +528,13 @@ where
         }
     }
 
-    async fn restore_audio_session(&mut self) -> Result<()> {
-        let Some(state) = self.output_state.take() else {
+    pub async fn restore_audio_session(&mut self) -> Result<()> {
+        let Some(state) = self.output_state else {
             return Ok(());
         };
-        self.platform.restore_output_after_recording(state).await
+        self.platform.restore_output_after_recording(state).await?;
+        self.output_state = None;
+        Ok(())
     }
 
     async fn play_feedback(&self, event: AudioFeedbackEvent) {

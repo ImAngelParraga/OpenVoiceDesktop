@@ -956,6 +956,7 @@ struct FakePlatform {
     fail_paste: bool,
     fail_selection: bool,
     fail_adjustment: bool,
+    restore_failures: Arc<Mutex<usize>>,
 }
 
 impl FakePlatform {
@@ -969,6 +970,7 @@ impl FakePlatform {
             fail_paste: false,
             fail_selection: false,
             fail_adjustment: false,
+            restore_failures: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -1083,6 +1085,11 @@ impl PlatformAdapter for FakePlatform {
 
     async fn restore_output_after_recording(&self, state: AudioOutputState) -> Result<()> {
         self.restores.lock().unwrap().push(state);
+        let mut failures = self.restore_failures.lock().unwrap();
+        if *failures > 0 {
+            *failures -= 1;
+            anyhow::bail!("temporary audio restore failure");
+        }
         Ok(())
     }
 
@@ -1294,4 +1301,51 @@ async fn failed_pause_or_resume_keeps_capture_available_for_finish() {
             }
         );
     }
+}
+
+#[tokio::test]
+async fn test_v29_failed_restore_is_retried_on_shutdown() {
+    let platform = FakePlatform::new(None);
+    *platform.restore_failures.lock().unwrap() = 1;
+    let restores = platform.restores.clone();
+    let mut config = Config::default();
+    config.audio.recording_output_mode = RecordingOutputMode::Muted;
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".into(),
+            observations: Arc::default(),
+        },
+        platform,
+        config,
+    );
+    controller.toggle().await.unwrap();
+    assert!(controller.cancel().await.is_err());
+    controller.shutdown().await.unwrap();
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state(); 2]);
+}
+
+#[tokio::test]
+async fn test_v29_new_capture_preserves_pending_original_output_state() {
+    let platform = FakePlatform::new(None);
+    *platform.restore_failures.lock().unwrap() = 2;
+    let restores = platform.restores.clone();
+    let adjustments = platform.adjustments.clone();
+    let mut config = Config::default();
+    config.audio.recording_output_mode = RecordingOutputMode::Muted;
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        FakeAsr {
+            text: "hello".into(),
+            observations: Arc::default(),
+        },
+        platform,
+        config,
+    );
+    controller.toggle().await.unwrap();
+    assert!(controller.cancel().await.is_err());
+    controller.toggle().await.unwrap();
+    assert_eq!(adjustments.lock().unwrap().len(), 1);
+    controller.cancel().await.unwrap();
+    assert_eq!(*restores.lock().unwrap(), vec![fake_output_state(); 3]);
 }
