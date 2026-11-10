@@ -1349,3 +1349,31 @@ async fn test_v29_new_capture_preserves_pending_original_output_state() {
     controller.cancel().await.unwrap();
     assert_eq!(*restores.lock().unwrap(), vec![fake_output_state(); 3]);
 }
+
+#[tokio::test]
+async fn failed_asr_request_retains_audio_when_opted_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.history.retention = openvoice_desktop::core::config::RecordingRetention::FailedOnly;
+    let store = openvoice_desktop::core::history::HistoryStore::for_config_path(
+        &dir.path().join("config.toml"),
+        &config,
+    )
+    .unwrap();
+    let mut controller = VoiceController::new(
+        FakeRecorder::default(),
+        UnreachableAsr,
+        FakePlatform::new(None),
+        config,
+    )
+    .with_history_store(store.clone());
+    controller.toggle().await.unwrap();
+    assert!(controller.toggle().await.is_err());
+    let entries = store.list().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].status,
+        openvoice_desktop::core::settings_ui::HistoryStatus::Error
+    );
+    assert!(entries[0].audio_path.as_ref().unwrap().exists());
+}

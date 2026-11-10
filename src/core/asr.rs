@@ -62,7 +62,8 @@ impl ReqwestAsrClient {
 #[async_trait]
 impl AsrClient for ReqwestAsrClient {
     async fn transcribe_file(&self, path: &Path, language: Option<&str>) -> Result<Transcription> {
-        let fields = request_fields_for_language(&self.config, language);
+        let mut fields = request_fields_for_language(&self.config, language);
+        fields.timeout = transcription_timeout(path, fields.timeout)?;
         let file_bytes = tokio::fs::read(path)
             .await
             .with_context(|| format!("reading {}", path.display()))?;
@@ -294,4 +295,11 @@ fn redact_jsonish_value(input: &str, key: &str) -> String {
     }
     output.push_str(&input[cursor..]);
     output
+}
+
+/// Budget includes upload, queueing and server-side cleanup, bounded by user policy.
+pub fn transcription_timeout(path: &Path, maximum: Duration) -> Result<Duration> {
+    let wav = hound::WavReader::open(path).context("reading recording duration")?;
+    let seconds = f64::from(wav.duration()) / f64::from(wav.spec().sample_rate);
+    Ok(Duration::from_secs_f64(seconds.max(5.0)).min(maximum))
 }

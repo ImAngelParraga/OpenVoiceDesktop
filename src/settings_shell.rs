@@ -591,12 +591,27 @@ fn delete_transcript(timestamp_unix_ms: u64) -> std::result::Result<String, Stri
 #[cfg(feature = "desktop-shell")]
 #[tauri::command]
 async fn retry_transcript(timestamp_unix_ms: u64) -> std::result::Result<String, String> {
-    let text = history_store()?
-        .transcript(timestamp_unix_ms)
+    let store = history_store()?;
+    let entry = store
+        .list()
         .map_err(safe_error)?
+        .into_iter()
+        .find(|entry| entry.timestamp_unix_ms == timestamp_unix_ms)
         .ok_or_else(|| "Transcript not found".to_string())?;
+    let text = if entry.status == crate::core::settings_ui::HistoryStatus::Error {
+        let config = crate::core::config::Config::load_default()
+            .map_err(safe_error)?
+            .config;
+        let asr = crate::core::asr::ReqwestAsrClient::new(config.clone());
+        store
+            .retry_transcription(timestamp_unix_ms, &asr, &config)
+            .await
+            .map_err(safe_error)?
+    } else {
+        entry.text
+    };
     copy_text(&text).await.map_err(safe_error)?;
-    Ok("Transcript copied for retry".to_string())
+    Ok("Transcript ready and copied to clipboard".to_string())
 }
 
 #[cfg(feature = "desktop-shell")]

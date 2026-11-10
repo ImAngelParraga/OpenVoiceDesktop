@@ -152,6 +152,9 @@ V74: Pause invariant: paused capture retains previous samples, appends no sample
 
 V75: ASR error sanitization stays within 500 UTF-8 bytes without panic; repeated case-insensitive credential fields and escaped quotes remain redacted. Redaction uses the token sent on the request.
 
+V76: With history enabled and failed-only or always audio retention, failed ASR requests retain recoverable audio and recording language. History retry uploads retained audio with current endpoint/model settings, updates the existing entry, copies recovered text, and preserves audio on another failure. No automatic retry or upload.
+V77: Transcription request deadline uses WAV duration: min(configured maximum, max(5 seconds, audio seconds)), covering upload and response body. Silent endpoint checks retain configured timeout.
+
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller

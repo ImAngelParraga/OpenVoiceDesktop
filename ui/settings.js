@@ -429,12 +429,16 @@ function actionButton(label, command, args = {}) {
   button.type = "button";
   button.textContent = label;
   button.addEventListener("click", async () => {
+    button.disabled = true;
+    status.textContent = `${label}…`;
     try {
       status.textContent = await invoke(command, args);
       documentModel = await invoke("get_settings");
       render();
     } catch (error) {
       status.textContent = `${label} failed: ${error}`;
+    } finally {
+      button.disabled = false;
     }
   });
   return button;
@@ -490,10 +494,10 @@ function renderHistoryActions() {
     const row = document.createElement("article");
     row.className = "history-entry";
     const text = document.createElement("p");
-    text.textContent = entry.text;
+    text.textContent = entry.text || (entry.status === "error" ? (entry.audio_path ? "Transcription failed — audio retained for retry." : "Transcription failed — no retained audio.") : "Empty transcript");
     row.append(
       text,
-      actionButton("Retry", "retry_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
+      actionButton(entry.status === "error" ? "Retry transcription" : "Copy transcript", "retry_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
       actionButton("Save", "save_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
       actionButton("Delete", "delete_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
     );

@@ -181,6 +181,8 @@ pub struct HistoryEntry {
     pub endpoint: String,
     pub model: String,
     pub audio_path: Option<PathBuf>,
+    #[serde(default)]
+    pub language: Option<String>,
     pub saved: bool,
 }
 
@@ -189,6 +191,7 @@ pub struct HistoryEntry {
 pub enum HistoryStatus {
     Inserted,
     PasteFailed,
+    Recovered,
     Empty,
     Error,
 }
@@ -1084,6 +1087,7 @@ impl HistoryEntry {
             endpoint: config.asr.base_url.clone(),
             model: config.asr.model.clone(),
             audio_path,
+            language: config.asr.language.clone(),
             saved: false,
         }
     }
@@ -1316,7 +1320,7 @@ fn settings_control_description(id: &str) -> &'static str {
         "asr.language_options" => "Comma-separated languages available from shortcut and recording overlay. Use auto to omit the ASR language hint.",
         "asr.prompt" => "Optional context sent to the ASR service for spelling and style. Use natural text, or separate distinct names and terms with commas, for example: OpenVoiceDesktop, Whisper, Acme Corp.",
         "asr.bearer_token" => "Authentication token source and storage status. Token value is never displayed.",
-        "asr.timeout_seconds" => "Maximum time to wait for one ASR request before reporting failure.",
+        "asr.timeout_seconds" => "Maximum request time. Transcription uses the smaller of this limit and the greater of 5 seconds and the audio duration.",
         "test-endpoint" => "Send a small authenticated diagnostic request without recording speech.",
         "app.start_hidden" => "Reserved launch option; the installed app already starts in the background after setup.",
         "app.autostart" => "Start OpenVoiceDesktop automatically after sign-in.",

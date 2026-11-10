@@ -101,3 +101,68 @@ fn history_actions_mutate_expected_entry() {
     assert!(history.delete(1).unwrap());
     assert_eq!(history.list().unwrap().len(), 1);
 }
+
+struct RetryAsr(bool);
+#[async_trait::async_trait]
+impl openvoice_desktop::core::asr::AsrClient for RetryAsr {
+    async fn transcribe_file(
+        &self,
+        path: &std::path::Path,
+        language: Option<&str>,
+    ) -> anyhow::Result<openvoice_desktop::core::asr::Transcription> {
+        assert!(path.is_file());
+        assert_eq!(language, Some("es"));
+        anyhow::ensure!(self.0, "offline");
+        Ok(openvoice_desktop::core::asr::Transcription {
+            text: "recovered".into(),
+            elapsed: std::time::Duration::from_millis(50),
+        })
+    }
+}
+
+#[tokio::test]
+async fn failed_upload_can_be_retried_without_losing_audio_on_another_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = store(&dir, RecordingRetention::FailedOnly, 10);
+    let source = dir.path().join("source.wav");
+    std::fs::write(&source, b"wav").unwrap();
+    let mut failed = entry(1, "", HistoryStatus::Error);
+    failed.language = Some("es".into());
+    history.record(failed, Some(&source)).unwrap();
+    assert!(history
+        .retry_transcription(1, &RetryAsr(false), &Config::default())
+        .await
+        .is_err());
+    let pending = history.list().unwrap();
+    assert_eq!(pending[0].status, HistoryStatus::Error);
+    assert!(pending[0].audio_path.as_ref().unwrap().is_file());
+    assert_eq!(
+        history
+            .retry_transcription(1, &RetryAsr(true), &Config::default())
+            .await
+            .unwrap(),
+        "recovered"
+    );
+    let recovered = history.list().unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].text, "recovered");
+    assert_eq!(recovered[0].status, HistoryStatus::Recovered);
+    let audio = recovered[0].audio_path.clone().unwrap();
+    history.delete(1).unwrap();
+    assert!(!audio.exists());
+}
+
+#[tokio::test]
+async fn failed_upload_without_opt_in_has_no_retry_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = store(&dir, RecordingRetention::Never, 10);
+    history
+        .record(entry(1, "", HistoryStatus::Error), None)
+        .unwrap();
+    assert!(history
+        .retry_transcription(1, &RetryAsr(true), &Config::default())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("No retained audio"));
+}

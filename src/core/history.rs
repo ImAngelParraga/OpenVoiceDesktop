@@ -84,6 +84,48 @@ impl HistoryStore {
         self.write(&entries)
     }
 
+    pub async fn retry_transcription<A: crate::core::asr::AsrClient>(
+        &self,
+        timestamp_unix_ms: u64,
+        asr: &A,
+        config: &Config,
+    ) -> Result<String> {
+        let entry = self
+            .list()?
+            .into_iter()
+            .find(|entry| entry.timestamp_unix_ms == timestamp_unix_ms)
+            .context("Recording not found")?;
+        anyhow::ensure!(
+            entry.status == HistoryStatus::Error,
+            "Recording is not a failed transcription"
+        );
+        let path = entry.audio_path.as_deref().context(
+            "No retained audio; enable History and Failed only retention before recording",
+        )?;
+        let transcription = asr.transcribe_file(path, entry.language.as_deref()).await?;
+        let text = if transcription.text.is_empty() {
+            String::new()
+        } else {
+            crate::core::settings_ui::apply_text_presentation(transcription.text, config)
+        };
+        // Reload after the request so a deleted entry is never resurrected.
+        let mut entries = self.list()?;
+        let recovered = entries
+            .iter_mut()
+            .find(|entry| entry.timestamp_unix_ms == timestamp_unix_ms)
+            .context("Recording was deleted during retry")?;
+        recovered.text = text.clone();
+        recovered.status = if text.is_empty() {
+            HistoryStatus::Empty
+        } else {
+            HistoryStatus::Recovered
+        };
+        recovered.endpoint = config.asr.base_url.clone();
+        recovered.model = config.asr.model.clone();
+        self.write(&entries)?;
+        Ok(text)
+    }
+
     pub fn delete(&self, timestamp_unix_ms: u64) -> Result<bool> {
         let mut entries = self.list()?;
         let Some(index) = entries

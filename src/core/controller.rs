@@ -301,6 +301,7 @@ where
         let mut transcription = match transcription_result {
             Ok(transcription) => transcription,
             Err(error) => {
+                self.record_history("", HistoryStatus::Error, Some(temp_file.path()));
                 self.update_diagnostics(None, Some(&error.to_string()));
                 self.log_event(
                     crate::core::config::LogLevel::Error,
@@ -425,13 +426,14 @@ where
         let Some(history) = &self.history else {
             return;
         };
-        let entry = HistoryEntry::completed(
+        let mut entry = HistoryEntry::completed(
             HistoryStore::timestamp_now(),
             text.to_string(),
             status,
             &self.config,
             None,
         );
+        entry.language = self.selected_language.clone();
         if let Err(error) = history.record(entry, audio_path) {
             eprintln!("openvoice-desktop history write failed: {error}");
         }

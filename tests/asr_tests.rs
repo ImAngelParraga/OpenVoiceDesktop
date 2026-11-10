@@ -217,3 +217,30 @@ fn test_v75_error_sanitization_redacts_repeated_and_escaped_secrets() {
     assert!(sanitized.contains("keep me"));
     serde_json::from_str::<serde_json::Value>(&sanitized).unwrap();
 }
+
+#[test]
+fn transcription_timeout_scales_with_wav_duration_and_honors_maximum() {
+    use openvoice_desktop::core::asr::transcription_timeout;
+    for (seconds, expected) in [(4, 5), (22, 22), (60, 30), (200, 30)] {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(file.path(), spec).unwrap();
+        for _ in 0..seconds * 16000 {
+            writer.write_sample(0_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        assert_eq!(
+            transcription_timeout(file.path(), Duration::from_secs(30)).unwrap(),
+            Duration::from_secs(expected)
+        );
+        assert_eq!(
+            transcription_timeout(file.path(), Duration::from_secs(2)).unwrap(),
+            Duration::from_secs(2)
+        );
+    }
+}
