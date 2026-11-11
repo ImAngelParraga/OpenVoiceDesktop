@@ -155,6 +155,8 @@ V75: ASR error sanitization stays within 500 UTF-8 bytes without panic; repeated
 V76: With history enabled and failed-only or always audio retention, failed ASR requests retain recoverable audio and recording language. History retry uploads retained audio with current endpoint/model settings, updates the existing entry, copies recovered text, and preserves audio on another failure. No automatic retry or upload.
 V77: Transcription request deadline uses WAV duration: min(configured maximum, max(5 seconds, audio seconds)), covering upload and response body. Silent endpoint checks retain configured timeout.
 
+V78: Linux interactive Settings launch and focus recover an unavailable recording daemon within a bounded startup deadline, prefer the installed user service, preserve autostart preference, and never reload or restart a reachable daemon. Hidden overlay startup does not start another daemon. Startup failure stays visible in Settings; closing Settings keeps background dictation available.
+
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller
@@ -340,3 +342,4 @@ B70|2026-11-06|Resume-failure fixture expected two output restores while leaving
 B71|2026-11-10|ASR error truncation split UTF-8 at byte 500 and panicked; credential redaction handled only first key and mistook escaped quotes or null values for string boundaries|V75
 B72|2026-11-10|Pre-paste settling delay ran before clipboard write, leaving no settling time between new clipboard data and paste input|V40
 B73|2026-11-10|Output restoration consumed saved state before OS success, so transient failure prevented retry and later capture could replace the original state|V29
+B74|2026-11-11|Linux desktop entry opened Settings without starting the recording daemon; packaged unit was disabled by default and closing Settings removed the only visible surface, leaving shortcut and overlay unavailable|V78

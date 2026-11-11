@@ -6,6 +6,17 @@ const SETTINGS_SHELL_RS: &str = include_str!("../src/settings_shell.rs");
 const SETTINGS_JS: &str = include_str!("../ui/settings.js");
 
 #[test]
+fn test_v78_visible_settings_restores_recording_on_launch_and_reopen() {
+    assert!(SETTINGS_SHELL_RS.contains("async fn ensure_recording_service"));
+    assert!(SETTINGS_SHELL_RS.contains("window.is_visible().map_err(safe_error)?"));
+    assert!(SETTINGS_SHELL_RS.contains("crate::platform::linux_service::ensure_started"));
+    assert!(SETTINGS_JS.contains("await settingsWindow.onFocusChanged"));
+    assert!(SETTINGS_JS.contains("if (focused) void ensureRecordingService()"));
+    assert!(SETTINGS_JS.contains("await ensureRecordingService();"));
+    assert!(SETTINGS_JS.contains("Recording service unavailable:"));
+}
+
+#[test]
 fn settings_never_runs_inside_a_tokio_runtime() {
     // `tauri_plugin_single_instance` builds a *blocking* zbus connection on
     // Linux; doing that under `#[tokio::main]` panicked with "Cannot start a

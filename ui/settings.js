@@ -678,12 +678,25 @@ saveButton.addEventListener("click", async () => {
   }
 });
 
+async function ensureRecordingService() {
+  try {
+    await invoke("ensure_recording_service");
+  } catch (error) {
+    status.textContent = `Recording service unavailable: ${error}`;
+  }
+}
+
+await settingsWindow.onFocusChanged(({ payload: focused }) => {
+  if (focused) void ensureRecordingService();
+});
+
 try {
   documentModel = await invoke("get_settings");
   applyLocale();
   applyTheme(documentModel.config.ui.theme);
   status.textContent = translate("loaded");
   render();
+  await ensureRecordingService();
 } catch (error) {
   status.textContent = `Unable to load settings: ${error}`;
 }

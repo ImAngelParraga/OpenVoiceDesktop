@@ -4,7 +4,11 @@ OpenVoiceDesktop on Linux runs as a resident user daemon (`openvoice-desktop dae
 plus a Tauri shell (`openvoice-desktop settings`) that owns the settings window and the
 recording overlay. The daemon is managed by systemd, shows a tray indicator while it
 runs, and starts the shell with its window hidden so the overlay is available; the
-desktop entry brings that same window up.
+desktop entry brings that same window up and starts the recording service if it is
+stopped. Closing Settings hides the window and removes its dock entry; recording
+and the tray indicator continue in the background. Reopening Settings restores a
+stopped service without changing the autostart preference. Source builds without
+an installed user unit start a standalone daemon instead.
 
 ## Install
 

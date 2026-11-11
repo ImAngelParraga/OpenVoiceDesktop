@@ -208,6 +208,7 @@ pub fn run(start_hidden: bool) -> Result<()> {
         // generate_handler![get_settings, save_settings]
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            ensure_recording_service,
             save_settings,
             refresh_audio_devices,
             read_live_logs,
@@ -238,6 +239,23 @@ fn get_settings() -> std::result::Result<crate::core::settings_service::Settings
     crate::core::settings_service::SettingsService::new(path)
         .get()
         .map_err(safe_error)
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn ensure_recording_service(window: tauri::WebviewWindow) -> std::result::Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if window.is_visible().map_err(safe_error)? {
+        let config = crate::core::config::Config::load_default()
+            .map_err(safe_error)?
+            .config;
+        crate::platform::linux_service::ensure_started(&config.socket_path().map_err(safe_error)?)
+            .await
+            .map_err(safe_error)?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+    Ok(())
 }
 
 #[cfg(feature = "desktop-shell")]
