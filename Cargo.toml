@@ -59,3 +59,6 @@ ksni = { version = "0.3", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 tokio = { version = "1.38", features = ["macros", "rt-multi-thread"] }
+
+[profile.test]
+debug = "line-tables-only"
