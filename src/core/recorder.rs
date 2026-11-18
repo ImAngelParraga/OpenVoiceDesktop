@@ -1,12 +1,10 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::{
-    atomic::{AtomicU8, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{atomic::AtomicU8, Arc, Mutex};
 
 use crate::core::audio::downmix_resample_to_i16;
+use crate::core::meter::{CaptureMeter, MicrophoneLevels};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedAudio {
@@ -43,7 +41,7 @@ pub trait Recorder {
 pub struct CpalRecorder {
     capture: Option<Capture>,
     selected_microphone: Option<String>,
-    level_bucket: Arc<AtomicU8>,
+    levels: MicrophoneLevels,
 }
 
 struct Capture {
@@ -53,8 +51,8 @@ struct Capture {
     source_channels: u16,
 }
 
-#[derive(Default)]
 struct CaptureBuffer {
+    meter: CaptureMeter,
     samples: Vec<f32>,
     paused: bool,
 }
@@ -72,7 +70,7 @@ impl CpalRecorder {
         Self {
             capture: None,
             selected_microphone,
-            level_bucket: Arc::new(AtomicU8::new(0)),
+            levels: MicrophoneLevels::default(),
         }
     }
 
@@ -81,18 +79,22 @@ impl CpalRecorder {
             .capture
             .as_ref()
             .ok_or_else(|| anyhow!("recorder is not running"))?;
-        capture
+        let mut buffer = capture
             .samples
             .lock()
-            .map_err(|_| anyhow!("audio sample buffer lock poisoned"))?
-            .paused = paused;
-        self.level_bucket.store(0, Ordering::Relaxed);
+            .map_err(|_| anyhow!("audio sample buffer lock poisoned"))?;
+        buffer.paused = paused;
+        buffer.meter.reset(&self.levels);
         Ok(())
+    }
+
+    pub fn levels(&self) -> MicrophoneLevels {
+        self.levels.clone()
     }
 
     /// Share the capture level with the status snapshot.
     pub fn level_handle(&self) -> Arc<AtomicU8> {
-        Arc::clone(&self.level_bucket)
+        self.levels.peak_handle()
     }
 }
 
@@ -117,19 +119,23 @@ impl Recorder for CpalRecorder {
         let source_rate_hz = supported.sample_rate().0;
         let source_channels = supported.channels();
         let config: cpal::StreamConfig = supported.clone().into();
-        let samples = Arc::new(Mutex::new(CaptureBuffer::default()));
-        self.level_bucket.store(0, Ordering::Relaxed);
-        let level_bucket = Arc::clone(&self.level_bucket);
+        let samples = Arc::new(Mutex::new(CaptureBuffer {
+            samples: Vec::new(),
+            paused: false,
+            meter: CaptureMeter::new(source_rate_hz, source_channels),
+        }));
+        self.levels.clear();
+
         let err_fn = |err| eprintln!("openvoice-desktop audio stream error: {err}");
 
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => {
                 let samples = Arc::clone(&samples);
-                let level_bucket = Arc::clone(&level_bucket);
+                let levels = self.levels();
                 device.build_input_stream(
                     &config,
                     move |data: &[f32], _| {
-                        push_f32(&samples, &level_bucket, data.iter().copied());
+                        push_f32(&samples, &levels, data.iter().copied());
                     },
                     err_fn,
                     None,
@@ -137,12 +143,12 @@ impl Recorder for CpalRecorder {
             }
             cpal::SampleFormat::I16 => {
                 let samples = Arc::clone(&samples);
-                let level_bucket = Arc::clone(&level_bucket);
+                let levels = self.levels();
                 device.build_input_stream(
                     &config,
                     move |data: &[i16], _| {
                         let values = data.iter().map(|s| *s as f32 / i16::MAX as f32);
-                        push_f32(&samples, &level_bucket, values)
+                        push_f32(&samples, &levels, values)
                     },
                     err_fn,
                     None,
@@ -150,14 +156,14 @@ impl Recorder for CpalRecorder {
             }
             cpal::SampleFormat::U16 => {
                 let samples = Arc::clone(&samples);
-                let level_bucket = Arc::clone(&level_bucket);
+                let levels = self.levels();
                 device.build_input_stream(
                     &config,
                     move |data: &[u16], _| {
                         let values = data
                             .iter()
                             .map(|s| (*s as f32 / u16::MAX as f32) * 2.0 - 1.0);
-                        push_f32(&samples, &level_bucket, values)
+                        push_f32(&samples, &levels, values)
                     },
                     err_fn,
                     None,
@@ -189,7 +195,7 @@ impl Recorder for CpalRecorder {
                 .map_err(|_| anyhow!("audio sample buffer lock poisoned"))?
                 .samples,
         );
-        self.level_bucket.store(0, Ordering::Relaxed);
+        self.levels.clear();
         Ok(downmix_resample_to_i16(
             &samples,
             capture.source_rate_hz,
@@ -206,19 +212,8 @@ impl Recorder for CpalRecorder {
     }
 
     fn level_bucket(&self) -> u8 {
-        self.level_bucket.load(Ordering::Relaxed).min(10)
+        self.levels.peak_bucket()
     }
-}
-
-fn update_level<I>(level_bucket: &AtomicU8, data: I)
-where
-    I: IntoIterator<Item = f32>,
-{
-    let peak = data
-        .into_iter()
-        .map(|sample| sample.abs())
-        .fold(0.0_f32, f32::max);
-    level_bucket.store(((peak * 10.0).round() as u8).min(10), Ordering::Relaxed);
 }
 
 fn select_input_device(host: &cpal::Host, selected: Option<&str>) -> Result<cpal::Device> {
@@ -239,14 +234,16 @@ fn select_input_device(host: &cpal::Host, selected: Option<&str>) -> Result<cpal
         .ok_or_else(|| anyhow!("no default input device"))
 }
 
-fn push_f32<I>(samples: &Arc<Mutex<CaptureBuffer>>, level: &AtomicU8, data: I)
+fn push_f32<I>(samples: &Arc<Mutex<CaptureBuffer>>, levels: &MicrophoneLevels, data: I)
 where
-    I: IntoIterator<Item = f32> + Clone,
+    I: IntoIterator<Item = f32>,
 {
     if let Ok(mut guard) = samples.lock() {
         if !guard.paused {
-            update_level(level, data.clone());
-            guard.samples.extend(data);
+            let buffer = &mut *guard;
+            let start = buffer.samples.len();
+            buffer.samples.extend(data);
+            buffer.meter.observe(&buffer.samples[start..], levels);
         }
     }
 }
@@ -257,20 +254,24 @@ mod tests {
 
     #[test]
     fn capture_callback_omits_paused_samples_and_keeps_resumed_segments() {
-        let samples = Arc::new(Mutex::new(CaptureBuffer::default()));
-        let level = AtomicU8::new(0);
+        let samples = Arc::new(Mutex::new(CaptureBuffer {
+            samples: Vec::new(),
+            paused: false,
+            meter: CaptureMeter::new(16000, 1),
+        }));
+        let level = MicrophoneLevels::default();
         push_f32(&samples, &level, [0.1, 0.2]);
         samples.lock().unwrap().paused = true;
-        level.store(0, Ordering::Relaxed);
+        level.clear();
         for _ in 0..100 {
             push_f32(&samples, &level, [0.9; 128]);
         }
-        assert_eq!(level.load(Ordering::Relaxed), 0);
+        assert_eq!(level.peak_bucket(), 0);
         assert_eq!(samples.lock().unwrap().samples, [0.1, 0.2]);
         samples.lock().unwrap().paused = false;
         push_f32(&samples, &level, [0.3, 0.4]);
         assert_eq!(samples.lock().unwrap().samples, [0.1, 0.2, 0.3, 0.4]);
-        assert_eq!(level.load(Ordering::Relaxed), 4);
+        assert_eq!(level.peak_bucket(), 4);
         let audio = downmix_resample_to_i16(&samples.lock().unwrap().samples, 16_000, 1);
         let file = tempfile::NamedTempFile::new().unwrap();
         crate::core::audio::write_wav(file.path(), &audio).unwrap();

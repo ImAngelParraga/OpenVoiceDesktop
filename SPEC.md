@@ -161,6 +161,8 @@ V79: Settings actions preserve unsaved fields and the active section. Model disc
 V80: Concurrent history edits retain every committed entry under the configured limit. Retry releases the history lock during the network request. Audio deletion follows a successful index update.
 V81: GNOME exposes toggle, cancel, language and pause shortcuts. Push-to-talk and the debug shortcut show platform-specific unavailability. Custom feedback paths are editable and integer WAVs play at their encoded amplitude.
 
+V82: Both recording overlays draw the four most recent 50 ms RMS levels from the active capture stream in chronological order. Silence gives minimum height, louder input gives greater height, and pausing or starting a recording clears history.
+
 §T
 id|status|task|detail|Handy ref|cites
 T1|x|Design app shell architecture|Decide Tauri/React shell vs current daemon-only UI. Keep Rust core reusable. Define IPC events: recording, processing, inserted, empty, busy, error.|H:src/App.tsx; H:src-tauri/src/lib.rs|V1,V3,I.controller

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::core::events::{AppEventSink, AppShellEvent, ProcessingStage};
+use crate::core::meter::MicrophoneLevels;
 use crate::core::state::RecordingState;
 
 #[derive(Debug, Default)]
@@ -23,7 +24,7 @@ pub struct StatusSnapshot {
     language: Mutex<Option<String>>,
     /// The recorder's own level counter. Shared rather than copied so the
     /// waveform keeps moving while nothing polls the controller.
-    level: Mutex<Option<Arc<AtomicU8>>>,
+    level: Mutex<MicrophoneLevels>,
 }
 
 impl StatusSnapshot {
@@ -52,8 +53,12 @@ impl StatusSnapshot {
     /// Point the snapshot at the live recorder's level counter. Called again
     /// after a config reload builds a new recorder.
     pub fn attach_level(&self, level: Arc<AtomicU8>) {
+        self.attach_levels(MicrophoneLevels::with_peak(level));
+    }
+
+    pub fn attach_levels(&self, levels: MicrophoneLevels) {
         if let Ok(mut slot) = self.level.lock() {
-            *slot = Some(level);
+            *slot = levels;
         }
     }
 
@@ -66,9 +71,17 @@ impl StatusSnapshot {
         self.level
             .lock()
             .ok()
-            .and_then(|slot| slot.as_ref().map(|level| level.load(Ordering::Relaxed)))
+            .map(|levels| levels.peak_bucket())
             .unwrap_or(0)
-            .min(10)
+    }
+    pub fn waveform(&self) -> [u8; 4] {
+        if self.state() != RecordingState::Recording {
+            return [0; 4];
+        }
+        self.level
+            .lock()
+            .map(|levels| levels.waveform())
+            .unwrap_or_default()
     }
 }
 

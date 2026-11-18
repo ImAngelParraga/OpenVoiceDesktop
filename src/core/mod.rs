@@ -6,6 +6,7 @@ pub mod events;
 pub mod history;
 pub mod lifecycle;
 pub mod logging;
+pub mod meter;
 pub mod platform;
 pub mod recorder;
 pub mod settings_inventory;

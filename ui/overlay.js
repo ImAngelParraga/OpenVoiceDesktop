@@ -31,9 +31,9 @@ function render(view) {
   language.textContent = view.language_label ?? "AUTO";
   waveform.hidden = !view.show_waveform;
   if (!view.show_waveform) return;
-  const level = view.level_bucket ?? 0;
   bars.forEach((bar, index) => {
-    bar.style.height = `${Math.max(3, 4 + ((index + level) % BAR_COUNT) * 3)}px`;
+    const level = view.waveform[index];
+    bar.style.height = `${3 + Math.round(level * 0.11)}px`;
   });
 }
 

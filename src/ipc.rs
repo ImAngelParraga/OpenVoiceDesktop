@@ -12,6 +12,8 @@ pub const SHUTDOWN_COMMAND: &str = "shutdown\n";
 pub struct DaemonStatus {
     pub state: crate::core::state::RecordingState,
     pub mic_level_bucket: u8,
+    #[serde(default)]
+    pub waveform: Option<[u8; 4]>,
     pub language: Option<String>,
 }
 

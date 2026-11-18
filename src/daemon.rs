@@ -44,7 +44,7 @@ pub async fn run(config: Config) -> Result<()> {
     // Everything the socket has to answer without borrowing the controller:
     // the state the overlay polls, and the flag a cancel raises.
     let snapshot = Arc::new(StatusSnapshot::new());
-    snapshot.attach_level(recorder.level_handle());
+    snapshot.attach_levels(recorder.levels());
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let asr = ReqwestAsrClient::new(config.clone());
     let history = crate::core::history::HistoryStore::from_config(&config).ok();
@@ -180,7 +180,7 @@ pub async fn run(config: Config) -> Result<()> {
                                 // The new recorder owns a new level counter, and the
                                 // new controller must keep reporting into the same
                                 // snapshot the socket task reads.
-                                snapshot.attach_level(recorder.level_handle());
+                                snapshot.attach_levels(recorder.levels());
                                 let asr = ReqwestAsrClient::new(updated.clone());
                                 let history = crate::core::history::HistoryStore::from_config(&updated).ok();
                                 let logger = logger_from_config(&updated);
@@ -430,6 +430,7 @@ async fn serve_connection(
         match serde_json::to_string(&crate::ipc::DaemonStatus {
             state: snapshot.state(),
             mic_level_bucket: snapshot.level_bucket(),
+            waveform: Some(snapshot.waveform()),
             language: snapshot.language(),
         }) {
             Ok(status) => status + "\n",
@@ -751,7 +752,7 @@ pub async fn run(config: Config) -> Result<()> {
 
         runtime.block_on(async move {
             let recorder = CpalRecorder::with_audio_config(&controller_config.audio);
-            controller_snapshot.attach_level(recorder.level_handle());
+            controller_snapshot.attach_levels(recorder.levels());
             let asr = ReqwestAsrClient::new(controller_config.clone());
             let platform = WindowsPlatformAdapter;
             let history = crate::core::history::HistoryStore::from_config(&controller_config).ok();
@@ -777,6 +778,7 @@ pub async fn run(config: Config) -> Result<()> {
                     let response = serde_json::to_string(&crate::ipc::DaemonStatus {
                         state: controller.state(),
                         mic_level_bucket: controller.mic_level_bucket(),
+                        waveform: Some(controller_snapshot.waveform()),
                         language: controller.selected_language().map(str::to_string),
                     })
                     .unwrap_or_else(|error| format!("error: {error}"));
@@ -824,7 +826,7 @@ pub async fn run(config: Config) -> Result<()> {
                             continue;
                         }
                         let recorder = CpalRecorder::with_audio_config(&updated.audio);
-                        controller_snapshot.attach_level(recorder.level_handle());
+                        controller_snapshot.attach_levels(recorder.levels());
                         let asr = ReqwestAsrClient::new(updated.clone());
                         let history =
                             crate::core::history::HistoryStore::from_config(&updated).ok();
@@ -860,6 +862,7 @@ pub async fn run(config: Config) -> Result<()> {
                         let response = serde_json::to_string(&crate::ipc::DaemonStatus {
                             state: controller.state(),
                             mic_level_bucket: controller.mic_level_bucket(),
+                            waveform: Some(controller_snapshot.waveform()),
                             language: controller.selected_language().map(str::to_string),
                         })
                         .unwrap_or_else(|error| format!("error: {error}"));
@@ -1113,6 +1116,7 @@ async fn serve_windows_pipe(
         serde_json::to_string(&crate::ipc::DaemonStatus {
             state: snapshot.state(),
             mic_level_bucket: snapshot.level_bucket(),
+            waveform: Some(snapshot.waveform()),
             language: snapshot.language(),
         })? + "\n"
     } else if command == CANCEL_COMMAND {

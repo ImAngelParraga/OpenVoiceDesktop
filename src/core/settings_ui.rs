@@ -116,6 +116,8 @@ pub struct OverlayView {
     pub show_language_control: bool,
     pub language_label: String,
     pub level_bucket: Option<u8>,
+    #[serde(default)]
+    pub waveform: [u8; 4],
     pub message: &'static str,
 }
 
@@ -923,6 +925,7 @@ impl OverlayView {
                 show_language_control: true,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
+                waveform: [0; 4],
                 message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::MicLevel { bucket } => Self {
@@ -937,6 +940,7 @@ impl OverlayView {
                 show_language_control: true,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: Some((*bucket).min(10)),
+                waveform: [(*bucket).min(10) * 10; 4],
                 message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::Processing { stage } => {
@@ -957,6 +961,7 @@ impl OverlayView {
                     show_language_control: false,
                     language_label: language_label(config.asr.language.as_deref()),
                     level_bucket: None,
+                    waveform: [0; 4],
                     message: localized_overlay_message(config, message),
                 }
             }
@@ -972,6 +977,7 @@ impl OverlayView {
                 show_language_control: false,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
+                waveform: [0; 4],
                 message: localized_overlay_message(config, "Error"),
             },
             AppShellEvent::Inserted
@@ -990,6 +996,7 @@ impl OverlayView {
                 show_language_control: false,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
+                waveform: [0; 4],
                 message: localized_overlay_message(config, "Busy"),
             },
         }
@@ -1008,6 +1015,7 @@ impl OverlayView {
             show_language_control: false,
             language_label: language_label(config.asr.language.as_deref()),
             level_bucket: None,
+            waveform: [0; 4],
             message: "",
         }
     }

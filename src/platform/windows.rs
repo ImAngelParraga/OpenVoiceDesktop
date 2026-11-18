@@ -88,7 +88,6 @@ static STATUS_POPUP_HWND: OnceLock<HWND> = OnceLock::new();
 static STATUS_POPUP_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 static STATUS_POPUP_TIMEOUT_MS: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static STATUS_POPUP_MODE: OnceLock<Mutex<StatusPopupMode>> = OnceLock::new();
-static STATUS_POPUP_FRAME: OnceLock<Mutex<u32>> = OnceLock::new();
 static RECORDING_LANGUAGE: OnceLock<Mutex<String>> = OnceLock::new();
 static POPUP_CONFIG: OnceLock<Mutex<WindowsPopupConfig>> = OnceLock::new();
 static HOTKEYS: OnceLock<Mutex<ActiveHotkeys>> = OnceLock::new();
@@ -1130,8 +1129,6 @@ pub fn show_recording_popup() -> Result<()> {
     *timeout_lock.lock().unwrap() = None;
     let mode_lock = STATUS_POPUP_MODE.get_or_init(|| Mutex::new(StatusPopupMode::Text));
     *mode_lock.lock().unwrap() = StatusPopupMode::RecordingBars;
-    let frame_lock = STATUS_POPUP_FRAME.get_or_init(|| Mutex::new(0));
-    *frame_lock.lock().unwrap() = 0;
     unsafe {
         if PostMessageW(hwnd, WM_STATUS_POPUP, 0, 0) == 0 {
             return Err(anyhow!("posting Windows recording popup message failed"));
@@ -1218,7 +1215,7 @@ unsafe extern "system" fn status_popup_wnd_proc(
                 .lock()
                 .unwrap();
             if mode == StatusPopupMode::RecordingBars {
-                SetTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID, 120, None);
+                SetTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID, 80, None);
             }
             let timeout_ms = STATUS_POPUP_TIMEOUT_MS
                 .get_or_init(|| Mutex::new(None))
@@ -1254,9 +1251,6 @@ unsafe extern "system" fn status_popup_wnd_proc(
             0
         }
         WM_TIMER if wparam == STATUS_POPUP_ANIMATION_TIMER_ID => {
-            let frame_lock = STATUS_POPUP_FRAME.get_or_init(|| Mutex::new(0));
-            let mut frame = frame_lock.lock().unwrap();
-            *frame = (*frame).wrapping_add(1);
             InvalidateRect(hwnd, std::ptr::null(), 1);
             0
         }
@@ -1395,14 +1389,13 @@ unsafe fn paint_status_popup(hwnd: HWND) {
 }
 
 unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, height: i32) {
-    let frame = *STATUS_POPUP_FRAME
-        .get_or_init(|| Mutex::new(0))
-        .lock()
-        .unwrap();
     let paused = STATUS_SNAPSHOT
         .get()
         .is_some_and(|snapshot| snapshot.state() == crate::core::state::RecordingState::Paused);
-    let heights = [8, 14, 20, 12];
+    let levels = STATUS_SNAPSHOT
+        .get()
+        .map(|snapshot| snapshot.waveform())
+        .unwrap_or_default();
     let bar_width = 6;
     let gap = 3;
     SetBkMode(hdc, TRANSPARENT as i32);
@@ -1425,7 +1418,7 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         &mut language_rect,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
-    let total_width = heights.len() as i32 * bar_width + (heights.len() as i32 - 1) * gap;
+    let total_width = levels.len() as i32 * bar_width + (levels.len() as i32 - 1) * gap;
     let control_width = width * 24 / 180;
     let mut pause_rect = RECT {
         left: width - control_width * 2,
@@ -1471,8 +1464,8 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
     }
     let mut x = 52 + (width - control_width * 2 - 52 - total_width) / 2;
     let brush = CreateSolidBrush(foreground);
-    for index in 0..heights.len() {
-        let bar_height = heights[((index as u32 + frame) as usize) % heights.len()];
+    for level in levels {
+        let bar_height = 3 + (i32::from(level) * 17 + 50) / 100;
         let y = (height - bar_height) / 2;
         let rect = RECT {
             left: x,

@@ -780,12 +780,18 @@ async fn overlay_view_from_daemon(
             return idle();
         };
         match crate::ipc::send_status(&socket_path).await {
-            Ok(status) => OverlayView::from_recording_state(
-                config,
-                status.state,
-                Some(status.mic_level_bucket),
-            )
-            .with_language(status.language.as_deref()),
+            Ok(status) => {
+                let mut view = OverlayView::from_recording_state(
+                    config,
+                    status.state,
+                    Some(status.mic_level_bucket),
+                )
+                .with_language(status.language.as_deref());
+                if let Some(levels) = status.waveform {
+                    view.waveform = levels;
+                }
+                view
+            }
             Err(_) => idle(),
         }
     }
