@@ -11,6 +11,15 @@ const layoutSectionIds = {
   debug: "debug",
   about: "about",
 };
+const groupHeadings = {
+  "behavior.shortcut": "Keyboard shortcuts",
+  "audio.selected_microphone": "Recording",
+  "audio.audio_feedback": "Sound feedback",
+  "audio.sample_rate_hz": "Audio format",
+  "app.start_hidden": "Startup and appearance",
+  "output.paste_method": "Text insertion",
+  "text.append_trailing_space": "Transcript processing",
+};
 const translations = {
   en: {
     general: "General", asr: "ASR Endpoint", advanced: "Advanced", history: "History", debug: "Debug", about: "About",
@@ -35,6 +44,9 @@ const translations = {
 };
 
 let documentModel;
+let savedConfig;
+let historyPage = 0;
+const historyPageSize = 25;
 let activeSection = "general";
 const content = document.querySelector("#content");
 const form = document.querySelector("#settings-form");
@@ -94,10 +106,16 @@ function setPath(root, path, value) {
   const leaf = parts.pop();
   const owner = parts.reduce((current, part) => current[part], root);
   owner[leaf] = value;
+  updateDirtyIndicator();
 }
 
 function getPath(root, path) {
   return path.split(".").reduce((current, part) => current?.[part], root);
+}
+
+function updateDirtyIndicator() {
+  const changed = JSON.stringify(documentModel.config) !== JSON.stringify(savedConfig);
+  document.querySelector("#dirty").hidden = !changed;
 }
 
 function activeControls() {
@@ -167,9 +185,6 @@ function selectOptions(path) {
   if (path === "output.clipboard_handling") return ["restore-after-paste", "leave-transcript", "copy-only"];
   if (path === "history.retention") return ["never", "failed-only", "always"];
   if (path === "debug.log_level") return ["error", "warn", "info", "debug", "trace"];
-  if (path === "audio.selected_output_device") {
-    return ["", ...(documentModel.output_devices ?? []).map((device) => device.name)];
-  }
   return null;
 }
 
@@ -207,6 +222,11 @@ async function refreshAsrModels() {
     asrModels = [];
     asrModelsEndpoint = baseUrl;
   }
+  if (baseUrl !== savedConfig.asr.base_url.trim()) {
+    asrModelStatus = "Save this endpoint to load its models.";
+    updateAsrModelPicker();
+    return;
+  }
   asrModelStatus = "Loading available models…";
   updateAsrModelPicker();
   try {
@@ -223,15 +243,25 @@ async function refreshAsrModels() {
 }
 
 function render() {
+  const focused = form.contains(document.activeElement) ? document.activeElement.name : null;
+  const invalid = new Map(Array.from(form.querySelectorAll("input:invalid"))
+    .map((input) => [input.name, [input.value, input.validationMessage]]));
   form.replaceChildren();
   const availability = new Map(documentModel.fields.map((field) => [field.field, field]));
   for (const control of activeControls()) {
     const path = control.config_key;
     if (!path) continue;
+    if (path.startsWith("audio.custom_") && documentModel.config.audio.sound_theme !== "custom") continue;
     if (path === "asr.bearer_token") continue;
     if (path.startsWith("updates.")) continue;
     const contract = availability.get(path);
     if (!contract) continue;
+    const group = groupHeadings[path];
+    if (group) {
+      const heading = document.createElement("h3");
+      heading.textContent = group;
+      form.append(heading);
+    }
     const value = getPath(documentModel.config, path);
     const row = document.createElement(path === "asr.model" ? "div" : "label");
     if (path === "asr.model") row.className = "model-row";
@@ -349,7 +379,7 @@ function render() {
         setPath(documentModel.config, path, select.value);
         if (path === "ui.language") applyLocale();
         if (path === "ui.theme") applyTheme(select.value);
-        if (["audio.recording_output_mode", "output.paste_method", "output.clipboard_handling", "ui.language"].includes(path)) render();
+        if (["audio.recording_output_mode", "audio.sound_theme", "output.paste_method", "output.clipboard_handling", "ui.language"].includes(path)) render();
       });
       row.append(fieldCopy(control), select);
       addFieldNote(row, unavailableReason ? `Unavailable: ${unavailableReason}` : null, "field-note unavailable-reason");
@@ -379,6 +409,12 @@ function render() {
       input.type = "text";
       input.value = displayValue ?? "";
     }
+    if (invalid.has(path) && !input.disabled) {
+      const [raw, message] = invalid.get(path);
+      input.value = raw;
+      input.setCustomValidity(message);
+    }
+    if (path.startsWith("audio.custom_")) input.required = true;
     if (input.disabled) input.title = unavailableReason;
     const errorNote = document.createElement("small");
     errorNote.className = "field-error";
@@ -391,7 +427,6 @@ function render() {
         errorNote.textContent = "";
         errorNote.hidden = true;
         setPath(documentModel.config, path, next);
-        if (path === "asr.base_url") refreshAsrModels();
         if (path === "audio.audio_feedback" || path === "debug.live_log_viewer") render();
       } catch (error) {
         input.setCustomValidity(error.message);
@@ -399,8 +434,8 @@ function render() {
         errorNote.hidden = false;
       }
     };
-    input.addEventListener("change", commitValue);
-    if (input.type === "number" || input.type === "range") input.addEventListener("input", commitValue);
+    input.addEventListener(input.type === "checkbox" ? "change" : "input", commitValue);
+    if (path === "asr.base_url") input.addEventListener("change", refreshAsrModels);
     if (input.type === "range") {
       const slider = document.createElement("span");
       slider.className = "slider-control";
@@ -422,9 +457,16 @@ function render() {
   if (activeSection === "about") renderAbout();
   if (activeSection === "general") renderDeviceRefresh();
   renderOnboarding();
+  if (focused) form.elements.namedItem(focused)?.focus?.({ preventScroll: true });
 }
 
-function actionButton(label, command, args = {}) {
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveButton.click();
+});
+
+
+function actionButton(label, command, args = {}, afterAction) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
@@ -433,8 +475,7 @@ function actionButton(label, command, args = {}) {
     status.textContent = `${label}…`;
     try {
       status.textContent = await invoke(command, args);
-      documentModel = await invoke("get_settings");
-      render();
+      if (afterAction) await afterAction();
     } catch (error) {
       status.textContent = `${label} failed: ${error}`;
     } finally {
@@ -490,18 +531,64 @@ function renderHistoryActions() {
     actionButton("Open recordings folder", "open_recordings_folder"),
   );
   form.append(toolbar);
-  for (const entry of [...(documentModel.history_entries ?? [])].reverse()) {
+  const list = document.createElement("section");
+  list.className = "history-list";
+  form.append(list);
+  populateHistory(list);
+}
+
+let historyRequest = 0;
+async function refreshHistory() {
+  const request = ++historyRequest;
+  try {
+    const entries = await invoke("list_history");
+    if (request !== historyRequest) return;
+    documentModel.history_entries = entries;
+    const list = form.querySelector(".history-list");
+    if (list) populateHistory(list);
+  } catch (error) {
+    status.textContent = `Could not refresh history: ${error}`;
+  }
+}
+
+function populateHistory(list) {
+  list.replaceChildren();
+  const entries = documentModel.history_entries;
+  const pages = Math.max(1, Math.ceil(entries.length / historyPageSize));
+  historyPage = Math.min(historyPage, pages - 1);
+  if (!entries.length) {
+    list.textContent = "No transcripts in history.";
+    return;
+  }
+  const end = entries.length - historyPage * historyPageSize;
+
+  for (const entry of entries.slice(Math.max(0, end - historyPageSize), end).reverse()) {
     const row = document.createElement("article");
     row.className = "history-entry";
     const text = document.createElement("p");
     text.textContent = entry.text || (entry.status === "error" ? (entry.audio_path ? "Transcription failed — audio retained for retry." : "Transcription failed — no retained audio.") : "Empty transcript");
-    row.append(
-      text,
-      actionButton(entry.status === "error" ? "Retry transcription" : "Copy transcript", "retry_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
-      actionButton("Save", "save_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
-      actionButton("Delete", "delete_transcript", { timestampUnixMs: entry.timestamp_unix_ms }),
-    );
-    form.append(row);
+    const retry = entry.status === "error";
+    const args = { timestampUnixMs: entry.timestamp_unix_ms };
+    const copy = actionButton(retry ? "Retry transcription" : "Copy transcript", "retry_transcript", args, retry ? refreshHistory : null);
+    copy.disabled = retry ? !entry.audio_path : !entry.text;
+    const save = actionButton(entry.saved ? "Saved" : "Save transcript", "save_transcript", args, refreshHistory);
+    save.disabled = entry.saved;
+    row.append(text, copy, save, actionButton("Delete", "delete_transcript", args, refreshHistory));
+    list.append(row);
+  }
+  if (pages > 1) {
+    const pager = document.createElement("div");
+    pager.className = "history-actions";
+    for (const [label, offset] of [["Newer", -1], ["Older", 1]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.disabled = historyPage + offset < 0 || historyPage + offset >= pages;
+      button.onclick = () => { historyPage += offset; populateHistory(list); };
+      pager.append(button);
+    }
+    pager.append(`Page ${historyPage + 1} of ${pages}`);
+    list.append(pager);
   }
 }
 
@@ -525,9 +612,15 @@ function renderDebugActions() {
 function renderAsrActions() {
   const statusLine = document.createElement("p");
   statusLine.textContent = documentModel.asr_token_status?.display ?? "Token status unavailable";
+  const group = document.createElement("section");
+  group.className = "credentials";
+  const heading = document.createElement("h3");
+  heading.textContent = "Authentication";
   const token = document.createElement("input");
   token.type = "password";
   token.placeholder = "New ASR token";
+  token.setAttribute("aria-label", token.placeholder);
+  token.autocomplete = "new-password";
   const fallback = document.createElement("input");
   fallback.type = "checkbox";
   const fallbackLabel = document.createElement("label");
@@ -536,23 +629,34 @@ function renderAsrActions() {
   save.type = "button";
   save.textContent = "Store token";
   save.addEventListener("click", async () => {
+    save.disabled = true;
     try {
-      status.textContent = await invoke("set_asr_token", {
+      const tokenStatus = await invoke("set_asr_token", {
         token: token.value,
         plaintextFallback: fallback.checked,
       });
       token.value = "";
-      documentModel = await invoke("get_settings");
-      render();
-      refreshAsrModels();
+      documentModel.asr_token_status = tokenStatus;
+      status.textContent = "ASR token stored.";
+      const currentStatus = form.querySelector(".token-status");
+      if (currentStatus) currentStatus.textContent = tokenStatus.display;
+      if (activeSection === "asr") refreshAsrModels();
     } catch (error) {
       status.textContent = `Token save failed: ${error}`;
+    } finally {
+      save.disabled = false;
     }
   });
   const test = document.createElement("button");
   test.type = "button";
   test.textContent = "Test endpoint";
   test.addEventListener("click", async () => {
+    if (JSON.stringify(savedConfig.asr) !== JSON.stringify(documentModel.config.asr)) {
+      status.textContent = "Save your ASR settings before testing this endpoint.";
+      return;
+    }
+    test.disabled = true;
+    status.textContent = "Testing the saved endpoint…";
     try {
       const result = await invoke("test_endpoint");
       // A silent clip goes up, so `sanitized_body` carries whatever the model
@@ -560,9 +664,13 @@ function renderAsrActions() {
       status.textContent = `Endpoint check (silent test clip, not your microphone): HTTP ${result.http_status} in ${result.latency_ms} ms - server replied ${result.sanitized_body}`;
     } catch (error) {
       status.textContent = `Endpoint test failed: ${error}`;
+    } finally {
+      test.disabled = false;
     }
   });
-  form.append(statusLine, token, fallbackLabel, save, test);
+  statusLine.className = "token-status";
+  group.append(heading, statusLine, token, fallbackLabel, save, test);
+  form.append(group);
 }
 
 function renderAbout() {
@@ -585,7 +693,7 @@ function renderAbout() {
 
 function renderOnboarding() {
   const onboarding = documentModel.config.onboarding;
-  if (onboarding.completed && !onboarding.show_permission_repair) return;
+  if (activeSection !== "general" || (onboarding.completed && !onboarding.show_permission_repair)) return;
   const panel = document.createElement("section");
   panel.className = "onboarding-panel";
   const title = document.createElement("h3");
@@ -604,13 +712,23 @@ function renderOnboarding() {
   finish.type = "button";
   finish.textContent = onboarding.completed ? "Confirm repair" : "Complete setup";
   finish.addEventListener("click", async () => {
+    if (JSON.stringify(savedConfig) !== JSON.stringify(documentModel.config)) {
+      status.textContent = "Save your settings before completing setup.";
+      return;
+    }
+    finish.disabled = true;
     const command = onboarding.completed ? "repair_permissions" : "complete_onboarding";
     try {
       status.textContent = await invoke(command, { permissionsConfirmed: permissions.checked });
-      documentModel = await invoke("get_settings");
-      render();
+      for (const config of [documentModel.config, savedConfig]) {
+        config.onboarding.completed = true;
+        config.onboarding.show_permission_repair = false;
+      }
+      form.querySelector(".onboarding-panel")?.remove();
     } catch (error) {
       status.textContent = `Setup failed: ${error}`;
+    } finally {
+      finish.disabled = false;
     }
   });
   panel.append(title, steps, permissionLabel, finish);
@@ -619,25 +737,33 @@ function renderOnboarding() {
 
 for (const button of document.querySelectorAll("nav button")) {
   button.addEventListener("click", () => {
-    document.querySelector("nav button.active")?.classList.remove("active");
+    if (!documentModel || !form.reportValidity()) return;
+    const previous = document.querySelector("nav button.active");
+    previous?.classList.remove("active");
+    previous?.removeAttribute("aria-current");
+    button.setAttribute("aria-current", "page");
     button.classList.add("active");
     activeSection = button.dataset.section;
     content.querySelector("h2").textContent = translate(activeSection);
     render();
     if (activeSection === "asr") refreshAsrModels();
+    if (activeSection === "history") refreshHistory();
     content.focus();
+    document.querySelector(".section-scroll").scrollTop = 0;
   });
 }
 
 window.addEventListener("focus", () => {
   if (documentModel && activeSection === "asr") refreshAsrModels();
+  if (documentModel && activeSection === "history") refreshHistory();
 });
 
 saveButton.addEventListener("click", async () => {
   if (saveInProgress) return;
+  if (!documentModel) return;
   if (!form.reportValidity()) return;
   saveInProgress = true;
-  const activeSectionBeforeSave = activeSection;
+  const submittedConfig = JSON.parse(JSON.stringify(documentModel.config));
   clearTimeout(saveFeedbackTimer);
   status.textContent = "";
   saveResult.textContent = "Saving settings…";
@@ -649,7 +775,10 @@ saveButton.addEventListener("click", async () => {
   saveButton.textContent = "Saving…";
   try {
     await new Promise(requestAnimationFrame);
-    const result = await invoke("save_settings", { request: { config: documentModel.config } });
+    const result = await invoke("save_settings", { request: { config: submittedConfig } });
+    savedConfig = submittedConfig;
+    updateDirtyIndicator();
+    if (activeSection === "asr") refreshAsrModels();
     const labels = Object.fromEntries(documentModel.layout.sections.flatMap((section) =>
       section.controls.filter((control) => control.config_key).map((control) => [control.config_key, control.label])));
     const summary = summarizeSave(result.fields, labels);
@@ -672,9 +801,6 @@ saveButton.addEventListener("click", async () => {
     saveButton.disabled = false;
     saveButton.setAttribute("aria-busy", "false");
     saveButton.textContent = translate("save");
-    activeSection = activeSectionBeforeSave;
-    await settingsWindow.show();
-    await settingsWindow.setFocus();
   }
 });
 
@@ -692,6 +818,8 @@ await settingsWindow.onFocusChanged(({ payload: focused }) => {
 
 try {
   documentModel = await invoke("get_settings");
+  savedConfig = JSON.parse(JSON.stringify(documentModel.config));
+  saveButton.disabled = false;
   applyLocale();
   applyTheme(documentModel.config.ui.theme);
   status.textContent = translate("loaded");

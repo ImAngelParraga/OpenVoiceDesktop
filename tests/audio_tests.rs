@@ -226,3 +226,19 @@ fn silence_trim_removes_only_edge_silence() {
         Some(RecordedAudio::new(vec![512, 800], 16_000, 1))
     );
 }
+
+#[test]
+fn recording_resampler_preserves_mixing_interpolation_and_partial_frame_rules() {
+    use openvoice_desktop::core::audio::downmix_resample_to_i16;
+    let stereo = [-0.5, -0.5, 0.25, 0.75, 1.0];
+    assert_eq!(
+        downmix_resample_to_i16(&stereo, 8000, 2).samples,
+        [-16383, 0, 16383, 16383]
+    );
+    assert_eq!(
+        downmix_resample_to_i16(&stereo, 16000, 2).samples,
+        [-16383, 16383]
+    );
+    assert_eq!(downmix_resample_to_i16(&stereo, 48000, 2).samples, [-16383]);
+    assert!(downmix_resample_to_i16(&stereo, 0, 2).samples.is_empty());
+}

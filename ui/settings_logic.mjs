@@ -31,6 +31,10 @@ export function normalizeFieldValue(path, previous, raw, checked = false) {
     return value;
   }
   if (Array.isArray(previous)) return raw.split(",").map((part) => part.trim()).filter(Boolean);
+  if (["debug.log_directory", "history.recordings_dir", "ipc.socket_path", "output.external_script_path",
+    "audio.custom_start_sound", "audio.custom_stop_sound", "audio.custom_error_sound"].includes(path)) {
+    return raw.trim() ? raw : null;
+  }
   if (path === "asr.prompt") return raw.trim() === "" ? null : raw;
   if (path === "asr.language" || (previous === null && raw === "")) return raw.trim() || null;
   return raw;

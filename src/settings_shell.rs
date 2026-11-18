@@ -216,6 +216,7 @@ pub fn run(start_hidden: bool) -> Result<()> {
             cycle_transcription_language,
             pause_resume_recording,
             open_recordings_folder,
+            list_history,
             delete_transcript,
             retry_transcript,
             save_transcript,
@@ -234,11 +235,15 @@ pub fn run(start_hidden: bool) -> Result<()> {
 
 #[cfg(feature = "desktop-shell")]
 #[tauri::command]
-fn get_settings() -> std::result::Result<crate::core::settings_service::SettingsDocument, String> {
+async fn get_settings(
+) -> std::result::Result<crate::core::settings_service::SettingsDocument, String> {
     let path = crate::core::config::Config::default_path().map_err(safe_error)?;
-    crate::core::settings_service::SettingsService::new(path)
-        .get()
-        .map_err(safe_error)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::core::settings_service::SettingsService::new(path).get()
+    })
+    .await
+    .map_err(safe_error)?
+    .map_err(safe_error)
 }
 
 #[cfg(feature = "desktop-shell")]
@@ -517,11 +522,19 @@ fn open_app_data_directory() -> std::result::Result<String, String> {
 
 #[cfg(feature = "desktop-shell")]
 #[tauri::command]
-fn set_asr_token(token: String, plaintext_fallback: bool) -> std::result::Result<String, String> {
+fn set_asr_token(
+    token: String,
+    plaintext_fallback: bool,
+) -> std::result::Result<crate::core::settings_ui::AsrTokenStatus, String> {
     let path = crate::core::config::Config::default_path().map_err(safe_error)?;
     crate::core::config::store_bearer_token(&path, &token, plaintext_fallback)
         .map_err(safe_error)?;
-    Ok("ASR token stored".to_string())
+    let config = crate::core::config::Config::load_from(&path)
+        .map_err(safe_error)?
+        .config;
+    Ok(crate::core::settings_ui::AsrTokenStatus::from_source(
+        crate::core::config::bearer_token_source(&config),
+    ))
 }
 
 #[cfg(feature = "desktop-shell")]
@@ -538,7 +551,8 @@ async fn test_endpoint() -> std::result::Result<crate::core::asr::AsrDiagnostic,
         config.diagnostics.last_upload_latency_ms = Some(diagnostic.latency_ms as u64);
         config.diagnostics.last_http_status = Some(diagnostic.http_status);
         config.diagnostics.last_sanitized_body = Some(diagnostic.sanitized_body.clone());
-        config.save_to(&path).map_err(safe_error)?;
+        crate::core::controller::persist_diagnostics(&path, &config.diagnostics)
+            .map_err(safe_error)?;
     }
     Ok(diagnostic)
 }
@@ -550,7 +564,10 @@ async fn list_asr_models(base_url: String) -> std::result::Result<Vec<String>, S
     let config = crate::core::config::Config::load_from(&path)
         .map_err(safe_error)?
         .config;
-    crate::core::asr::discover_models(&config, &base_url)
+    if base_url.trim_end_matches('/') != config.asr.base_url.trim_end_matches('/') {
+        return Err("Save the endpoint before refreshing models".to_string());
+    }
+    crate::core::asr::discover_models(&config, &config.asr.base_url)
         .await
         .map_err(safe_error)
 }
@@ -591,6 +608,15 @@ fn repair_permissions(permissions_confirmed: bool) -> std::result::Result<String
     config.onboarding.show_permission_repair = false;
     config.save_to(&path).map_err(safe_error)?;
     Ok("Permissions repaired".to_string())
+}
+
+#[cfg(feature = "desktop-shell")]
+#[tauri::command]
+async fn list_history() -> std::result::Result<Vec<crate::core::settings_ui::HistoryEntry>, String>
+{
+    tauri::async_runtime::spawn_blocking(|| history_store()?.list().map_err(safe_error))
+        .await
+        .map_err(safe_error)?
 }
 
 #[cfg(feature = "desktop-shell")]

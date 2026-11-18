@@ -181,3 +181,14 @@ fn microphone_selection_is_runtime_backed_and_always_on_is_disabled_with_reason(
         ControlState::Working { .. } => panic!("always-on microphone must not be enabled"),
     }
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn gnome_only_offers_shortcuts_it_can_deliver() {
+    for id in ["behavior.push_to_talk", "debug.debug_shortcut"] {
+        assert!(matches!(
+            inventory_entry(id).unwrap().state,
+            ControlState::Unavailable { .. }
+        ));
+    }
+}

@@ -47,3 +47,9 @@ test("missing saved audio device stays visible with fallback warning", () => {
   assert.match(deviceFallback("Old headset", devices, "Output device"), /Old headset.*Speakers/);
   assert.equal(deviceFallback("Speakers", devices, "Output device"), null);
 });
+
+test("clearing a saved optional directory restores the default", () => {
+  for (const field of ["debug.log_directory", "history.recordings_dir", "ipc.socket_path", "output.external_script_path", "audio.custom_start_sound"]) {
+    assert.equal(normalizeFieldValue(field, "/previous", "  "), null);
+  }
+});

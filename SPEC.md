@@ -146,7 +146,7 @@ V69: Windows-error-popup invariant: shortcut failure text fits the compact nativ
 V70: Recording-output timing invariant: with audio feedback enabled or disabled, reduced or muted output remains active through microphone capture and returns to saved mute and volume state immediately after capture stops, before ASR upload begins.
 V71: Windows feedback-output invariant: CPAL feedback may initialize a reused worker thread as STA; output adjustment still works on that thread after `RPC_E_CHANGED_MODE`, and COM uninitializes only when this adjustment acquired an initialization.
 V72: ASR Endpoint offers selectable server-advertised transcription model IDs plus editable custom IDs; a saved choice remains visible and reaches the multipart `model` field on later transcription requests.
-V73: ASR model choices come from authenticated `GET /v1/audio/models` on the configured endpoint when ASR settings open, regain focus, change endpoint, or request refresh. New server model IDs appear without client changes; cleanup-only models stay absent, failed discovery preserves the editable saved model, and stale responses cannot replace a newer endpoint's list.
+V73: ASR model choices come from authenticated `GET /v1/audio/models` on the configured endpoint when ASR settings open, regain focus, save an endpoint change, or request refresh. New server model IDs appear without client changes; cleanup-only models stay absent, failed discovery preserves the editable saved model, and stale responses cannot replace a newer endpoint's list.
 
 V74: Pause invariant: paused capture retains previous samples, appends no samples or silence, reports Paused with silent meter and resume/cancel controls, never uploads until finish, and survives repeated resume, finish, cancel, shutdown. Output attenuation applies only to active capture. Pause shortcut persists, validates conflicts, reloads on both platforms, and preserves primary shortcut registration order.
 
@@ -156,6 +156,10 @@ V76: With history enabled and failed-only or always audio retention, failed ASR 
 V77: Transcription request deadline uses WAV duration: min(configured maximum, max(5 seconds, audio seconds)), covering upload and response body. Silent endpoint checks retain configured timeout.
 
 V78: Linux interactive Settings launch and focus recover an unavailable recording daemon within a bounded startup deadline, prefer the installed user service, preserve autostart preference, and never reload or restart a reachable daemon. Hidden overlay startup does not start another daemon. Startup failure stays visible in Settings; closing Settings keeps background dictation available.
+
+V79: Settings actions preserve unsaved fields and the active section. Model discovery and endpoint checks use the saved endpoint. Background diagnostics and preference saves retain each other's updates.
+V80: Concurrent history edits retain every committed entry under the configured limit. Retry releases the history lock during the network request. Audio deletion follows a successful index update.
+V81: GNOME exposes toggle, cancel, language and pause shortcuts. Push-to-talk and the debug shortcut show platform-specific unavailability. Custom feedback paths are editable and integer WAVs play at their encoded amplitude.
 
 §T
 id|status|task|detail|Handy ref|cites
@@ -343,3 +347,6 @@ B71|2026-11-10|ASR error truncation split UTF-8 at byte 500 and panicked; creden
 B72|2026-11-10|Pre-paste settling delay ran before clipboard write, leaving no settling time between new clipboard data and paste input|V40
 B73|2026-11-10|Output restoration consumed saved state before OS success, so transient failure prevented retry and later capture could replace the original state|V29
 B74|2026-11-11|Linux desktop entry opened Settings without starting the recording daemon; packaged unit was disabled by default and closing Settings removed the only visible surface, leaving shortcut and overlay unavailable|V78
+B75|2026-11-18|Token and history actions replaced the full settings draft, endpoint diagnostics rewrote stale config, and Save attempted unauthorized window operations|V26,V79
+B76|2026-11-18|Concurrent history writers read the same index and atomically replaced each other’s updates|V80
+B77|2026-11-18|GNOME settings advertised unregistered controls and custom feedback divided every integer WAV by the 32-bit range|V81

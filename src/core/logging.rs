@@ -1,5 +1,5 @@
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -76,16 +76,40 @@ impl FileLogger {
     }
 
     pub fn read_tail(&self, limit: usize) -> Result<Vec<String>> {
-        if !self.path.exists() {
+        if limit == 0 {
             return Ok(Vec::new());
         }
-        let mut content = String::new();
-        fs::File::open(&self.path)?.read_to_string(&mut content)?;
-        let mut lines = content.lines().map(str::to_string).collect::<Vec<_>>();
-        if lines.len() > limit {
-            lines.drain(..lines.len() - limit);
+        let mut file = match fs::File::open(&self.path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut position = file.metadata()?.len();
+        let mut remaining = limit;
+        let mut chunks = Vec::new();
+        let mut block = [0u8; 8192];
+        let mut at_end = true;
+        while position > 0 && remaining > 0 {
+            let size = position.min(block.len() as u64) as usize;
+            position -= size as u64;
+            file.seek(SeekFrom::Start(position))?;
+            file.read_exact(&mut block[..size])?;
+            let mut start = 0;
+            for i in (0..size).rev() {
+                if block[i] == b'\n' && !at_end {
+                    remaining -= 1;
+                    if remaining == 0 {
+                        start = i + 1;
+                        break;
+                    }
+                }
+                at_end = false;
+            }
+            chunks.push(block[start..size].to_vec());
         }
-        Ok(lines)
+        chunks.reverse();
+        let tail = String::from_utf8(chunks.concat())?;
+        Ok(tail.lines().map(str::to_owned).collect())
     }
 
     pub fn directory(&self) -> &Path {

@@ -166,3 +166,25 @@ async fn failed_upload_without_opt_in_has_no_retry_audio() {
         .to_string()
         .contains("No retained audio"));
 }
+
+#[test]
+fn concurrent_history_writers_preserve_every_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = store(&dir, RecordingRetention::Never, 100);
+    let start = std::sync::Barrier::new(8);
+    std::thread::scope(|scope| {
+        for worker in 0..8 {
+            let history = &history;
+            let start = &start;
+            scope.spawn(move || {
+                start.wait();
+                for i in 0..8 {
+                    history
+                        .record(entry(worker * 8 + i, "text", HistoryStatus::Inserted), None)
+                        .unwrap();
+                }
+            });
+        }
+    });
+    assert_eq!(history.list().unwrap().len(), 64);
+}

@@ -532,3 +532,20 @@ fn pause_shortcut_change_applies_without_restart() {
         openvoice_desktop::core::settings_service::ApplyStatus::Applied
     );
 }
+
+#[test]
+fn saving_an_open_draft_keeps_newer_endpoint_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let mut draft = Config::default();
+    let mut current = draft.clone();
+    current.diagnostics.last_http_status = Some(201);
+    current.save_to(&path).unwrap();
+    draft.history.limit = 35;
+    SettingsService::new(&path)
+        .save_with(SaveSettingsRequest { config: draft }, |_| Ok(()))
+        .unwrap();
+    let saved = Config::load_from(&path).unwrap().config;
+    assert_eq!(saved.history.limit, 35);
+    assert_eq!(saved.diagnostics.last_http_status, Some(201));
+}

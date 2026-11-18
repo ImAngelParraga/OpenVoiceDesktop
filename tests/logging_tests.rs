@@ -69,3 +69,21 @@ fn settings_document_returns_live_sanitized_log_tail() {
     assert_eq!(document.live_log_lines.len(), 1);
     assert!(document.live_log_lines[0].contains("ready"));
 }
+
+#[test]
+fn live_log_tail_handles_block_boundaries_unicode_and_trailing_newlines() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.log");
+    let logger = FileLogger::new(path.clone(), LogLevel::Trace, 100_000);
+    let long = "あ".repeat(4096);
+    for suffix in ["", "\n", "\r\n"] {
+        std::fs::write(&path, format!("first\r\n{long}\r\nlast{suffix}")).unwrap();
+        assert_eq!(logger.read_tail(0).unwrap(), Vec::<String>::new());
+        assert_eq!(logger.read_tail(1).unwrap(), ["last"]);
+        assert_eq!(logger.read_tail(2).unwrap(), [long.as_str(), "last"]);
+        assert_eq!(
+            logger.read_tail(4).unwrap(),
+            ["first", long.as_str(), "last"]
+        );
+    }
+}

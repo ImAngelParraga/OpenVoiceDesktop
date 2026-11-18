@@ -62,48 +62,38 @@ pub fn downmix_resample_to_i16(
 ) -> RecordedAudio {
     let source_channels = source_channels.max(1) as usize;
     let frames = input.len() / source_channels;
-    if frames == 0 {
-        return RecordedAudio::new(Vec::new(), DEFAULT_SAMPLE_RATE_HZ, DEFAULT_CHANNELS);
-    }
-
-    let mut mono = Vec::with_capacity(frames);
-    for frame in input.chunks_exact(source_channels) {
-        let sum: f32 = frame.iter().sum();
-        mono.push(sum / source_channels as f32);
-    }
-
-    if source_rate == DEFAULT_SAMPLE_RATE_HZ {
-        return RecordedAudio::new(
-            float_to_i16(&mono),
-            DEFAULT_SAMPLE_RATE_HZ,
-            DEFAULT_CHANNELS,
-        );
-    }
-
-    let ratio = source_rate as f64 / DEFAULT_SAMPLE_RATE_HZ as f64;
-    let output_len = ((mono.len() as f64) / ratio).ceil() as usize;
-    let mut output = Vec::with_capacity(output_len);
-    for i in 0..output_len {
-        let source_pos = i as f64 * ratio;
-        let left = source_pos.floor() as usize;
-        let right = (left + 1).min(mono.len() - 1);
-        let t = (source_pos - left as f64) as f32;
-        let sample = mono[left] * (1.0 - t) + mono[right] * t;
-        output.push(sample.clamp(-1.0, 1.0));
-    }
-
-    RecordedAudio::new(
-        float_to_i16(&output),
-        DEFAULT_SAMPLE_RATE_HZ,
-        DEFAULT_CHANNELS,
-    )
-}
-
-fn float_to_i16(samples: &[f32]) -> Vec<i16> {
-    samples
-        .iter()
-        .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-        .collect()
+    let encode = |sample: f32| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+    let mix = |frame: &[f32]| frame.iter().sum::<f32>() / source_channels as f32;
+    let samples = if source_rate == DEFAULT_SAMPLE_RATE_HZ {
+        input
+            .chunks_exact(source_channels)
+            .map(|frame| encode(mix(frame)))
+            .collect()
+    } else if frames == 0 || source_rate == 0 {
+        Vec::new()
+    } else {
+        let ratio = source_rate as f64 / DEFAULT_SAMPLE_RATE_HZ as f64;
+        let output_len = (frames as f64 / ratio).ceil() as usize;
+        let frame_at = |index: usize| {
+            let start = index * source_channels;
+            mix(&input[start..start + source_channels])
+        };
+        (0..output_len)
+            .map(|i| {
+                let position = i as f64 * ratio;
+                let left = (position as usize).min(frames - 1);
+                let fraction = (position - left as f64) as f32;
+                let sample = frame_at(left);
+                if fraction == 0.0 {
+                    encode(sample)
+                } else {
+                    let next = frame_at((left + 1).min(frames - 1));
+                    encode(sample * (1.0 - fraction) + next * fraction)
+                }
+            })
+            .collect()
+    };
+    RecordedAudio::new(samples, DEFAULT_SAMPLE_RATE_HZ, DEFAULT_CHANNELS)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -480,10 +470,15 @@ fn load_custom_sound(path: &std::path::Path, sample_rate: u32, volume: f32) -> R
         .with_context(|| format!("opening custom sound {}", path.display()))?;
     let spec = reader.spec();
     let channels = spec.channels.max(1) as usize;
+    anyhow::ensure!(
+        spec.sample_rate > 0 && sample_rate > 0,
+        "invalid sound sample rate"
+    );
+    let integer_scale = 2.0_f32.powi(i32::from(spec.bits_per_sample) - 1);
     let source = match spec.sample_format {
         hound::SampleFormat::Int => reader
             .samples::<i32>()
-            .map(|sample| sample.map(|sample| sample as f32 / i32::MAX as f32))
+            .map(|sample| sample.map(|sample| sample as f32 / integer_scale))
             .collect::<std::result::Result<Vec<_>, _>>()?,
         hound::SampleFormat::Float => reader
             .samples::<f32>()
@@ -611,5 +606,27 @@ pub fn vad_decision(samples: &[i16], config: &TextConfig) -> VadDecision {
     VadDecision::Trim {
         leading_samples: first_voice,
         trailing_samples: samples.len().saturating_sub(last_voice + 1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pcm_feedback_uses_the_recorded_bit_depth() {
+        for bits in [8, 16, 24, 32] {
+            let path = tempfile::NamedTempFile::new().unwrap();
+            let spec = hound::WavSpec {
+                bits_per_sample: bits,
+                channels: 1,
+                sample_rate: 16000,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut wav = hound::WavWriter::create(path.path(), spec).unwrap();
+            wav.write_sample(1_i32 << (bits - 2)).unwrap();
+            wav.finalize().unwrap();
+            assert_eq!(load_custom_sound(path.path(), 16000, 0.5).unwrap(), [0.25]);
+        }
     }
 }

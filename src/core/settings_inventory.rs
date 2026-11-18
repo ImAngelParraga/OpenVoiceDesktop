@@ -100,7 +100,13 @@ macro_rules! wr {
 pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     // I.settings.general
     w!("behavior.shortcut"),
+    #[cfg(not(target_os = "linux"))]
     w!("behavior.push_to_talk"),
+    #[cfg(target_os = "linux")]
+    u!(
+        "behavior.push_to_talk",
+        "GNOME shortcuts toggle recording on press and cannot detect release"
+    ),
     w!("behavior.cancel_shortcut"),
     w!("behavior.language_shortcut"),
     w!("behavior.pause_shortcut"),
@@ -176,8 +182,13 @@ pub static SETTINGS_INVENTORY: &[InventoryEntry] = &[
     wa!("retry-transcript"),
     wa!("save-transcript"),
     // I.settings.debug
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     w!("debug.debug_shortcut"),
+    #[cfg(target_os = "linux")]
+    u!(
+        "debug.debug_shortcut",
+        "GNOME does not register a debug shortcut"
+    ),
     #[cfg(target_os = "windows")]
     u!(
         "debug.debug_shortcut",

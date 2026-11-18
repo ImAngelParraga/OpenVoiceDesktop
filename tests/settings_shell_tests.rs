@@ -61,10 +61,13 @@ fn production_settings_path_contains_no_localhost_server_or_external_browser() {
 
 #[test]
 fn test_v26_save_keeps_settings_open_and_reports_result() {
-    assert!(SETTINGS_JS.contains("const activeSectionBeforeSave = activeSection"));
-    assert!(SETTINGS_JS.contains("await settingsWindow.show()"));
-    assert!(SETTINGS_JS.contains("await settingsWindow.setFocus()"));
-    assert!(SETTINGS_JS.contains("activeSection = activeSectionBeforeSave"));
+    assert!(!SETTINGS_JS.contains("settingsWindow.show()"));
+    assert!(!SETTINGS_JS.contains("settingsWindow.setFocus()"));
+    let save = SETTINGS_JS
+        .split("saveButton.addEventListener")
+        .nth(1)
+        .unwrap();
+    assert!(!save.contains("activeSection = "));
     assert!(SETTINGS_JS.contains("summarizeSave(result.fields, labels)"));
     assert!(!SETTINGS_JS.contains("settingsWindow.close()"));
     assert!(!SETTINGS_JS.contains("settingsWindow.hide()"));

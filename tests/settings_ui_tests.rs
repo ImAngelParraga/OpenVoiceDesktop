@@ -588,6 +588,9 @@ fn general_settings_exposes_t4_handy_controls_as_persisted_config() {
             ("always-on-microphone", Some("audio.always_on_microphone")),
             ("volume", Some("audio.audio_feedback_volume")),
             ("sound-theme", Some("audio.sound_theme")),
+            ("start-sound", Some("audio.custom_start_sound")),
+            ("stop-sound", Some("audio.custom_stop_sound")),
+            ("error-sound", Some("audio.custom_error_sound")),
             ("sample-rate", Some("audio.sample_rate_hz")),
             ("channels", Some("audio.channels")),
         ]

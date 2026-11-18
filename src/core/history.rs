@@ -63,6 +63,17 @@ impl HistoryStore {
         if !self.config.enabled {
             return Ok(());
         }
+        let _lock = self.lock_for_update()?;
+        let mut entries = self.list()?;
+        while entries
+            .iter()
+            .any(|old| old.timestamp_unix_ms == entry.timestamp_unix_ms)
+        {
+            entry.timestamp_unix_ms = entry
+                .timestamp_unix_ms
+                .checked_add(1)
+                .context("history timestamp overflow")?;
+        }
         if self.should_retain_audio(entry.status) {
             if let Some(source) = source_audio {
                 fs::create_dir_all(&self.recordings_dir)?;
@@ -74,14 +85,14 @@ impl HistoryStore {
                 entry.audio_path = Some(target);
             }
         }
-        let mut entries = self.list()?;
         entries.push(entry);
         entries.sort_by_key(|entry| entry.timestamp_unix_ms);
-        while entries.len() > self.config.limit {
-            let removed = entries.remove(0);
-            remove_audio(&removed);
+        let excess = entries.len().saturating_sub(self.config.limit);
+        self.write(&entries[excess..])?;
+        for removed in &entries[..excess] {
+            remove_audio(removed);
         }
-        self.write(&entries)
+        Ok(())
     }
 
     pub async fn retry_transcription<A: crate::core::asr::AsrClient>(
@@ -109,6 +120,7 @@ impl HistoryStore {
             crate::core::settings_ui::apply_text_presentation(transcription.text, config)
         };
         // Reload after the request so a deleted entry is never resurrected.
+        let _lock = self.lock_for_update()?;
         let mut entries = self.list()?;
         let recovered = entries
             .iter_mut()
@@ -127,6 +139,7 @@ impl HistoryStore {
     }
 
     pub fn delete(&self, timestamp_unix_ms: u64) -> Result<bool> {
+        let _lock = self.lock_for_update()?;
         let mut entries = self.list()?;
         let Some(index) = entries
             .iter()
@@ -134,12 +147,14 @@ impl HistoryStore {
         else {
             return Ok(false);
         };
-        remove_audio(&entries.remove(index));
+        let removed = entries.remove(index);
         self.write(&entries)?;
+        remove_audio(&removed);
         Ok(true)
     }
 
     pub fn mark_saved(&self, timestamp_unix_ms: u64, saved: bool) -> Result<bool> {
+        let _lock = self.lock_for_update()?;
         let mut entries = self.list()?;
         let Some(entry) = entries
             .iter_mut()
@@ -186,6 +201,21 @@ impl HistoryStore {
             RecordingRetention::FailedOnly => status != HistoryStatus::Inserted,
             RecordingRetention::Always => true,
         }
+    }
+
+    fn lock_for_update(&self) -> Result<fs::File> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        // The JSON file is atomically replaced, so writers lock a stable sibling.
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path.with_extension("lock"))?;
+        file.lock().context("locking transcript history")?;
+        Ok(file)
     }
 
     fn write(&self, entries: &[HistoryEntry]) -> Result<()> {

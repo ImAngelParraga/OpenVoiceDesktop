@@ -105,7 +105,14 @@ fn shortcut_runtime_rolls_back_previous_registration_on_conflict() {
         runtime.bindings().unwrap().bindings()[0].shortcut.as_str(),
         "Ctrl+Space"
     );
-    assert_eq!(runtime.into_registrar().registered.len(), 5);
+    let expected: HashSet<_> =
+        openvoice_desktop::core::shortcut::ShortcutBindings::from_config(&original)
+            .unwrap()
+            .bindings()
+            .iter()
+            .map(|binding| binding.shortcut.to_string())
+            .collect();
+    assert_eq!(runtime.into_registrar().registered, expected);
 }
 
 #[derive(Default, Debug)]

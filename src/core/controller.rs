@@ -565,7 +565,7 @@ async fn wait_for_cancel(flag: Arc<AtomicBool>) {
     }
 }
 
-fn persist_diagnostics(
+pub(crate) fn persist_diagnostics(
     path: &std::path::Path,
     diagnostics: &crate::core::config::DiagnosticsConfig,
 ) -> Result<()> {

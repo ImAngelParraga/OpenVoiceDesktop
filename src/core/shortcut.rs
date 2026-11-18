@@ -143,14 +143,14 @@ impl ShortcutBindings {
                 action: ShortcutAction::PauseResume,
             },
         ];
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let mut bindings = bindings;
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         bindings.push(ShortcutBinding {
             shortcut: ParsedShortcut::parse(debug_shortcut)?,
             action: ShortcutAction::Debug,
         });
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let _ = debug_shortcut;
         let mut seen = HashSet::new();
         for binding in &bindings {

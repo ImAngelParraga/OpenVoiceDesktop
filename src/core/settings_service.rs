@@ -200,12 +200,7 @@ impl SettingsService {
         let mut candidate = request.config;
         // Token editing belongs to the secret-store workflow. A redacted get/save
         // cycle must never erase existing secrets (§V8).
-        candidate.asr.bearer_token = previous.asr.bearer_token.clone();
-        candidate.asr.language = candidate
-            .asr
-            .language
-            .take()
-            .and_then(|language| (!language.trim().is_empty()).then_some(language));
+        prepare_candidate(&mut candidate, &previous);
         validate_config(&candidate)?;
         if candidate == previous {
             return Ok(SaveSettingsResult { fields: Vec::new() });
@@ -236,12 +231,7 @@ impl SettingsService {
     {
         let previous = Config::load_from(&self.path)?.config;
         let mut candidate = request.config;
-        candidate.asr.bearer_token = previous.asr.bearer_token.clone();
-        candidate.asr.language = candidate
-            .asr
-            .language
-            .take()
-            .and_then(|language| (!language.trim().is_empty()).then_some(language));
+        prepare_candidate(&mut candidate, &previous);
         validate_config(&candidate)?;
         if candidate == previous {
             return Ok(SaveSettingsResult { fields: Vec::new() });
@@ -264,6 +254,18 @@ impl SettingsService {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+fn prepare_candidate(candidate: &mut Config, previous: &Config) {
+    let metrics_enabled = candidate.diagnostics.store_last_latency_metrics;
+    candidate.diagnostics = previous.diagnostics.clone();
+    candidate.diagnostics.store_last_latency_metrics = metrics_enabled;
+    candidate.asr.bearer_token = previous.asr.bearer_token.clone();
+    candidate.asr.language = candidate
+        .asr
+        .language
+        .take()
+        .and_then(|language| (!language.trim().is_empty()).then_some(language));
 }
 
 fn settings_device_inventory() -> (Vec<InputDeviceInfo>, Vec<OutputDeviceInfo>) {
