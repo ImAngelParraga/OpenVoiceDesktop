@@ -41,9 +41,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, IsWindowVisible,
     KillTimer, LoadCursorW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage,
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_HAND,
-    IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
+    SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TrackPopupMenu,
+    TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW,
+    IDC_HAND, IDI_APPLICATION, MB_ICONERROR, MB_OK, MSG, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
     SW_SHOWNOACTIVATE, TPM_BOTTOMALIGN, TPM_LEFTALIGN, WM_APP, WM_COMMAND, WM_DESTROY, WM_HOTKEY,
     WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSW,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
@@ -1214,9 +1214,21 @@ unsafe extern "system" fn status_popup_wnd_proc(
                 .get_or_init(|| Mutex::new(StatusPopupMode::Text))
                 .lock()
                 .unwrap();
-            if mode == StatusPopupMode::RecordingBars {
+            let title = if mode == StatusPopupMode::RecordingBars {
                 SetTimer(hwnd, STATUS_POPUP_ANIMATION_TIMER_ID, 80, None);
-            }
+                if recording_paused() {
+                    "Paused".to_owned()
+                } else {
+                    "Recording".to_owned()
+                }
+            } else {
+                STATUS_POPUP_TEXT
+                    .get_or_init(Default::default)
+                    .lock()
+                    .unwrap()
+                    .clone()
+            };
+            SetWindowTextW(hwnd, wide(&title).as_ptr());
             let timeout_ms = STATUS_POPUP_TIMEOUT_MS
                 .get_or_init(|| Mutex::new(None))
                 .lock()
@@ -1388,16 +1400,16 @@ unsafe fn paint_status_popup(hwnd: HWND) {
     EndPaint(hwnd, &ps);
 }
 
+fn recording_paused() -> bool {
+    STATUS_SNAPSHOT
+        .get()
+        .is_some_and(|snapshot| snapshot.state() == crate::core::state::RecordingState::Paused)
+}
+
 unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, height: i32) {
-    let paused = STATUS_SNAPSHOT
-        .get()
-        .is_some_and(|snapshot| snapshot.state() == crate::core::state::RecordingState::Paused);
-    let levels = STATUS_SNAPSHOT
-        .get()
-        .map(|snapshot| snapshot.waveform())
-        .unwrap_or_default();
-    let bar_width = 6;
-    let gap = 3;
+    use crate::core::settings_ui::{waveform_bars, RecordingPopupLayout};
+    let paused = recording_paused();
+    let layout = RecordingPopupLayout::new(width);
     SetBkMode(hdc, TRANSPARENT as i32);
     SetTextColor(hdc, foreground);
     let language = RECORDING_LANGUAGE
@@ -1406,9 +1418,9 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         .unwrap()
         .clone();
     let mut language_rect = RECT {
-        left: 10,
+        left: layout.language_start,
         top: 0,
-        right: 52,
+        right: layout.pause_start,
         bottom: height,
     };
     DrawTextW(
@@ -1418,12 +1430,10 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         &mut language_rect,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
-    let total_width = levels.len() as i32 * bar_width + (levels.len() as i32 - 1) * gap;
-    let control_width = width * 24 / 180;
     let mut pause_rect = RECT {
-        left: width - control_width * 2,
+        left: layout.pause_start,
         top: 0,
-        right: width - control_width,
+        right: layout.cancel_start,
         bottom: height,
     };
     DrawTextW(
@@ -1434,7 +1444,7 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
     );
     let mut cancel_rect = RECT {
-        left: width - control_width,
+        left: layout.cancel_start,
         top: 0,
         right: width,
         bottom: height,
@@ -1448,9 +1458,9 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
     );
     if paused {
         let mut paused_rect = RECT {
-            left: 52,
+            left: 0,
             top: 0,
-            right: width - control_width * 2,
+            right: layout.language_start,
             bottom: height,
         };
         DrawTextW(
@@ -1462,19 +1472,25 @@ unsafe fn draw_recording_bars(hdc: isize, foreground: COLORREF, width: i32, heig
         );
         return;
     }
-    let mut x = 52 + (width - control_width * 2 - 52 - total_width) / 2;
+    let samples = STATUS_SNAPSHOT
+        .get()
+        .map(|s| s.waveform())
+        .unwrap_or_default();
+    let bars = waveform_bars(samples);
+    let inset = height / 4;
+    let stroke = (height / 17).max(1);
+    let span = layout.language_start - 2 * inset + stroke;
     let brush = CreateSolidBrush(foreground);
-    for level in levels {
-        let bar_height = 3 + (i32::from(level) * 17 + 50) / 100;
+    for (i, level) in bars.iter().enumerate() {
+        let bar_height = stroke + i32::from(*level) * height / 200;
         let y = (height - bar_height) / 2;
         let rect = RECT {
-            left: x,
+            left: inset + span * i as i32 / bars.len() as i32,
             top: y,
-            right: x + bar_width,
+            right: inset + span * (i as i32 + 1) / bars.len() as i32 - stroke,
             bottom: y + bar_height,
         };
         FillRect(hdc, &rect, brush);
-        x += bar_width + gap;
     }
     DeleteObject(brush);
 }

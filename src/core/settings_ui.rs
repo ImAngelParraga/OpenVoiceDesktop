@@ -117,7 +117,7 @@ pub struct OverlayView {
     pub language_label: String,
     pub level_bucket: Option<u8>,
     #[serde(default)]
-    pub waveform: [u8; 4],
+    pub waveform: [u8; 10],
     pub message: &'static str,
 }
 
@@ -920,12 +920,12 @@ impl OverlayView {
                 style: config.app.overlay_style,
                 theme: config.ui.theme,
                 show_waveform: true,
-                show_timer: true,
+                show_timer: false,
                 show_cancel: true,
                 show_language_control: true,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
-                waveform: [0; 4],
+                waveform: [0; 10],
                 message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::MicLevel { bucket } => Self {
@@ -935,12 +935,12 @@ impl OverlayView {
                 style: config.app.overlay_style,
                 theme: config.ui.theme,
                 show_waveform: true,
-                show_timer: true,
+                show_timer: false,
                 show_cancel: true,
                 show_language_control: true,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: Some((*bucket).min(10)),
-                waveform: [(*bucket).min(10) * 10; 4],
+                waveform: [(*bucket).min(10) * 10; 10],
                 message: localized_overlay_message(config, "Recording"),
             },
             AppShellEvent::Processing { stage } => {
@@ -961,7 +961,7 @@ impl OverlayView {
                     show_language_control: false,
                     language_label: language_label(config.asr.language.as_deref()),
                     level_bucket: None,
-                    waveform: [0; 4],
+                    waveform: [0; 10],
                     message: localized_overlay_message(config, message),
                 }
             }
@@ -977,7 +977,7 @@ impl OverlayView {
                 show_language_control: false,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
-                waveform: [0; 4],
+                waveform: [0; 10],
                 message: localized_overlay_message(config, "Error"),
             },
             AppShellEvent::Inserted
@@ -996,7 +996,7 @@ impl OverlayView {
                 show_language_control: false,
                 language_label: language_label(config.asr.language.as_deref()),
                 level_bucket: None,
-                waveform: [0; 4],
+                waveform: [0; 10],
                 message: localized_overlay_message(config, "Busy"),
             },
         }
@@ -1015,7 +1015,7 @@ impl OverlayView {
             show_language_control: false,
             language_label: language_label(config.asr.language.as_deref()),
             level_bucket: None,
-            waveform: [0; 4],
+            waveform: [0; 10],
             message: "",
         }
     }
@@ -1409,16 +1409,45 @@ pub enum RecordingPopupAction {
     None,
 }
 
+/// Interpolate the three intervals between four measured microphone levels.
+pub fn waveform_bars(samples: [u8; 4]) -> [u8; 10] {
+    std::array::from_fn(|bar| {
+        let interval = (bar / 3).min(2);
+        let offset = (bar - interval * 3) as u16;
+        let left = u16::from(samples[interval]);
+        let right = u16::from(samples[interval + 1]);
+        ((left * (3 - offset) + right * offset + 1) / 3) as u8
+    })
+}
+
+pub struct RecordingPopupLayout {
+    pub language_start: i32,
+    pub pause_start: i32,
+    pub cancel_start: i32,
+}
+
+impl RecordingPopupLayout {
+    pub fn new(width: i32) -> Self {
+        let control_width = width * 24 / 180;
+        let pause_start = width - control_width * 2;
+        Self {
+            language_start: pause_start - width * 44 / 180,
+            pause_start,
+            cancel_start: width - control_width,
+        }
+    }
+}
+
 pub fn recording_popup_action(x: i32, width: i32) -> RecordingPopupAction {
     if width <= 0 || x < 0 || x >= width {
         return RecordingPopupAction::None;
     }
-    let control_width = width * 24 / 180;
-    if x >= width - control_width {
+    let layout = RecordingPopupLayout::new(width);
+    if x >= layout.cancel_start {
         RecordingPopupAction::Cancel
-    } else if x >= width - control_width * 2 {
+    } else if x >= layout.pause_start {
         RecordingPopupAction::PauseResume
-    } else if x < width * 52 / 180 {
+    } else if x >= layout.language_start {
         RecordingPopupAction::Language
     } else {
         RecordingPopupAction::None

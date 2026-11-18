@@ -313,7 +313,7 @@ fn overlay_models_recording_and_processing_states_without_success_message() {
     assert!(recording.visible);
     assert_eq!(recording.mode, OverlayMode::Recording);
     assert!(recording.show_waveform);
-    assert!(recording.show_timer);
+    assert!(!recording.show_timer);
     assert!(recording.show_cancel);
 
     let uploading = OverlayView::from_event(
@@ -661,11 +661,21 @@ fn native_recording_controls_have_distinct_scaled_hit_regions() {
     use openvoice_desktop::core::settings_ui::{recording_popup_action, RecordingPopupAction::*};
     for scale in [1, 2, 3] {
         let width = 180 * scale;
-        assert_eq!(recording_popup_action(20 * scale, width), Language);
-        assert_eq!(recording_popup_action(90 * scale, width), None);
+        assert_eq!(recording_popup_action(20 * scale, width), None);
+        assert_eq!(recording_popup_action(110 * scale, width), Language);
         assert_eq!(recording_popup_action(140 * scale, width), PauseResume);
         assert_eq!(recording_popup_action(170 * scale, width), Cancel);
         assert_eq!(recording_popup_action(-1, width), None);
         assert_eq!(recording_popup_action(width, width), None);
     }
+}
+
+#[test]
+fn waveform_preserves_measured_levels_and_stays_flat_in_silence() {
+    use openvoice_desktop::core::settings_ui::waveform_bars;
+    assert_eq!(
+        waveform_bars([0, 90, 30, 0]),
+        [0, 30, 60, 90, 70, 50, 30, 20, 10, 0]
+    );
+    assert_eq!(waveform_bars([0; 4]), [0; 10]);
 }

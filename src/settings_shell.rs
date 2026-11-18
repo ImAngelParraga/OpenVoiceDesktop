@@ -788,7 +788,7 @@ async fn overlay_view_from_daemon(
                 )
                 .with_language(status.language.as_deref());
                 if let Some(levels) = status.waveform {
-                    view.waveform = levels;
+                    view.waveform = crate::core::settings_ui::waveform_bars(levels);
                 }
                 view
             }

@@ -985,12 +985,19 @@ pub async fn run(config: Config) -> Result<()> {
         }
     });
 
+    let tray_snapshot = std::sync::Arc::clone(&snapshot);
     let tray_controller_tx = controller_tx.clone();
     tokio::spawn(async move {
         while let Some(command) = tray_rx.recv().await {
             match handle_tray_command(command).await {
                 Ok(true) => {
-                    show_status_popup("processing", None).ok();
+                    if matches!(
+                        tray_snapshot.state(),
+                        crate::core::state::RecordingState::Recording
+                            | crate::core::state::RecordingState::Paused
+                    ) {
+                        show_status_popup("Transcribing", None).ok();
+                    }
                     let controller_command = if matches!(command, TrayCommand::PushToTalkReleased) {
                         ControllerCommand::StopIfRecording
                     } else {
