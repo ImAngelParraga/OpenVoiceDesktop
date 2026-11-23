@@ -729,7 +729,7 @@ pub async fn run(config: Config) -> Result<()> {
     use crate::platform::windows::{
         handle_tray_command, hide_status_popup, run_tray_loop_with_config, set_recording_language,
         set_tray_state, show_recording_popup, show_status_popup, TrayCommand,
-        WindowsPlatformAdapter,
+        WindowsPlatformAdapter, WindowsStatusEvents,
     };
 
     let (controller_tx, controller_rx) = std_mpsc::channel::<ControllerRequest>();
@@ -762,7 +762,7 @@ pub async fn run(config: Config) -> Result<()> {
                 asr,
                 platform,
                 controller_config,
-                std::sync::Arc::clone(&controller_snapshot),
+                WindowsStatusEvents(std::sync::Arc::clone(&controller_snapshot)),
             )
             .with_cancel_flag(std::sync::Arc::clone(&controller_cancel_flag));
             if let Some(history) = history {
@@ -836,7 +836,7 @@ pub async fn run(config: Config) -> Result<()> {
                             asr,
                             WindowsPlatformAdapter,
                             updated,
-                            std::sync::Arc::clone(&controller_snapshot),
+                            WindowsStatusEvents(std::sync::Arc::clone(&controller_snapshot)),
                         )
                         .with_cancel_flag(std::sync::Arc::clone(&controller_cancel_flag));
                         if let Some(history) = history {

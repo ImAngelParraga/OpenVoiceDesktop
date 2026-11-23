@@ -14,7 +14,7 @@ Silent install of an already-downloaded setup file:
 .\OpenVoiceDesktop_<version>_x64-setup.exe /S
 ```
 
-Running a newer setup upgrades the installed app. Config, history, logs, and Windows Credential Manager token remain unchanged. Release assets include a `.sha256` checksum.
+Running a newer setup upgrades the installed app and reapplies the saved Autostart setting for the current user. If an earlier update removed the sign-in entry, installing this version restores it when Autostart is enabled. Config, history, logs, and Windows Credential Manager token remain unchanged. Release assets include a `.sha256` checksum.
 
 V1 binaries are unsigned. Windows SmartScreen may show a warning until the project has a code-signing certificate.
 

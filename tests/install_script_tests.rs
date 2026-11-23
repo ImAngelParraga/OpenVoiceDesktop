@@ -98,6 +98,14 @@ fn native_windows_installer_contract() {
     assert!(!INSTALLER_HOOKS.contains("openvoice-desktop\\config.toml"));
     assert!(INSTALLER_HOOKS.contains("!insertmacro RemoveLegacyWindowsAutostart"));
     assert!(INSTALLER_HOOKS.contains("DeleteRegValue HKCU"));
+    let postinstall = INSTALLER_HOOKS
+        .split("!macro NSIS_HOOK_POSTINSTALL")
+        .nth(1)
+        .unwrap()
+        .split("!macroend")
+        .next()
+        .unwrap();
+    assert!(postinstall.contains(r#""$INSTDIR\openvoice-desktop.exe" sync-autostart"#));
     assert!(
         INSTALLER_HOOKS.find("/TIMEOUT=3000").unwrap()
             < INSTALLER_HOOKS.find("taskkill.exe").unwrap(),

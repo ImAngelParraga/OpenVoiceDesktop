@@ -32,7 +32,7 @@ fn tauri_shell_registers_single_instance_first_and_focuses_settings() {
     let plugin = SHELL_RS
         .find(".plugin(tauri_plugin_single_instance")
         .unwrap();
-    let run = SHELL_RS.find(".run(tauri::generate_context!())").unwrap();
+    let run = SHELL_RS.find(".run(context)").unwrap();
     assert!(plugin < run);
     assert!(SHELL_RS.contains("get_webview_window(SETTINGS_WINDOW_LABEL)"));
     assert!(SHELL_RS.contains("window.set_focus()"));

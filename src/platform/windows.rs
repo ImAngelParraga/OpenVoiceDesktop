@@ -68,6 +68,7 @@ const WM_STATUS_RECONFIGURE: u32 = WM_APP + 4;
 const STATUS_POPUP_HIDE_TIMER_ID: usize = 1;
 const STATUS_POPUP_ANIMATION_TIMER_ID: usize = 2;
 const HOTKEY_TIMER_ID: usize = 3;
+const WM_SYNC_CANCEL_HOTKEY: u32 = WM_APP + 6;
 const WM_RELOAD_HOTKEYS: u32 = WM_APP + 5;
 const STATUS_POPUP_WIDTH: i32 = 180;
 const STATUS_POPUP_HEIGHT: i32 = 34;
@@ -720,6 +721,21 @@ mod com_ownership_tests {
     }
 }
 
+pub(crate) struct WindowsStatusEvents(pub Arc<crate::core::status::StatusSnapshot>);
+
+impl crate::core::events::AppEventSink for WindowsStatusEvents {
+    fn emit(&self, event: crate::core::events::AppShellEvent) {
+        let idle = crate::core::state::RecordingState::Idle;
+        let was_idle = self.0.state() == idle;
+        self.0.emit(event);
+        if was_idle != (self.0.state() == idle) {
+            if let Some(hwnd) = TRAY_HWND.get() {
+                unsafe { PostMessageW(*hwnd, WM_SYNC_CANCEL_HOTKEY, 0, 0) };
+            }
+        }
+    }
+}
+
 pub fn run_tray_loop(tx: mpsc::UnboundedSender<TrayCommand>) -> Result<()> {
     run_tray_loop_with_config(
         tx,
@@ -800,11 +816,6 @@ pub fn run_tray_loop_with_config(
                 push_active: false,
             }))
             .map_err(|_| anyhow!("Windows shortcuts were already initialized"))?;
-        if SetTimer(hwnd, HOTKEY_TIMER_ID, 40, None) == 0 {
-            unregister_hotkey_set(hwnd);
-            return Err(anyhow!("starting Windows shortcut lifecycle timer failed"));
-        }
-
         if config.app.show_tray_icon {
             add_tray_icon(hwnd)?;
             TRAY_ICON_VISIBLE.store(true, Ordering::Relaxed);
@@ -967,7 +978,17 @@ unsafe extern "system" fn wnd_proc(
                     if let Some(hotkeys) = HOTKEYS.get() {
                         let mut active = hotkeys.lock().unwrap();
                         if !active.bindings.push_to_talk || !active.push_active {
-                            active.push_active = active.bindings.push_to_talk;
+                            if active.bindings.push_to_talk {
+                                if SetTimer(hwnd, HOTKEY_TIMER_ID, 40, None) == 0 {
+                                    drop(active);
+                                    let _ = message_box(
+                                        "OpenVoiceDesktop",
+                                        "Could not monitor push-to-talk key release.",
+                                    );
+                                    return 0;
+                                }
+                                active.push_active = true;
+                            }
                             send_command(TrayCommand::Toggle);
                         }
                     }
@@ -987,8 +1008,21 @@ unsafe extern "system" fn wnd_proc(
             }
             0
         }
+        WM_SYNC_CANCEL_HOTKEY => {
+            sync_cancel_hotkey(hwnd);
+            0
+        }
         WM_TIMER if wparam == HOTKEY_TIMER_ID => {
-            sync_hotkey_lifecycle(hwnd);
+            if let Some(hotkeys) = HOTKEYS.get() {
+                let mut active = hotkeys.lock().unwrap();
+                if active.push_active && !active.bindings.toggle.held() {
+                    active.push_active = false;
+                    send_command(TrayCommand::PushToTalkReleased);
+                }
+                if !active.push_active {
+                    KillTimer(hwnd, HOTKEY_TIMER_ID);
+                }
+            }
             0
         }
         WM_COMMAND => {
@@ -1030,7 +1064,7 @@ fn send_command(command: TrayCommand) {
     }
 }
 
-unsafe fn sync_hotkey_lifecycle(hwnd: HWND) {
+unsafe fn sync_cancel_hotkey(hwnd: HWND) {
     let Some(snapshot) = STATUS_SNAPSHOT.get() else {
         return;
     };
@@ -1044,6 +1078,7 @@ unsafe fn sync_hotkey_lifecycle(hwnd: HWND) {
             Ok(()) => active.cancel_registered = true,
             Err(error) => {
                 active.cancel_failure_reported = true;
+                drop(active);
                 let _ = message_box(
                     "OpenVoiceDesktop cancel shortcut unavailable",
                     &error.to_string(),
@@ -1056,10 +1091,6 @@ unsafe fn sync_hotkey_lifecycle(hwnd: HWND) {
             active.cancel_registered = false;
         }
         active.cancel_failure_reported = false;
-    }
-    if active.push_active && !active.bindings.toggle.held() {
-        active.push_active = false;
-        send_command(TrayCommand::PushToTalkReleased);
     }
 }
 

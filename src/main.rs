@@ -52,6 +52,10 @@ enum Command {
     ConfigPath,
     /// Open or focus the native settings window.
     Settings,
+    /// Restore the saved sign-in preference after the installer replaces the executable.
+    #[cfg(windows)]
+    #[command(hide = true)]
+    SyncAutostart,
     /// Gracefully stop the resident daemon.
     Shutdown,
     /// Enumerate devices in an isolated process for Settings refresh.
@@ -71,7 +75,12 @@ fn main() -> Result<()> {
     if matches!(command, Some(Command::Settings)) {
         return settings_shell::run(cli.start_hidden);
     }
-    tokio::runtime::Builder::new_multi_thread()
+    let mut runtime = if matches!(command, Some(Command::Daemon)) {
+        tokio::runtime::Builder::new_multi_thread()
+    } else {
+        tokio::runtime::Builder::new_current_thread()
+    };
+    runtime
         .enable_all()
         .build()?
         .block_on(run_command(cli, command))
@@ -92,6 +101,8 @@ fn resolve_command(cli: &Cli) -> Result<Option<Command>> {
         Some(Command::CycleLanguage) => Ok(Some(Command::CycleLanguage)),
         Some(Command::ConfigPath) => Ok(Some(Command::ConfigPath)),
         Some(Command::Settings) => Ok(Some(Command::Settings)),
+        #[cfg(windows)]
+        Some(Command::SyncAutostart) => Ok(Some(Command::SyncAutostart)),
         Some(Command::Shutdown) => Ok(Some(Command::Shutdown)),
         Some(Command::DeviceInventory) => Ok(Some(Command::DeviceInventory)),
         None => {
@@ -181,6 +192,11 @@ async fn run_command(cli: Cli, command: Option<Command>) -> Result<()> {
             Ok(())
         }
         Command::Settings => settings_shell::run(cli.start_hidden),
+        #[cfg(windows)]
+        Command::SyncAutostart => {
+            let enabled = Config::load_default()?.config.app.autostart;
+            openvoice_desktop::core::lifecycle::apply_autostart(enabled)
+        }
         Command::Shutdown => {
             let loaded = Config::load_default()?;
             let response = ipc::send_shutdown(&loaded.config.socket_path()?).await?;

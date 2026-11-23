@@ -130,7 +130,9 @@ fn prefer_x11_backend_for_overlay() {
 
 #[cfg(feature = "desktop-shell")]
 pub fn run(start_hidden: bool) -> Result<()> {
-    use tauri::{Emitter, Manager};
+    #[cfg(not(windows))]
+    use tauri::Emitter;
+    use tauri::Manager;
 
     #[cfg(target_os = "linux")]
     {
@@ -138,6 +140,17 @@ pub fn run(start_hidden: bool) -> Result<()> {
         prefer_x11_backend_for_overlay();
     }
 
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    let context = {
+        let mut context = context;
+        context
+            .config_mut()
+            .app
+            .windows
+            .retain(|window| window.label != "overlay");
+        context
+    };
     tauri::Builder::default()
         // Must be first: `H:src-tauri/src/lib.rs` lifecycle adapted to Tauri's
         // desktop single-instance plugin ordering requirement.
@@ -159,7 +172,9 @@ pub fn run(start_hidden: bool) -> Result<()> {
                     let _ = window.hide();
                 }
             }
+            #[cfg(not(windows))]
             let handle = app.handle().clone();
+            #[cfg(not(windows))]
             tauri::async_runtime::spawn(async move {
                 // Re-reading the config from disk and re-applying size, position
                 // and visibility on every tick made the overlay stutter and kept
@@ -229,7 +244,7 @@ pub fn run(start_hidden: bool) -> Result<()> {
             complete_onboarding,
             repair_permissions
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .map_err(Into::into)
 }
 
@@ -730,76 +745,59 @@ fn open_directory(_path: &std::path::Path) -> anyhow::Result<()> {
 
 /// How often the overlay asks the daemon what it is doing. The daemon answers
 /// status without touching the controller, so this stays honest even mid-paste.
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 const OVERLAY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
 
 /// Ticks between unconditional re-sends of an unchanged view.
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 const OVERLAY_RESEND_TICKS: u32 = 25;
 
 /// Config ticks between disk reads: overlay position, style and theme change
 /// when the user saves Settings, not several times a second.
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 const OVERLAY_CONFIG_TICKS: u32 = 12;
 
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 fn load_overlay_config() -> crate::core::config::Config {
     crate::core::config::Config::load_default()
         .map(|loaded| loaded.config)
         .unwrap_or_default()
 }
 
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 async fn overlay_view_from_daemon(
     config: &crate::core::config::Config,
 ) -> crate::core::settings_ui::OverlayView {
     use crate::core::settings_ui::OverlayView;
-    #[cfg(target_os = "windows")]
-    {
-        let mut hidden = config.clone();
-        hidden.app.show_overlay = false;
-        return OverlayView::from_recording_state(
-            &hidden,
-            crate::core::state::RecordingState::Idle,
-            None,
-        );
+    let idle = || {
+        OverlayView::from_recording_state(config, crate::core::state::RecordingState::Idle, None)
+    };
+    if !config.app.show_overlay {
+        return idle();
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let idle = || {
-            OverlayView::from_recording_state(
+    let Ok(socket_path) = config.socket_path() else {
+        return idle();
+    };
+    match crate::ipc::send_status(&socket_path).await {
+        Ok(status) => {
+            let mut view = OverlayView::from_recording_state(
                 config,
-                crate::core::state::RecordingState::Idle,
-                None,
+                status.state,
+                Some(status.mic_level_bucket),
             )
-        };
-        if !config.app.show_overlay {
-            return idle();
-        }
-        let Ok(socket_path) = config.socket_path() else {
-            return idle();
-        };
-        match crate::ipc::send_status(&socket_path).await {
-            Ok(status) => {
-                let mut view = OverlayView::from_recording_state(
-                    config,
-                    status.state,
-                    Some(status.mic_level_bucket),
-                )
-                .with_language(status.language.as_deref());
-                if let Some(levels) = status.waveform {
-                    view.waveform = crate::core::settings_ui::waveform_bars(levels);
-                }
-                view
+            .with_language(status.language.as_deref());
+            if let Some(levels) = status.waveform {
+                view.waveform = crate::core::settings_ui::waveform_bars(levels);
             }
-            Err(_) => idle(),
+            view
         }
+        Err(_) => idle(),
     }
 }
 
 /// What the overlay window was last told. Re-issuing an unchanged size or
 /// position is what made the window jump around while it was open.
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct AppliedOverlayWindow {
     visible: bool,
@@ -807,7 +805,7 @@ struct AppliedOverlayWindow {
     position: (i32, i32),
 }
 
-#[cfg(feature = "desktop-shell")]
+#[cfg(all(feature = "desktop-shell", not(windows)))]
 fn apply_overlay_window(
     window: &tauri::WebviewWindow,
     view: &crate::core::settings_ui::OverlayView,

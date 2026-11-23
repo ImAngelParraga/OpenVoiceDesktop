@@ -28,6 +28,16 @@
   !insertmacro RemoveLegacyWindowsAutostart
 !macroend
 
+!macro NSIS_HOOK_POSTINSTALL
+  ClearErrors
+  ExecWait '"$INSTDIR\openvoice-desktop.exe" sync-autostart' $0
+  ${If} ${Errors}
+  ${OrIf} $0 != 0
+    SetErrorLevel 1
+    Abort "Could not apply the saved OpenVoiceDesktop sign-in preference."
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro StopOpenVoiceDesktop
   !insertmacro RemoveWindowsAutostart
